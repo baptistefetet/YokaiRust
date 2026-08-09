@@ -28,7 +28,7 @@ pub use neural::{
         CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend, NetworkEvaluator,
     },
     model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
-    service::{InferenceClient, InferenceService, InferenceServiceError},
+    service::{InferenceClient, InferenceService, InferenceServiceError, InferenceStats},
 };
 pub use policy::{POLICY_ACTIONS, PolicyIndex};
 pub use replay::{REPLAY_FORMAT_VERSION, Replay, ReplayError};

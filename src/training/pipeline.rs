@@ -12,10 +12,10 @@ use thiserror::Error;
 
 use crate::{
     AlphaZeroNetworkConfig, ArenaError, ArenaResult, EpochReport, InferenceService,
-    InferenceServiceError, ModelMetadata, ModelStoreError, NetworkEvaluator, Outcome, Player,
-    ReplayBuffer, ReplayBufferConfig, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingReport,
-    generate_self_play_with_progress, load_champion, next_generation, publish_champion,
-    run_arena_with_progress, save_generation, train_candidate_with_progress,
+    InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError, NetworkEvaluator,
+    Outcome, Player, ReplayBuffer, ReplayBufferConfig, SelfPlayError, SelfPlayGame, TrainingConfig,
+    TrainingReport, generate_self_play_with_progress, load_champion, next_generation,
+    publish_champion, run_arena_with_progress, save_generation, train_candidate_with_progress,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -55,6 +55,7 @@ pub enum TrainingProgress {
         games: usize,
         workers: usize,
         simulations: u32,
+        search_batch_size: usize,
     },
     SelfPlayAdvanced {
         completed: usize,
@@ -64,6 +65,7 @@ pub enum TrainingProgress {
         games: usize,
         examples: usize,
         outcomes: GameOutcomeStats,
+        inference: InferenceStats,
     },
     DatasetReady {
         buffer_games: usize,
@@ -83,13 +85,19 @@ pub enum TrainingProgress {
     },
     ArenaStarted {
         games: usize,
+        workers: usize,
         simulations: u32,
+        search_batch_size: usize,
     },
     ArenaAdvanced {
         completed: usize,
         total: usize,
     },
-    ArenaFinished(ArenaResult),
+    ArenaFinished {
+        result: ArenaResult,
+        candidate_inference: InferenceStats,
+        champion_inference: InferenceStats,
+    },
     ChampionPromoted {
         generation: u32,
     },
@@ -174,10 +182,16 @@ where
         games: config.self_play.games_per_generation,
         workers: config.self_play.workers,
         simulations: config.self_play.simulations,
+        search_batch_size: config.self_play.search_batch_size,
     });
     let (champion_for_self_play, _) = load_champion::<B::InnerBackend>(models_root, device)?;
-    let self_play_service = InferenceService::start(
+    let self_play_service = InferenceService::start_with_batching(
         NetworkEvaluator::new(champion_for_self_play, device.clone()),
+        config
+            .self_play
+            .workers
+            .saturating_mul(config.self_play.search_batch_size)
+            .min(config.self_play.inference_batch_size),
         config.self_play.inference_batch_size,
         Duration::from_millis(config.self_play.inference_wait_ms),
     )?;
@@ -195,6 +209,7 @@ where
             }
         },
     )?;
+    let self_play_inference = self_play_service.stats();
     drop(self_play_service);
     let self_play_outcomes = outcome_stats(&games);
     let generated_examples = games.iter().map(|game| game.examples.len()).sum();
@@ -202,6 +217,7 @@ where
         games: games.len(),
         examples: generated_examples,
         outcomes: self_play_outcomes,
+        inference: self_play_inference,
     });
     save_self_play_generation(&config.paths.self_play, candidate_generation, &games)?;
     for game in &games {
@@ -252,16 +268,26 @@ where
 
     progress(TrainingProgress::ArenaStarted {
         games: config.arena.games,
+        workers: config.arena.workers,
         simulations: config.arena.simulations,
+        search_batch_size: config.arena.search_batch_size,
     });
     let (champion_for_arena, _) = load_champion::<B::InnerBackend>(models_root, device)?;
-    let candidate_service = InferenceService::start(
+    let arena_minimum_batch = config
+        .arena
+        .workers
+        .div_ceil(2)
+        .saturating_mul(config.arena.search_batch_size)
+        .min(config.self_play.inference_batch_size);
+    let candidate_service = InferenceService::start_with_batching(
         NetworkEvaluator::new(candidate, device.clone()),
+        arena_minimum_batch,
         config.self_play.inference_batch_size,
         Duration::from_millis(config.self_play.inference_wait_ms),
     )?;
-    let champion_service = InferenceService::start(
+    let champion_service = InferenceService::start_with_batching(
         NetworkEvaluator::new(champion_for_arena, device.clone()),
+        arena_minimum_batch,
         config.self_play.inference_batch_size,
         Duration::from_millis(config.self_play.inference_wait_ms),
     )?;
@@ -271,7 +297,7 @@ where
         &candidate_client,
         &champion_client,
         &config.arena,
-        config.self_play.workers,
+        config.arena.workers,
         config.self_play.max_game_plies,
         config
             .seed
@@ -282,9 +308,15 @@ where
             }
         },
     )?;
+    let candidate_inference = candidate_service.stats();
+    let champion_inference = champion_service.stats();
     drop(candidate_service);
     drop(champion_service);
-    progress(TrainingProgress::ArenaFinished(arena));
+    progress(TrainingProgress::ArenaFinished {
+        result: arena,
+        candidate_inference,
+        champion_inference,
+    });
     if arena.promoted {
         publish_champion(models_root, candidate_generation)?;
         progress(TrainingProgress::ChampionPromoted {

@@ -96,6 +96,7 @@ where
                     (*champion).clone(),
                     candidate_player,
                     config.simulations,
+                    config.search_batch_size,
                     max_game_plies,
                     paired_seed,
                 )?;
@@ -131,6 +132,7 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
     champion: H,
     candidate_player: Player,
     simulations: u32,
+    search_batch_size: usize,
     max_game_plies: usize,
     seed: u64,
 ) -> Result<ArenaGameOutcome, ArenaError> {
@@ -138,6 +140,7 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
     let mut game = Game::new_random(&mut starting_rng);
     let search_config = SearchConfig {
         simulations,
+        evaluation_batch_size: search_batch_size,
         ..SearchConfig::default()
     };
     let mut candidate_search = Mcts::new(candidate, search_config, seed.wrapping_mul(2))?;

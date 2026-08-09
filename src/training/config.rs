@@ -19,6 +19,7 @@ pub struct SelfPlayConfig {
     pub games_per_generation: usize,
     pub workers: usize,
     pub simulations: u32,
+    pub search_batch_size: usize,
     pub max_game_plies: usize,
     pub inference_batch_size: usize,
     pub inference_wait_ms: u64,
@@ -41,7 +42,9 @@ pub struct OptimizationConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArenaConfig {
     pub games: usize,
+    pub workers: usize,
     pub simulations: u32,
+    pub search_batch_size: usize,
     pub promotion_score: f32,
 }
 
@@ -72,9 +75,10 @@ impl Default for TrainingConfig {
                 games_per_generation: 256,
                 workers: 16,
                 simulations: 400,
+                search_batch_size: 8,
                 max_game_plies: 512,
                 inference_batch_size: 128,
-                inference_wait_ms: 2,
+                inference_wait_ms: 1,
                 exploration_plies: 12,
                 exploration_temperature: 1.0,
                 final_temperature: 0.0,
@@ -90,7 +94,9 @@ impl Default for TrainingConfig {
             },
             arena: ArenaConfig {
                 games: 200,
+                workers: 128,
                 simulations: 400,
+                search_batch_size: 1,
                 promotion_score: 0.55,
             },
             paths: PathsConfig {
@@ -130,6 +136,7 @@ impl TrainingConfig {
         if self.self_play.games_per_generation == 0
             || self.self_play.workers == 0
             || self.self_play.simulations == 0
+            || self.self_play.search_batch_size == 0
             || self.self_play.max_game_plies == 0
             || self.self_play.inference_batch_size == 0
         {
@@ -174,7 +181,9 @@ impl TrainingConfig {
             ));
         }
         if self.arena.games < 200
+            || self.arena.workers == 0
             || self.arena.simulations == 0
+            || self.arena.search_batch_size == 0
             || !self.arena.promotion_score.is_finite()
             || !(0.5..=1.0).contains(&self.arena.promotion_score)
         {

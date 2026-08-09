@@ -16,8 +16,8 @@ pub type MetalBackend = Metal<f32, i32>;
 pub type CpuTrainingBackend = Autodiff<CpuBackend>;
 pub type MetalTrainingBackend = Autodiff<MetalBackend>;
 
-/// Synchronous batch evaluator. GPU synchronization happens only once for the
-/// policy tensor and once for the value tensor, regardless of batch size.
+/// Synchronous batch evaluator. Policy and value are concatenated before the
+/// device readback so each batch requires a single GPU synchronization.
 pub struct NetworkEvaluator<B: Backend> {
     model: AlphaZeroNetwork<B>,
     device: B::Device,
@@ -61,31 +61,27 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
         let output = self
             .model
             .forward(encoded_batch_tensor(&encoded, &self.device));
-        let policies = softmax(output.policy_logits, 1)
-            .into_data()
-            .to_vec::<f32>()
-            .map_err(|error| EvaluationError::Backend(error.to_string()))?;
-        let values = output
-            .value
-            .into_data()
-            .to_vec::<f32>()
-            .map_err(|error| EvaluationError::Backend(error.to_string()))?;
+        let output_width = POLICY_ACTIONS + 1;
+        let predictions =
+            burn::tensor::Tensor::cat(vec![softmax(output.policy_logits, 1), output.value], 1)
+                .into_data()
+                .to_vec::<f32>()
+                .map_err(|error| EvaluationError::Backend(error.to_string()))?;
 
-        if policies.len() != requests.len() * POLICY_ACTIONS || values.len() != requests.len() {
+        if predictions.len() != requests.len() * output_width {
             return Err(EvaluationError::BatchSizeMismatch {
                 expected: requests.len(),
-                actual: values.len(),
+                actual: predictions.len() / output_width,
             });
         }
 
-        policies
-            .chunks_exact(POLICY_ACTIONS)
-            .zip(values)
-            .map(|(policy, value)| {
-                let policy = policy.try_into().map_err(|_| {
+        predictions
+            .chunks_exact(output_width)
+            .map(|prediction| {
+                let policy = prediction[..POLICY_ACTIONS].try_into().map_err(|_| {
                     EvaluationError::Backend("invalid policy tensor width".to_owned())
                 })?;
-                Ok(Evaluation::new(policy, value))
+                Ok(Evaluation::new(policy, prediction[POLICY_ACTIONS]))
             })
             .collect()
     }

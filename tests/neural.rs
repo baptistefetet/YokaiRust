@@ -5,7 +5,7 @@ use std::{
         Arc, Barrier, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use yokai::{
@@ -209,6 +209,48 @@ fn inference_service_combines_concurrent_games_into_one_batch() {
         assert_eq!(worker.join().expect("client thread").len(), 1);
     }
 
+    assert_eq!(*batch_sizes.lock().expect("batch recorder mutex"), vec![2]);
+    let stats = service.stats();
+    assert_eq!(stats.jobs, 2);
+    assert_eq!(stats.backend_batches, 1);
+    assert_eq!(stats.positions, 2);
+    assert_eq!(stats.maximum_batch_size, 2);
+    assert!((stats.average_batch_size() - 2.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn minimum_batch_runs_without_waiting_for_the_maximum() {
+    let batch_sizes = Arc::new(Mutex::new(Vec::new()));
+    let service = InferenceService::start_with_batching(
+        RecordingEvaluator {
+            batch_sizes: batch_sizes.clone(),
+        },
+        2,
+        8,
+        Duration::from_secs(5),
+    )
+    .expect("inference service must start");
+    let barrier = Arc::new(Barrier::new(3));
+    let request = EvaluationRequest::from_game(&Game::new(Player::First));
+    let started = Instant::now();
+    let workers = (0..2)
+        .map(|_| {
+            let barrier = barrier.clone();
+            let mut client = service.client();
+            std::thread::spawn(move || {
+                barrier.wait();
+                client
+                    .evaluate_batch(&[request])
+                    .expect("minimum batch request must succeed")
+            })
+        })
+        .collect::<Vec<_>>();
+    barrier.wait();
+    for worker in workers {
+        assert_eq!(worker.join().expect("client thread").len(), 1);
+    }
+
+    assert!(started.elapsed() < Duration::from_secs(1));
     assert_eq!(*batch_sizes.lock().expect("batch recorder mutex"), vec![2]);
 }
 

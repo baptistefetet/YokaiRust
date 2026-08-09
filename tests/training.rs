@@ -146,7 +146,11 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 
     assert_eq!(config.network.filters, 64);
     assert_eq!(config.network.residual_blocks, 4);
+    assert_eq!(config.self_play.workers, 16);
+    assert_eq!(config.self_play.inference_wait_ms, 1);
     assert_eq!(config.arena.games, 200);
+    assert_eq!(config.arena.workers, 128);
+    assert_eq!(config.arena.search_batch_size, 1);
     assert!((config.arena.promotion_score - 0.55).abs() < f32::EPSILON);
 
     let mut invalid = config;
@@ -211,6 +215,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         games_per_generation: 2,
         workers: 2,
         simulations: 16,
+        search_batch_size: 1,
         max_game_plies: 256,
         inference_batch_size: 8,
         inference_wait_ms: 1,
@@ -239,7 +244,9 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
         &UniformEvaluator,
         &ArenaConfig {
             games: 2,
+            workers: 2,
             simulations: 16,
+            search_batch_size: 1,
             promotion_score: 0.55,
         },
         2,
@@ -282,6 +289,7 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             games_per_generation: 2,
             workers: 4,
             simulations: 2,
+            search_batch_size: 1,
             max_game_plies: 128,
             inference_batch_size: 16,
             inference_wait_ms: 0,
@@ -303,7 +311,9 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
         },
         arena: ArenaConfig {
             games: 200,
+            workers: 2,
             simulations: 1,
+            search_batch_size: 1,
             promotion_score: 0.55,
         },
         paths: PathsConfig {

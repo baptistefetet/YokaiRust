@@ -169,8 +169,9 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             games,
             workers,
             simulations,
+            search_batch_size,
         } => eprintln!(
-            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move"
+            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference"
         ),
         TrainingProgress::SelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] self-play {completed}/{total} ({:.1}%)",
@@ -180,10 +181,14 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             games,
             examples,
             outcomes,
-        } => eprintln!(
-            "[{elapsed}] self-play finished: {games} games, {examples} examples, first/second/draw={}/{}/{}",
-            outcomes.first_wins, outcomes.second_wins, outcomes.draws
-        ),
+            inference,
+        } => {
+            eprintln!(
+                "[{elapsed}] self-play finished: {games} games, {examples} examples, first/second/draw={}/{}/{}",
+                outcomes.first_wins, outcomes.second_wins, outcomes.draws
+            );
+            print_inference_stats(&elapsed, "self-play inference", inference);
+        }
         TrainingProgress::DatasetReady {
             buffer_games,
             training_examples,
@@ -223,17 +228,30 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         TrainingProgress::CandidateSaved { generation } => {
             eprintln!("[{elapsed}] candidate generation {generation} saved");
         }
-        TrainingProgress::ArenaStarted { games, simulations } => {
-            eprintln!("[{elapsed}] arena started: {games} games, {simulations} simulations/move");
-        }
+        TrainingProgress::ArenaStarted {
+            games,
+            workers,
+            simulations,
+            search_batch_size,
+        } => eprintln!(
+            "[{elapsed}] arena started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaf/inference"
+        ),
         TrainingProgress::ArenaAdvanced { completed, total } => eprintln!(
             "[{elapsed}] arena {completed}/{total} ({:.1}%)",
             percentage(completed, total)
         ),
-        TrainingProgress::ArenaFinished(result) => eprintln!(
-            "[{elapsed}] arena finished: candidate/champion/draw={}/{}/{}, score={:.3}",
-            result.candidate_wins, result.champion_wins, result.draws, result.score
-        ),
+        TrainingProgress::ArenaFinished {
+            result,
+            candidate_inference,
+            champion_inference,
+        } => {
+            eprintln!(
+                "[{elapsed}] arena finished: candidate/champion/draw={}/{}/{}, score={:.3}",
+                result.candidate_wins, result.champion_wins, result.draws, result.score
+            );
+            print_inference_stats(&elapsed, "candidate inference", candidate_inference);
+            print_inference_stats(&elapsed, "champion inference", champion_inference);
+        }
         TrainingProgress::ChampionPromoted { generation } => {
             eprintln!("[{elapsed}] generation {generation} promoted to champion");
         }
@@ -241,6 +259,19 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             eprintln!("[{elapsed}] generation {generation} rejected; champion unchanged");
         }
     }
+}
+
+fn print_inference_stats(elapsed: &str, label: &str, stats: yokai::InferenceStats) {
+    eprintln!(
+        "[{elapsed}] {label}: positions={} batches={} avg_batch={:.1} max_batch={} backend={:.1}s throughput={:.0} pos/s avg_wait={:.2}ms",
+        stats.positions,
+        stats.backend_batches,
+        stats.average_batch_size(),
+        stats.maximum_batch_size,
+        stats.backend_time.as_secs_f64(),
+        stats.positions_per_backend_second(),
+        stats.average_client_wait().as_secs_f64() * 1_000.0
+    );
 }
 
 fn elapsed_text(elapsed: Duration) -> String {

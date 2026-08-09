@@ -195,6 +195,7 @@ impl<E: Evaluator> Evaluator for CachedEvaluator<E> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SearchConfig {
     pub simulations: u32,
+    pub evaluation_batch_size: usize,
     pub c_puct: f32,
     pub dirichlet_alpha: f32,
     pub dirichlet_weight: f32,
@@ -204,6 +205,7 @@ impl Default for SearchConfig {
     fn default() -> Self {
         Self {
             simulations: 100,
+            evaluation_batch_size: 1,
             c_puct: 1.5,
             dirichlet_alpha: 0.3,
             dirichlet_weight: 0.25,
@@ -297,6 +299,7 @@ struct Node {
     prior: f32,
     expanded: bool,
     terminal: bool,
+    in_flight: bool,
 }
 
 impl Node {
@@ -310,6 +313,7 @@ impl Node {
             prior: 1.0,
             expanded: false,
             terminal: false,
+            in_flight: false,
         }
     }
 
@@ -323,6 +327,7 @@ impl Node {
             prior,
             expanded: false,
             terminal: false,
+            in_flight: false,
         }
     }
 
@@ -333,6 +338,23 @@ impl Node {
             self.value_sum / visits_as_f32(self.visits)
         }
     }
+}
+
+// A pending leaf temporarily looks favorable from its own perspective, hence
+// unfavorable to its parent. This steers the next selection to another leaf
+// while the whole group is waiting for one batched neural-network evaluation.
+const VIRTUAL_LOSS: f32 = 1.0;
+
+struct PendingSimulation {
+    node_index: usize,
+    path: Vec<usize>,
+    game: Game,
+}
+
+enum PreparedSimulation {
+    Pending(PendingSimulation),
+    Completed,
+    Unavailable,
 }
 
 /// PUCT Monte-Carlo tree search backed by an arena of contiguous nodes.
@@ -468,27 +490,94 @@ impl<E: Evaluator> Mcts<E> {
         if add_root_noise && self.arena[self.root].expanded && !self.root_noise_applied {
             self.apply_root_noise()?;
         }
-        for _ in 0..self.config.simulations {
-            self.run_simulation(game, add_root_noise)?;
+        let mut remaining = self.config.simulations;
+        while remaining > 0 {
+            let requested = usize::try_from(remaining)
+                .unwrap_or(usize::MAX)
+                .min(self.config.evaluation_batch_size);
+            let completed = self.run_simulation_batch(game, requested, add_root_noise)?;
+            if completed == 0 {
+                return Err(SearchError::InvalidConfiguration(
+                    "batched search could not schedule a simulation",
+                ));
+            }
+            remaining = remaining.saturating_sub(u32::try_from(completed).unwrap_or(u32::MAX));
         }
         self.build_result(game.position().side_to_move(), temperature)
     }
 
-    fn run_simulation(
+    fn run_simulation_batch(
         &mut self,
         root_game: &Game,
+        requested: usize,
         add_root_noise: bool,
-    ) -> Result<(), SearchError> {
+    ) -> Result<usize, SearchError> {
+        let mut completed = 0;
+        let mut pending = Vec::with_capacity(requested);
+        while completed + pending.len() < requested {
+            match self.prepare_simulation(root_game)? {
+                PreparedSimulation::Pending(simulation) => pending.push(simulation),
+                PreparedSimulation::Completed => completed += 1,
+                PreparedSimulation::Unavailable => break,
+            }
+        }
+        if pending.is_empty() {
+            return Ok(completed);
+        }
+
+        let requests = pending
+            .iter()
+            .map(|simulation| EvaluationRequest::from_game(&simulation.game))
+            .collect::<Vec<_>>();
+        let evaluations = self.evaluator.evaluate_batch(&requests);
+        if evaluations
+            .as_ref()
+            .is_ok_and(|evaluations| evaluations.len() != pending.len())
+        {
+            let actual = evaluations.as_ref().map_or(0, Vec::len);
+            self.release_pending(&pending);
+            return Err(EvaluationError::BatchSizeMismatch {
+                expected: pending.len(),
+                actual,
+            }
+            .into());
+        }
+        let evaluations = match evaluations {
+            Ok(evaluations) => evaluations,
+            Err(error) => {
+                self.release_pending(&pending);
+                return Err(error.into());
+            }
+        };
+        self.release_pending(&pending);
+
+        for (simulation, evaluation) in pending.into_iter().zip(evaluations) {
+            self.expand(simulation.node_index, &simulation.game, &evaluation)?;
+            if simulation.node_index == self.root && add_root_noise && !self.root_noise_applied {
+                self.apply_root_noise()?;
+            }
+            self.backpropagate(&simulation.path, sanitize_value(evaluation.value));
+            completed += 1;
+        }
+        Ok(completed)
+    }
+
+    fn prepare_simulation(&mut self, root_game: &Game) -> Result<PreparedSimulation, SearchError> {
         let mut game = root_game.clone();
         let mut node_index = self.root;
         let mut path = vec![node_index];
 
         loop {
             let node = self.arena[node_index];
+            if node.in_flight {
+                return Ok(PreparedSimulation::Unavailable);
+            }
             if !node.expanded || node.terminal || node.child_count == 0 {
                 break;
             }
-            let child = self.select_child(node_index)?;
+            let Some(child) = self.select_child(node_index) else {
+                return Ok(PreparedSimulation::Unavailable);
+            };
             let action = self.arena[child]
                 .action
                 .ok_or(SearchError::InvalidTreeAction)?;
@@ -498,34 +587,26 @@ impl<E: Evaluator> Mcts<E> {
             path.push(node_index);
         }
 
-        let leaf_value = if game.outcome().is_terminal() {
+        if game.outcome().is_terminal() {
             self.arena[node_index].terminal = true;
-            terminal_value(game.outcome(), game.position().side_to_move())
+            let value = terminal_value(game.outcome(), game.position().side_to_move());
+            self.backpropagate(&path, value);
+            Ok(PreparedSimulation::Completed)
         } else if !self.arena[node_index].expanded {
-            let request = EvaluationRequest::from_game(&game);
-            let mut evaluations = self.evaluator.evaluate_batch(&[request])?;
-            if evaluations.len() != 1 {
-                return Err(EvaluationError::BatchSizeMismatch {
-                    expected: 1,
-                    actual: evaluations.len(),
-                }
-                .into());
-            }
-            let evaluation = evaluations
-                .pop()
-                .ok_or(EvaluationError::BatchSizeMismatch {
-                    expected: 1,
-                    actual: 0,
-                })?;
-            self.expand(node_index, &game, &evaluation)?;
-            if node_index == self.root && add_root_noise && !self.root_noise_applied {
-                self.apply_root_noise()?;
-            }
-            sanitize_value(evaluation.value)
+            self.arena[node_index].in_flight = true;
+            self.apply_virtual_loss(&path);
+            Ok(PreparedSimulation::Pending(PendingSimulation {
+                node_index,
+                path,
+                game,
+            }))
         } else {
-            0.0
-        };
+            self.backpropagate(&path, 0.0);
+            Ok(PreparedSimulation::Completed)
+        }
+    }
 
+    fn backpropagate(&mut self, path: &[usize], leaf_value: f32) {
         let mut value = leaf_value;
         for &visited in path.iter().rev() {
             let node = &mut self.arena[visited];
@@ -533,7 +614,25 @@ impl<E: Evaluator> Mcts<E> {
             node.value_sum += value;
             value = -value;
         }
-        Ok(())
+    }
+
+    fn apply_virtual_loss(&mut self, path: &[usize]) {
+        for &visited in path {
+            let node = &mut self.arena[visited];
+            node.visits += 1;
+            node.value_sum += VIRTUAL_LOSS;
+        }
+    }
+
+    fn release_pending(&mut self, pending: &[PendingSimulation]) {
+        for simulation in pending {
+            self.arena[simulation.node_index].in_flight = false;
+            for &visited in &simulation.path {
+                let node = &mut self.arena[visited];
+                node.visits = node.visits.saturating_sub(1);
+                node.value_sum -= VIRTUAL_LOSS;
+            }
+        }
     }
 
     fn expand(
@@ -573,15 +672,15 @@ impl<E: Evaluator> Mcts<E> {
         Ok(())
     }
 
-    fn select_child(&self, parent_index: usize) -> Result<usize, SearchError> {
+    fn select_child(&self, parent_index: usize) -> Option<usize> {
         let parent_visits = visits_as_f32(self.arena[parent_index].visits.max(1));
         self.children(parent_index)
+            .filter(|&child| !self.arena[child].in_flight)
             .max_by(|&left, &right| {
                 self.puct_score(left, parent_visits)
                     .total_cmp(&self.puct_score(right, parent_visits))
                     .then_with(|| right.cmp(&left))
             })
-            .ok_or(SearchError::NoLegalAction)
     }
 
     fn puct_score(&self, child_index: usize, parent_visits: f32) -> f32 {
@@ -761,6 +860,11 @@ fn validate_config(config: SearchConfig) -> Result<(), SearchError> {
     if config.simulations == 0 {
         return Err(SearchError::InvalidConfiguration(
             "simulations must be greater than zero",
+        ));
+    }
+    if config.evaluation_batch_size == 0 {
+        return Err(SearchError::InvalidConfiguration(
+            "evaluation batch size must be greater than zero",
         ));
     }
     if !config.c_puct.is_finite() || config.c_puct <= 0.0 {

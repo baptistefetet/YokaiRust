@@ -29,6 +29,7 @@ pub fn play_self_play_game<E: Evaluator>(
         evaluator,
         SearchConfig {
             simulations: config.simulations,
+            evaluation_batch_size: config.search_batch_size,
             ..SearchConfig::default()
         },
         seed,

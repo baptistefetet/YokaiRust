@@ -89,7 +89,13 @@ and temperature-based action sampling.
 
 The checked-in configuration targets Metal and is intentionally substantial:
 256 self-play games, 400 simulations per move, 10 training epochs and a
-200-game paired arena. Adjust `config/training.toml` for short experiments.
+200-game paired arena. Self-play runs 16 concurrent games and selects 8 distinct
+MCTS leaves per game before each inference, which feeds Metal efficiently without
+requiring hundreds of blocked game threads. The promotion arena instead runs 128
+games concurrently with sequential PUCT (`search_batch_size = 1`), so virtual
+losses cannot influence its decision. Workers are concurrent games, not a promise
+to keep the same number of CPU cores busy. Adjust `config/training.toml` for short
+experiments.
 
 ```bash
 # Run one generation with the checked-in Metal configuration.
@@ -102,7 +108,15 @@ cargo run --release -- train --resume latest --headless
 `--headless` disables the future TUI, not textual diagnostics. Progress is
 written immediately to standard error: roughly twenty updates during self-play,
 one metrics line per epoch, roughly twenty arena updates, and every checkpoint
-or promotion decision. All lines include elapsed wall-clock time.
+or promotion decision. All lines include elapsed wall-clock time. Phase summaries
+also report average/maximum inference batch, backend throughput and client wait.
+
+On the development M4 Max, a measured generation took about 3 minutes 30 seconds
+in release mode: roughly 1 minute 55 for self-play, 15 seconds for training and
+1 minute 20 for the arena. This excludes a one-time 30-second incremental release
+relink. The original one-leaf implementation projected roughly 16 minutes for
+self-play alone. These figures are measurements, not runtime guarantees; game
+length and model behavior change between generations.
 
 Set `backend = "cpu"` in the TOML file for deterministic debugging without
 Metal. The command bootstraps generation zero when no model exists, then:

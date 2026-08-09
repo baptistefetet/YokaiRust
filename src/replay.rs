@@ -3,11 +3,14 @@ use std::{fs, io, path::Path};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::game::{Action, Game, MoveError, Outcome, Player, RULES_VERSION};
+use crate::{
+    ActionAnalysis,
+    game::{Action, Game, MoveError, Outcome, Player, RULES_VERSION},
+};
 
 pub const REPLAY_FORMAT_VERSION: u16 = 1;
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Replay {
     pub format_version: u16,
     pub rules_version: u16,
@@ -15,6 +18,8 @@ pub struct Replay {
     pub initial_player: Player,
     pub actions: Vec<Action>,
     pub outcome: Outcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analyses: Option<Vec<Vec<ActionAnalysis>>>,
 }
 
 impl Replay {
@@ -27,7 +32,16 @@ impl Replay {
             initial_player: game.initial_player(),
             actions: game.actions().to_vec(),
             outcome: game.outcome(),
+            analyses: None,
         }
+    }
+
+    /// Attaches one complete legal-action analysis list per played move.
+    /// Validation is deferred to the regular replay validation methods.
+    #[must_use]
+    pub fn with_analyses(mut self, analyses: Vec<Vec<ActionAnalysis>>) -> Self {
+        self.analyses = Some(analyses);
+        self
     }
 
     /// Replays and validates every stored action.
@@ -38,8 +52,26 @@ impl Replay {
     /// outcome that does not match the reconstructed game.
     pub fn to_game(&self) -> Result<Game, ReplayError> {
         self.validate_versions()?;
+        if let Some(analyses) = &self.analyses
+            && analyses.len() != self.actions.len()
+        {
+            return Err(ReplayError::AnalysisCountMismatch {
+                expected: self.actions.len(),
+                actual: analyses.len(),
+            });
+        }
         let mut game = Game::new(self.initial_player);
         for (ply, &action) in self.actions.iter().enumerate() {
+            if let Some(analyses) = &self.analyses {
+                for entry in &analyses[ply] {
+                    if !game.is_legal_action(entry.action) {
+                        return Err(ReplayError::InvalidAnalysisAction {
+                            ply,
+                            action: entry.action,
+                        });
+                    }
+                }
+            }
             game.apply(action)
                 .map_err(|source| ReplayError::InvalidAction { ply, source })?;
         }
@@ -112,6 +144,10 @@ pub enum ReplayError {
     UnsupportedRulesVersion(u16),
     #[error("invalid action at ply {ply}: {source}")]
     InvalidAction { ply: usize, source: MoveError },
+    #[error("expected {expected} analysis lists, got {actual}")]
+    AnalysisCountMismatch { expected: usize, actual: usize },
+    #[error("analysis at ply {ply} contains illegal action {action}")]
+    InvalidAnalysisAction { ply: usize, action: Action },
     #[error("replay outcome mismatch: expected {expected:?}, got {actual:?}")]
     OutcomeMismatch { expected: Outcome, actual: Outcome },
     #[error("invalid replay JSON: {0}")]

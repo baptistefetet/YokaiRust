@@ -8,6 +8,7 @@ pub mod game;
 pub mod notation;
 pub mod policy;
 pub mod replay;
+pub mod search;
 
 pub use game::{
     Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, HandPiece, MoveError,
@@ -16,3 +17,7 @@ pub use game::{
 };
 pub use policy::{POLICY_ACTIONS, PolicyIndex};
 pub use replay::{REPLAY_FORMAT_VERSION, Replay, ReplayError};
+pub use search::{
+    ActionAnalysis, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
+    Mcts, SearchConfig, SearchError, SearchResult, TemperatureSchedule, UniformEvaluator,
+};

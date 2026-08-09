@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+};
 
 use rand::{Rng, RngExt};
 use serde::{Deserialize, Serialize};
@@ -513,6 +516,7 @@ pub struct Game {
     initial_player: Player,
     outcome: Outcome,
     actions: Vec<Action>,
+    positions: Vec<Position>,
     repetitions: HashMap<Position, u8>,
 }
 
@@ -541,6 +545,7 @@ impl Game {
             initial_player: position.side_to_move(),
             outcome: Outcome::Ongoing,
             actions: Vec::with_capacity(64),
+            positions: vec![position],
             repetitions,
         }
     }
@@ -563,6 +568,20 @@ impl Game {
     #[must_use]
     pub fn actions(&self) -> &[Action] {
         &self.actions
+    }
+
+    #[must_use]
+    pub fn position_history(&self) -> &[Position] {
+        &self.positions
+    }
+
+    /// Returns an in-process fingerprint of the complete path to this position.
+    /// It is used to decide whether a search subtree can be reused safely.
+    #[must_use]
+    pub fn history_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.positions.hash(&mut hasher);
+        hasher.finish()
     }
 
     #[must_use]
@@ -631,6 +650,7 @@ impl Game {
 
         self.position.side_to_move = player.opponent();
         self.actions.push(action);
+        self.positions.push(self.position);
 
         self.outcome = if captured == Some(PieceKind::Koropokkuru) {
             Outcome::Win {

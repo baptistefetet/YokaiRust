@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use yokai::{
     Action, BOARD_SQUARES, DrawReason, Game, HandPiece, Outcome, Piece, PieceKind, Player,
-    Position, Replay, Square, WinReason,
+    Position, Replay, ReplayError, Square, WinReason,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -317,4 +317,20 @@ fn replay_json_round_trips_and_revalidates_actions() {
 
     assert_eq!(decoded, replay);
     assert_eq!(decoded.to_game().unwrap().position(), game.position());
+}
+
+#[test]
+fn replay_rejects_truncated_json_and_unknown_versions() {
+    assert!(matches!(
+        Replay::from_json("{\"format_version\":"),
+        Err(ReplayError::Json(_))
+    ));
+
+    let game = Game::new(Player::First);
+    let mut replay = Replay::from_game(&game, None);
+    replay.format_version = 99;
+    assert!(matches!(
+        replay.to_game(),
+        Err(ReplayError::UnsupportedFormatVersion(99))
+    ));
 }

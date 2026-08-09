@@ -103,20 +103,27 @@ cargo run --release -- train --config config/training.toml --headless
 
 # Resume automatically from the latest champion and replay buffer.
 cargo run --release -- train --resume latest --headless
+
+# Run five successive generations, still resuming from the latest champion.
+cargo run --release -- train --resume latest --generations 5 --headless
 ```
 
 `--headless` disables the future TUI, not textual diagnostics. Progress is
 written immediately to standard error: roughly twenty updates during self-play,
 one metrics line per epoch, roughly twenty arena updates, and every checkpoint
-or promotion decision. All lines include elapsed wall-clock time. Phase summaries
-also report average/maximum inference batch, backend throughput and client wait.
+or promotion decision. Arena updates include the running candidate/champion/draw
+counts and provisional score. All lines include elapsed wall-clock time. Phase
+summaries also report average/maximum inference batch, backend throughput and
+client wait. One generation is run by default; use `--generations N` to request
+an explicit sequence.
 
 On the development M4 Max, a measured generation took about 3 minutes 30 seconds
 in release mode: roughly 1 minute 55 for self-play, 15 seconds for training and
 1 minute 20 for the arena. This excludes a one-time 30-second incremental release
 relink. The original one-leaf implementation projected roughly 16 minutes for
 self-play alone. These figures are measurements, not runtime guarantees; game
-length and model behavior change between generations.
+length and model behavior change between generations. Generation 5 took 5 minutes
+19 seconds because its games were more than twice as long as generation 1 games.
 
 Set `backend = "cpu"` in the TOML file for deterministic debugging without
 Metal. The command bootstraps generation zero when no model exists, then:
@@ -126,12 +133,49 @@ Metal. The command bootstraps generation zero when no model exists, then:
 3. evaluates candidate and champion with paired seeds and alternating colors;
 4. publishes the candidate as champion only if its arena score reaches 55%.
 
-Each invocation completes one generation. Checkpoints are written under
-`models/generation-N/`; `models/champion` points to the published champion.
-The replay buffer is stored in `data/self-play/buffer.json`. Writes use temporary
-paths followed by atomic renames so an interrupted write cannot replace the last
-complete generation. After `Ctrl+C`, rerunning the command starts again from the
-last published champion.
+Training keeps the epoch with the lowest combined validation loss. It stops
+early after `early_stopping_patience` consecutive epochs without improvement,
+then sends that restored best epoch—not merely the last epoch—to the arena.
+
+Each invocation completes the requested number of generations. Checkpoints are
+written under `models/generation-N/`; `models/champion` points to the published
+champion. The replay buffer is stored in `data/self-play/buffer.json`. Writes use
+temporary paths followed by atomic renames so an interrupted write cannot replace
+the last complete generation. After `Ctrl+C`, rerunning the command starts again
+from the last published champion.
+
+### Experimental observations through generation 5
+
+The first local training sequence produced the following self-play trend. An
+example corresponds to one played position, so examples per game also measure
+average game length.
+
+| Generation | Games | Examples | Average plies | Draws |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 256 | 7,499 | 29.3 | 10 (3.9%) |
+| 2 | 256 | 9,460 | 37.0 | 20 (7.8%) |
+| 3 | 256 | 13,916 | 54.4 | 44 (17.2%) |
+| 4 | 256 | 15,826 | 61.8 | 80 (31.3%) |
+| 5 | 256 | 16,113 | 62.9 | 93 (36.3%) |
+
+The steadily increasing draw rate reproduces the same failure mode previously
+observed in the C++ and Node.js prototypes. Its cause is not established yet: it
+may represent convergence toward drawing play, or an undesirable learned cycle.
+It must therefore be treated as an open training-quality problem rather than as
+evidence that later generations are unconditionally stronger.
+
+At the same time, the observed promotion arenas were decisive, including 200-0
+scores for generations 4 and 5. A diagnostic with the generation 3 and 4 models
+in both argument orders produced 20-0 for generation 4 and 0-20 after swapping
+them, ruling out an inverted candidate/champion counter. The discrepancy between
+decisive zero-temperature arenas and increasingly draw-heavy exploratory
+self-play remains to be investigated through replay analysis and fixed baselines.
+
+Generation 4 also exposed validation overfitting: validation loss was best at
+epoch 1 and degraded through epoch 10 while training loss kept improving. The
+pipeline now restores the lowest-validation-loss epoch and stops after the
+configured patience. Generation 5 validated this behavior by stopping after
+epoch 3 and sending the restored epoch 1 model to the arena.
 
 ## Rules source
 

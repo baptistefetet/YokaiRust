@@ -36,7 +36,9 @@ pub use search::{
     ActionAnalysis, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
     Mcts, SearchConfig, SearchError, SearchResult, TemperatureSchedule, UniformEvaluator,
 };
-pub use training::arena::{ArenaError, ArenaResult, run_arena, run_arena_with_progress};
+pub use training::arena::{
+    ArenaError, ArenaProgress, ArenaResult, run_arena, run_arena_with_progress,
+};
 pub use training::config::{
     ArenaConfig, BackendKind, OptimizationConfig, PathsConfig, SelfPlayConfig, TrainingConfig,
     TrainingConfigError,

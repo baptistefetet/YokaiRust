@@ -22,6 +22,9 @@ final_temperature = 0.0
 
 [optimization]
 epochs = 10
+# Restore the epoch with the lowest validation loss and stop after this many
+# consecutive epochs without improvement.
+early_stopping_patience = 2
 batch_size = 256
 learning_rate = 0.001
 weight_decay = 0.0001

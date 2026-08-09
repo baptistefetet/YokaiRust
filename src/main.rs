@@ -56,8 +56,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
+struct TrainArguments {
+    config_path: String,
+    generations: usize,
+}
+
+fn parse_train_arguments(arguments: &[String]) -> Result<TrainArguments, io::Error> {
     let mut config_path = "config/training.toml".to_owned();
+    let mut generations = 1_usize;
     let mut index = 0;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -75,23 +81,44 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
                     .get(index)
                     .ok_or_else(|| invalid_input("--resume requires `latest`"))?;
                 if resume != "latest" {
-                    return Err(invalid_input("only `--resume latest` is supported").into());
+                    return Err(invalid_input("only `--resume latest` is supported"));
+                }
+            }
+            "--generations" => {
+                index += 1;
+                generations = arguments
+                    .get(index)
+                    .ok_or_else(|| invalid_input("--generations requires a positive integer"))?
+                    .parse()
+                    .map_err(|_| invalid_input("--generations requires a positive integer"))?;
+                if generations == 0 {
+                    return Err(invalid_input("--generations must be greater than zero"));
                 }
             }
             "--headless" => {}
             argument => {
-                return Err(
-                    invalid_input(format!("unexpected train argument `{argument}`")).into(),
-                );
+                return Err(invalid_input(format!(
+                    "unexpected train argument `{argument}`"
+                )));
             }
         }
         index += 1;
     }
+    Ok(TrainArguments {
+        config_path,
+        generations,
+    })
+}
 
+fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
+    let TrainArguments {
+        config_path,
+        generations,
+    } = parse_train_arguments(arguments)?;
     let config = TrainingConfig::load(&config_path)?;
     let started = Instant::now();
     eprintln!(
-        "[{}] configuration={} backend={:?}",
+        "[{}] configuration={} backend={:?} generations={generations}",
         elapsed_text(started.elapsed()),
         config_path,
         config.backend
@@ -116,13 +143,15 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
                 config.optimization.replay_buffer,
             )?;
             let progress = |event| print_training_progress(started, event);
-            let report = run_generation_with_progress::<CpuTrainingBackend, _>(
-                &config,
-                &mut buffer,
-                &device,
-                &progress,
-            )?;
-            print_generation_report(&report);
+            for _ in 0..generations {
+                let report = run_generation_with_progress::<CpuTrainingBackend, _>(
+                    &config,
+                    &mut buffer,
+                    &device,
+                    &progress,
+                )?;
+                print_generation_report(&report);
+            }
         }
         BackendKind::Metal => {
             let device = burn::backend::wgpu::WgpuDevice::default();
@@ -143,13 +172,15 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
                 config.optimization.replay_buffer,
             )?;
             let progress = |event| print_training_progress(started, event);
-            let report = run_generation_with_progress::<MetalTrainingBackend, _>(
-                &config,
-                &mut buffer,
-                &device,
-                &progress,
-            )?;
-            print_generation_report(&report);
+            for _ in 0..generations {
+                let report = run_generation_with_progress::<MetalTrainingBackend, _>(
+                    &config,
+                    &mut buffer,
+                    &device,
+                    &progress,
+                )?;
+                print_generation_report(&report);
+            }
         }
     }
     Ok(())
@@ -225,6 +256,12 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
                 );
             }
         }
+        TrainingProgress::TrainingFinished {
+            completed_epochs,
+            selected_epoch,
+        } => eprintln!(
+            "[{elapsed}] training finished after {completed_epochs} epochs; restored best validation epoch {selected_epoch}"
+        ),
         TrainingProgress::CandidateSaved { generation } => {
             eprintln!("[{elapsed}] candidate generation {generation} saved");
         }
@@ -236,9 +273,15 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         } => eprintln!(
             "[{elapsed}] arena started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaf/inference"
         ),
-        TrainingProgress::ArenaAdvanced { completed, total } => eprintln!(
-            "[{elapsed}] arena {completed}/{total} ({:.1}%)",
-            percentage(completed, total)
+        TrainingProgress::ArenaAdvanced { progress } => eprintln!(
+            "[{elapsed}] arena {}/{} ({:.1}%): candidate/champion/draw={}/{}/{}, current_score={:.3}",
+            progress.completed,
+            progress.total,
+            percentage(progress.completed, progress.total),
+            progress.candidate_wins,
+            progress.champion_wins,
+            progress.draws,
+            progress.score()
         ),
         TrainingProgress::ArenaFinished {
             result,
@@ -297,7 +340,8 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         report.generated_games,
         report.buffer_examples
     );
-    if let Some(epoch) = report.training.epochs.last() {
+    if let Some(epoch) = report.training.selected() {
+        println!("selected training epoch={}", epoch.epoch);
         println!(
             "train policy_loss={:.4} value_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} top1={:.3}",
             epoch.training.policy_loss,
@@ -391,7 +435,39 @@ fn print_help() {
 Commands:
   yokai analyze [simulations] [seed]  Analyze the initial position with pure MCTS
   yokai replay <file.json>             Validate and print a recorded game
-  yokai train [--config FILE] [--resume latest] [--headless]
-                                       Run one AlphaZero generation"
+  yokai train [--config FILE] [--resume latest] [--generations N] [--headless]
+                                       Run N AlphaZero generations (default: 1)"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_train_arguments;
+
+    #[test]
+    fn train_arguments_default_to_one_generation() {
+        let parsed = parse_train_arguments(&[]).expect("default train arguments");
+        assert_eq!(parsed.config_path, "config/training.toml");
+        assert_eq!(parsed.generations, 1);
+    }
+
+    #[test]
+    fn train_arguments_accept_an_explicit_generation_count() {
+        let arguments = [
+            "--config".to_owned(),
+            "custom.toml".to_owned(),
+            "--generations".to_owned(),
+            "5".to_owned(),
+            "--headless".to_owned(),
+        ];
+        let parsed = parse_train_arguments(&arguments).expect("explicit train arguments");
+        assert_eq!(parsed.config_path, "custom.toml");
+        assert_eq!(parsed.generations, 5);
+    }
+
+    #[test]
+    fn train_arguments_reject_zero_generations() {
+        let arguments = ["--generations".to_owned(), "0".to_owned()];
+        assert!(parse_train_arguments(&arguments).is_err());
+    }
 }

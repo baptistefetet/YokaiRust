@@ -39,6 +39,16 @@ pub struct EpochReport {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingReport {
     pub epochs: Vec<EpochReport>,
+    pub selected_epoch: usize,
+}
+
+impl TrainingReport {
+    #[must_use]
+    pub fn selected(&self) -> Option<&EpochReport> {
+        self.epochs
+            .iter()
+            .find(|report| report.epoch == self.selected_epoch)
+    }
 }
 
 /// Optimizes a candidate initialized from the champion weights.
@@ -98,6 +108,10 @@ where
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut examples = training_examples.to_vec();
     let mut epochs = Vec::with_capacity(config.epochs);
+    let mut best_model = None;
+    let mut best_validation_loss = f32::INFINITY;
+    let mut selected_epoch = 0;
+    let mut epochs_without_improvement = 0;
 
     for epoch in 0..config.epochs {
         examples.shuffle(&mut rng);
@@ -127,9 +141,34 @@ where
         };
         progress(report);
         epochs.push(report);
+
+        if let Some(validation) = validation {
+            if validation.total_loss < best_validation_loss {
+                best_validation_loss = validation.total_loss;
+                best_model = Some(model.clone());
+                selected_epoch = epoch + 1;
+                epochs_without_improvement = 0;
+            } else {
+                epochs_without_improvement += 1;
+                if epochs_without_improvement >= config.early_stopping_patience {
+                    break;
+                }
+            }
+        }
     }
 
-    (model, TrainingReport { epochs })
+    if let Some(best_model) = best_model {
+        model = best_model;
+    } else {
+        selected_epoch = epochs.len();
+    }
+    (
+        model,
+        TrainingReport {
+            epochs,
+            selected_epoch,
+        },
+    )
 }
 
 /// Computes metrics without gradients and without updating batch normalization.

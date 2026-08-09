@@ -11,8 +11,8 @@ use yokai::{
     PieceKind, Player, Position, ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayConfig,
     SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig, TrainingConfigError, TrainingDataError,
     TrainingProgress, UniformEvaluator, bootstrap_champion, generate_self_play, load_generation,
-    load_replay_buffer, run_arena, run_generation_with_progress, save_generation, train_candidate,
-    validate_model,
+    load_replay_buffer, run_arena, run_arena_with_progress, run_generation_with_progress,
+    save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -148,6 +148,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.network.residual_blocks, 4);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
+    assert_eq!(config.optimization.early_stopping_patience, 2);
     assert_eq!(config.arena.games, 200);
     assert_eq!(config.arena.workers, 128);
     assert_eq!(config.arena.search_batch_size, 1);
@@ -176,6 +177,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
     let initial = validate_model(&model.valid(), &examples, 2, &device);
     let optimization = OptimizationConfig {
         epochs: 80,
+        early_stopping_patience: 80,
         batch_size: 2,
         learning_rate: 0.02,
         weight_decay: 0.0,
@@ -188,8 +190,13 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         train_candidate(model, &examples, &examples, &optimization, 77, &device);
     let trained = trained.valid();
     let final_metrics = validate_model(&trained, &examples, 2, &device);
+    let selected_validation = report
+        .selected()
+        .and_then(|epoch| epoch.validation)
+        .expect("selected validation epoch");
 
     assert_eq!(report.epochs.len(), optimization.epochs);
+    assert!((final_metrics.total_loss - selected_validation.total_loss).abs() < 1.0e-5);
     assert!(final_metrics.policy_top1_accuracy >= 0.95);
     assert!(final_metrics.policy_loss < initial.policy_loss);
 
@@ -264,6 +271,48 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
 }
 
 #[test]
+fn arena_progress_reports_consistent_running_outcomes() {
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let recorded_snapshots = snapshots.clone();
+    let result = run_arena_with_progress(
+        &UniformEvaluator,
+        &UniformEvaluator,
+        &ArenaConfig {
+            games: 4,
+            workers: 2,
+            simulations: 4,
+            search_batch_size: 1,
+            promotion_score: 0.55,
+        },
+        2,
+        256,
+        901,
+        &move |progress| {
+            recorded_snapshots
+                .lock()
+                .expect("arena progress mutex")
+                .push(progress);
+        },
+    )
+    .expect("arena with progress must finish");
+
+    let snapshots = snapshots.lock().expect("arena progress mutex");
+    assert_eq!(snapshots.len(), 4);
+    for (index, snapshot) in snapshots.iter().enumerate() {
+        assert_eq!(snapshot.completed, index + 1);
+        assert_eq!(
+            snapshot.candidate_wins + snapshot.champion_wins + snapshot.draws,
+            snapshot.completed
+        );
+    }
+    let final_snapshot = snapshots.last().expect("final arena progress");
+    assert_eq!(final_snapshot.candidate_wins, result.candidate_wins);
+    assert_eq!(final_snapshot.champion_wins, result.champion_wins);
+    assert_eq!(final_snapshot.draws, result.draws);
+    assert!((final_snapshot.score() - result.score).abs() < f32::EPSILON);
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
     use burn::prelude::Backend;
@@ -299,6 +348,7 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
         },
         optimization: OptimizationConfig {
             epochs: 1,
+            early_stopping_patience: 1,
             batch_size: 16,
             learning_rate: 0.001,
             weight_decay: 0.0,
@@ -375,10 +425,8 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
     )));
     assert!(events.iter().any(|event| matches!(
         event,
-        TrainingProgress::ArenaAdvanced {
-            completed: 200,
-            total: 200
-        }
+        TrainingProgress::ArenaAdvanced { progress }
+            if progress.completed == 200 && progress.total == 200
     )));
     assert!(matches!(
         events.last(),

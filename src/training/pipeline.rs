@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    AlphaZeroNetworkConfig, ArenaError, ArenaResult, EpochReport, InferenceService,
+    AlphaZeroNetworkConfig, ArenaError, ArenaProgress, ArenaResult, EpochReport, InferenceService,
     InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError, NetworkEvaluator,
     Outcome, Player, ReplayBuffer, ReplayBufferConfig, SelfPlayError, SelfPlayGame, TrainingConfig,
     TrainingReport, generate_self_play_with_progress, load_champion, next_generation,
@@ -80,6 +80,10 @@ pub enum TrainingProgress {
         total_epochs: usize,
         report: EpochReport,
     },
+    TrainingFinished {
+        completed_epochs: usize,
+        selected_epoch: usize,
+    },
     CandidateSaved {
         generation: u32,
     },
@@ -90,8 +94,7 @@ pub enum TrainingProgress {
         search_batch_size: usize,
     },
     ArenaAdvanced {
-        completed: usize,
-        total: usize,
+        progress: ArenaProgress,
     },
     ArenaFinished {
         result: ArenaResult,
@@ -258,6 +261,10 @@ where
             });
         },
     );
+    progress(TrainingProgress::TrainingFinished {
+        completed_epochs: training.epochs.len(),
+        selected_epoch: training.selected_epoch,
+    });
     let candidate = candidate.valid();
     let candidate_metadata =
         ModelMetadata::new(candidate_generation, champion_metadata.architecture.clone());
@@ -302,9 +309,11 @@ where
         config
             .seed
             .wrapping_add(u64::from(candidate_generation) << 40),
-        &|completed, total| {
-            if progress_checkpoint(completed, total) {
-                progress(TrainingProgress::ArenaAdvanced { completed, total });
+        &|arena_progress| {
+            if progress_checkpoint(arena_progress.completed, arena_progress.total) {
+                progress(TrainingProgress::ArenaAdvanced {
+                    progress: arena_progress,
+                });
             }
         },
     )?;

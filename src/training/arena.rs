@@ -1,6 +1,6 @@
 //! Paired, noise-free candidate versus champion evaluation.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -20,6 +20,23 @@ pub struct ArenaResult {
     pub draws: usize,
     pub score: f32,
     pub promoted: bool,
+}
+
+/// Consistent snapshot emitted as arena games finish concurrently.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ArenaProgress {
+    pub completed: usize,
+    pub total: usize,
+    pub candidate_wins: usize,
+    pub champion_wins: usize,
+    pub draws: usize,
+}
+
+impl ArenaProgress {
+    #[must_use]
+    pub fn score(self) -> f32 {
+        score(self.candidate_wins, self.draws, self.completed)
+    }
 }
 
 /// Runs paired seeds with alternating candidate colors, no root noise, and
@@ -47,7 +64,7 @@ where
         workers,
         max_game_plies,
         base_seed,
-        &|_, _| {},
+        &|_| {},
     )
 }
 
@@ -71,7 +88,7 @@ pub fn run_arena_with_progress<C, H, F>(
 where
     C: Evaluator + Clone + Send + Sync,
     H: Evaluator + Clone + Send + Sync,
-    F: Fn(usize, usize) + Sync,
+    F: Fn(ArenaProgress) + Sync,
 {
     if workers == 0 || config.games == 0 {
         return Err(ArenaError::InvalidConfiguration);
@@ -80,7 +97,10 @@ where
         .num_threads(workers)
         .thread_name(|index| format!("yokai-arena-{index}"))
         .build()?;
-    let completed = AtomicUsize::new(0);
+    let running = Mutex::new(ArenaProgress {
+        total: config.games,
+        ..ArenaProgress::default()
+    });
     let outcomes = pool.install(|| {
         (0..config.games)
             .into_par_iter()
@@ -100,8 +120,16 @@ where
                     max_game_plies,
                     paired_seed,
                 )?;
-                let completed = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                progress(completed, config.games);
+                let mut running = running
+                    .lock()
+                    .map_err(|_| ArenaError::ProgressStatePoisoned)?;
+                running.completed += 1;
+                match outcome {
+                    ArenaGameOutcome::CandidateWin => running.candidate_wins += 1,
+                    ArenaGameOutcome::ChampionWin => running.champion_wins += 1,
+                    ArenaGameOutcome::Draw => running.draws += 1,
+                }
+                progress(*running);
                 Ok(outcome)
             })
             .collect::<Result<Vec<_>, ArenaError>>()
@@ -202,4 +230,6 @@ pub enum ArenaError {
     PlyLimit(usize),
     #[error("failed to create arena workers: {0}")]
     ThreadPool(#[from] rayon::ThreadPoolBuildError),
+    #[error("arena progress state was poisoned by a panicking worker")]
+    ProgressStatePoisoned,
 }

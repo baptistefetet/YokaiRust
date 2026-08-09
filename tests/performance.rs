@@ -2,6 +2,7 @@
 
 use std::{
     hint::black_box,
+    path::Path,
     time::{Duration, Instant},
 };
 
@@ -9,7 +10,7 @@ use burn::prelude::Backend;
 use yokai::{
     AlphaZeroNetworkConfig, ArenaConfig, CpuBackend, EvaluationRequest, Evaluator, Game,
     InferenceService, MetalBackend, NetworkEvaluator, Player, SelfPlayConfig, generate_self_play,
-    run_arena,
+    load_generation, run_arena,
 };
 
 const BATCH_SIZES: [usize; 6] = [1, 8, 16, 32, 64, 128];
@@ -133,6 +134,56 @@ fn benchmark_metal_default_arena() {
         candidate_stats.positions_per_backend_second(),
         champion_stats.positions_per_backend_second(),
     );
+}
+
+#[test]
+#[ignore = "manual saved-generation arena diagnostic"]
+fn compare_saved_generations_in_both_argument_orders() {
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    let (generation_3, _) = load_generation::<MetalBackend>(Path::new("models"), 3, &device)
+        .expect("generation 3 checkpoint");
+    let (generation_4, _) = load_generation::<MetalBackend>(Path::new("models"), 4, &device)
+        .expect("generation 4 checkpoint");
+    let older = InferenceService::start_with_batching(
+        NetworkEvaluator::new(generation_3, device.clone()),
+        8,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("older inference service");
+    let newer = InferenceService::start_with_batching(
+        NetworkEvaluator::new(generation_4, device),
+        8,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("newer inference service");
+    let config = ArenaConfig {
+        games: 20,
+        workers: 16,
+        simulations: 100,
+        search_batch_size: 1,
+        promotion_score: 0.55,
+    };
+    let newer_as_candidate = run_arena(
+        &newer.client(),
+        &older.client(),
+        &config,
+        config.workers,
+        512,
+        30_000,
+    )
+    .expect("newer candidate arena");
+    let older_as_candidate = run_arena(
+        &older.client(),
+        &newer.client(),
+        &config,
+        config.workers,
+        512,
+        40_000,
+    )
+    .expect("older candidate arena");
+    println!("newer-as-candidate={newer_as_candidate:?} older-as-candidate={older_as_candidate:?}");
 }
 
 fn benchmark_metal_self_play_case(

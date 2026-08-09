@@ -31,6 +31,7 @@ pub struct SelfPlayConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OptimizationConfig {
     pub epochs: usize,
+    pub early_stopping_patience: usize,
     pub batch_size: usize,
     pub learning_rate: f64,
     pub weight_decay: f32,
@@ -85,6 +86,7 @@ impl Default for TrainingConfig {
             },
             optimization: OptimizationConfig {
                 epochs: 10,
+                early_stopping_patience: 2,
                 batch_size: 256,
                 learning_rate: 0.001,
                 weight_decay: 1.0e-4,
@@ -156,6 +158,7 @@ impl TrainingConfig {
         }
         let optimization = &self.optimization;
         if optimization.epochs == 0
+            || optimization.early_stopping_patience == 0
             || optimization.batch_size == 0
             || !optimization.learning_rate.is_finite()
             || optimization.learning_rate <= 0.0

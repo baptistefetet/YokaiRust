@@ -1,0 +1,40 @@
+seed = 42
+backend = "metal"
+
+[network]
+filters = 64
+residual_blocks = 4
+value_hidden = 64
+
+[self_play]
+games_per_generation = 256
+workers = 16
+simulations = 400
+max_game_plies = 512
+inference_batch_size = 128
+inference_wait_ms = 2
+exploration_plies = 12
+exploration_temperature = 1.0
+final_temperature = 0.0
+
+[optimization]
+epochs = 10
+batch_size = 256
+learning_rate = 0.001
+weight_decay = 0.0001
+validation_fraction = 0.1
+mirror_augmentation = true
+
+[optimization.replay_buffer]
+max_games = 20000
+generations_to_keep = 20
+
+[arena]
+# Candidate/champion colors alternate, with paired seeds and no root noise.
+games = 200
+simulations = 400
+promotion_score = 0.55
+
+[paths]
+models = "models"
+self_play = "data/self-play"

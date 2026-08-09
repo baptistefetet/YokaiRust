@@ -363,6 +363,21 @@ impl Position {
         self.hands[player.index()][piece.index()]
     }
 
+    /// Mirrors the absolute board around its vertical axis. Hands, ownership,
+    /// and the side to move are unchanged.
+    #[must_use]
+    pub fn mirrored_horizontally(self) -> Self {
+        let mut board = [None; BOARD_SQUARES];
+        for square in Square::ALL {
+            board[square.mirrored_horizontally().index()] = self.board[square.index()];
+        }
+        Self {
+            board,
+            hands: self.hands,
+            side_to_move: self.side_to_move,
+        }
+    }
+
     #[must_use]
     pub fn physical_piece_count(&self) -> usize {
         self.board.iter().flatten().count()

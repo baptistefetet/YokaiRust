@@ -1,13 +1,15 @@
 # YokaiRust
 
 YokaiRust is a fast, testable implementation of the official 3×4 rules of
-**Yōkaï no Mori**. The long-term goal is an AlphaZero-powered opponent and an
-animated terminal interface. The project is intentionally built in small,
-verified milestones so it can also serve as a first serious Rust codebase.
+**Yōkaï no Mori**. It now includes the first complete AlphaZero training loop;
+the next major milestone is the animated terminal interface. The project is
+intentionally built in small, verified milestones so it can also serve as a
+first serious Rust codebase.
 
 ## Current milestone
 
-The repository currently contains the rules engine and deterministic MCTS:
+The repository currently contains the rules engine, deterministic MCTS and the
+first trainable AlphaZero pipeline:
 
 - compact typed board, pieces, hands, actions, outcomes and transitions;
 - official movement, capture, promotion, parachuting and victory rules;
@@ -19,9 +21,21 @@ The repository currently contains the rules engine and deterministic MCTS:
 - self-play-only Dirichlet noise and a configurable temperature schedule;
 - legal-policy masking plus per-action prior, visits, policy and Q diagnostics;
 - optional MCTS analyses embedded in validated replay files;
+- a versioned 17-plane canonical neural encoder with horizontal augmentation;
+- a configurable Burn residual network with 132 policy logits and a value head;
+- CPU inference for deterministic tests and WGPU/Metal inference on Apple Silicon;
+- a batching inference service shared by concurrent self-play games;
+- generation-based SafeTensors checkpoints with validated metadata and an
+  atomically published `champion` pointer;
+- reproducible parallel self-play, a rolling replay buffer and whole-game
+  training/validation splits;
+- explicit policy/value metrics, including entropy, calibration, illegal policy
+  mass and top-1 accuracy;
+- a paired, color-alternating promotion arena without noise and with a 55%
+  promotion threshold;
 - unit and property-based tests.
 
-Burn and Ratatui are deliberately not dependencies of this milestone.
+Ratatui is deliberately deferred to the next milestone.
 
 ## Board coordinates
 
@@ -45,12 +59,17 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 ```
 
-Release builds use thin LTO and a single code-generation unit. Runtime data,
-self-play datasets and trained models are ignored by Git.
+Release builds use Cargo's portable defaults. Runtime data, self-play datasets
+and trained models are ignored by Git.
+
+Cargo downloads crate sources into `~/.cargo/registry` and compiles this
+project into its local `target/` directory. Rust toolchains live in `~/.rustup`.
+No package is installed globally by the build. The generated `models/` and
+`data/self-play/` directories remain inside this project.
 
 ## Text analysis and replays
 
-Until the TUI milestone, the binary exposes two deliberately small diagnostic
+Until the TUI milestone, the binary exposes deliberately small diagnostic
 commands without pulling in a CLI framework:
 
 ```bash
@@ -65,6 +84,40 @@ cargo run -- replay path/to/game.json
 play. `Mcts::search_self_play` is the explicit self-play entry point and is the
 only one that adds Dirichlet noise. A fixed seed reproduces both the tree search
 and temperature-based action sampling.
+
+## AlphaZero training
+
+The checked-in configuration targets Metal and is intentionally substantial:
+256 self-play games, 400 simulations per move, 10 training epochs and a
+200-game paired arena. Adjust `config/training.toml` for short experiments.
+
+```bash
+# Run one generation with the checked-in Metal configuration.
+cargo run --release -- train --config config/training.toml --headless
+
+# Resume automatically from the latest champion and replay buffer.
+cargo run --release -- train --resume latest --headless
+```
+
+`--headless` disables the future TUI, not textual diagnostics. Progress is
+written immediately to standard error: roughly twenty updates during self-play,
+one metrics line per epoch, roughly twenty arena updates, and every checkpoint
+or promotion decision. All lines include elapsed wall-clock time.
+
+Set `backend = "cpu"` in the TOML file for deterministic debugging without
+Metal. The command bootstraps generation zero when no model exists, then:
+
+1. generates self-play games from the current champion;
+2. updates the rolling replay buffer and trains a candidate;
+3. evaluates candidate and champion with paired seeds and alternating colors;
+4. publishes the candidate as champion only if its arena score reaches 55%.
+
+Each invocation completes one generation. Checkpoints are written under
+`models/generation-N/`; `models/champion` points to the published champion.
+The replay buffer is stored in `data/self-play/buffer.json`. Writes use temporary
+paths followed by atomic renames so an interrupted write cannot replace the last
+complete generation. After `Ctrl+C`, rerunning the command starts again from the
+last published champion.
 
 ## Rules source
 

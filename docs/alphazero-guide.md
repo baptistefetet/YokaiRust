@@ -112,6 +112,12 @@ and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
 Terminal windows and repetition contempt remain explicit research experiments,
 not hidden corrections to the default algorithm.
 
+The August v7 diagnostic showed why a search-only contempt is not sufficient:
+it reduced the first two self-play batches to 1/256 and 6/256 draws, but the
+second candidate then lost 0-200 to its predecessor under official arena rules.
+Any future contempt experiment must therefore sit behind a champion promotion
+gate; a low draw count alone must never publish a network.
+
 For a controlled bootstrap, `terminal_window_schedule` automates the diagnostic
 suggested during development without replacing the normal replay buffer. Every
 position and draw remains present; final decisive positions are oversampled to
@@ -126,6 +132,8 @@ this implementation, has been strongly solved: the player moving second has a
 forced win in 78 plies. Self-play reports therefore distinguish absolute piece
 owner (`First`/`Second`) from move order (`starter`/`non-starter`). Progress
 toward the known result should eventually favor `non-starter`, not repetition.
+See the [original 2009 retrograde-analysis report](https://ipsj.ixsq.nii.ac.jp/records/62415)
+and the independently verified [interactive tablebase](https://dobutsu.brianhliou.com/).
 
 A longer exploration window is not automatically an improvement. In a paired
 generation-12 diagnostic using identical seeds and 200 simulations per move,

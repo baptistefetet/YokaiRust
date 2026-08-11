@@ -237,8 +237,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             validation_examples,
             terminal_window_plies,
             terminal_extra_examples,
+            terminal_oversampling,
         } => {
-            let selection = if *terminal_extra_examples > 0 {
+            let selection = if *terminal_oversampling {
                 format!(
                     "all positions + {terminal_extra_examples} oversampled examples from the last {} decisive plies",
                     terminal_window_plies.unwrap_or_default(),
@@ -411,13 +412,14 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={}",
+        "generation={} source={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
         report.generated_games,
         report.buffer_examples,
         report.terminal_window_plies,
         report.terminal_extra_examples,
+        report.terminal_oversampling,
     );
     if let Some(checkpoint) = report.training.selected() {
         println!("training metrics at step={}", checkpoint.step);

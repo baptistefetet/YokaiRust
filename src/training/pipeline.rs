@@ -47,6 +47,8 @@ pub struct GenerationReport {
     pub terminal_window_plies: Option<usize>,
     #[serde(default)]
     pub terminal_extra_examples: usize,
+    #[serde(default)]
+    pub terminal_oversampling: bool,
     pub self_play_outcomes: GameOutcomeStats,
     pub training: TrainingReport,
     pub arena: ArenaResult,
@@ -97,6 +99,7 @@ pub enum TrainingProgress {
         validation_examples: usize,
         terminal_window_plies: Option<usize>,
         terminal_extra_examples: usize,
+        terminal_oversampling: bool,
     },
     TrainingStarted {
         steps: usize,
@@ -305,31 +308,30 @@ where
     let terminal_window_plies = config
         .optimization
         .terminal_window_for_generation(candidate_generation);
-    let (training_games, validation_games, mut training_examples, validation_examples) = if config
-        .optimization
-        .terminal_window_schedule
-        .is_some()
-        && terminal_window_plies.is_some()
-    {
-        let (training_games, validation_games) = split.selected_game_counts(None);
-        (
-            training_games,
-            validation_games,
-            split.training_examples(config.optimization.mirror_augmentation),
-            split.validation_examples(),
-        )
-    } else {
-        let (training_games, validation_games) = split.selected_game_counts(terminal_window_plies);
-        (
-            training_games,
-            validation_games,
-            split.training_examples_with_window(
-                config.optimization.mirror_augmentation,
-                terminal_window_plies,
-            ),
-            split.validation_examples_with_window(terminal_window_plies),
-        )
-    };
+    let terminal_oversampling =
+        config.optimization.terminal_window_schedule.is_some() && terminal_window_plies.is_some();
+    let (training_games, validation_games, mut training_examples, validation_examples) =
+        if terminal_oversampling {
+            let (training_games, validation_games) = split.selected_game_counts(None);
+            (
+                training_games,
+                validation_games,
+                split.training_examples(config.optimization.mirror_augmentation),
+                split.validation_examples(),
+            )
+        } else {
+            let (training_games, validation_games) =
+                split.selected_game_counts(terminal_window_plies);
+            (
+                training_games,
+                validation_games,
+                split.training_examples_with_window(
+                    config.optimization.mirror_augmentation,
+                    terminal_window_plies,
+                ),
+                split.validation_examples_with_window(terminal_window_plies),
+            )
+        };
     let terminal_extra_examples = match (
         config.optimization.terminal_window_schedule,
         terminal_window_plies,
@@ -354,6 +356,7 @@ where
         validation_examples: validation_examples.len(),
         terminal_window_plies,
         terminal_extra_examples,
+        terminal_oversampling,
     });
     let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
         models_root,
@@ -461,6 +464,7 @@ where
         buffer_examples: buffer.example_count(),
         terminal_window_plies,
         terminal_extra_examples,
+        terminal_oversampling,
         self_play_outcomes,
         training,
         arena,

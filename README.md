@@ -273,6 +273,45 @@ starter/non-starter win split from 14/32 to 29/27. It replaced repetitions with
 random mistakes rather than improving the signal, so that setting was not
 adopted as a quick fix.
 
+### Draw-signal experiments (August 2026)
+
+The generation-12 result triggered three isolated follow-up runs. Each was
+stopped as soon as the old failure was already unambiguous; continuing to 12
+would only have spent more compute confirming it.
+
+| Self-play source generation | 0 | 1 | 2 | 3 | 4 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Fixed-step v2 | 4 | 9 | 13 | 43 | 39 |
+| Untempered policy target v3 | 4 | 8 | 17 | 17 | 57 |
+| Eight-state history v4 | 5 | 24 | 74 | — | — |
+| Mixed decisive-tail curriculum v6 | 5 | 18 | 28 | 19 | 73 |
+| Repetition contempt 0.5 v7 | 1 | 6 | — | — | — |
+
+Separating the played-move temperature from the stored MCTS visit distribution
+prevents late policies from becoming artificially one-hot, but did not remove
+the draw attractor. Adding seven previous states makes repetition evaluation
+Markovian and matches AlphaZero's treatment of chess/shogi history, but made the
+safe cycle easier to recognize. Replacing the buffer with only the final won
+position was also rejected: its first candidate lost the first 90 arena games
+against the random generation zero. Keeping the full buffer and oversampling
+decisive tails avoided that catastrophic forgetting and produced temporary
+200-0 improvements, but draws returned at generation 5.
+
+A final self-play-only repetition penalty nearly eliminated draws in v7, while
+all recorded outcomes and arenas retained the official zero value. It exposed a
+different failure immediately: generation 2 lost its official paired arena
+against generation 1 by 0-200. Continuous latest-network publication had
+already made this regressed candidate the next self-play source. Avoiding draws
+therefore cannot substitute for a strength gate.
+
+The practical conclusion is stricter than the earlier frozen-baseline result:
+relative improvement and lower losses are not sufficient. The current loop is
+still not accepted for unattended long training because a draw-heavy model
+eventually reduces useful outcome diversity, while forced anti-repetition can
+produce a decisively weaker model. Before another long run, self-play must be
+anchored to a champion that changes only after the candidate passes the paired
+55% arena. Rejected candidates must never become the next data generator.
+
 ### Historical guarded-pipeline observations
 
 The following measurements predate the switch to continuous AlphaZero updates.

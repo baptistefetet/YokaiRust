@@ -98,7 +98,7 @@ impl Default for TrainingConfig {
                 repetition_contempt: 0.0,
             },
             optimization: OptimizationConfig {
-                steps_per_generation: 1_000,
+                steps_per_generation: 400,
                 validation_interval_steps: 100,
                 batch_size: 256,
                 learning_rate: 0.001,

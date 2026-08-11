@@ -184,7 +184,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
-    assert_eq!(config.optimization.steps_per_generation, 1_000);
+    assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(config.arena.games, 200);

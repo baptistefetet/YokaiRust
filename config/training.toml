@@ -26,7 +26,7 @@ repetition_contempt = 0.0
 [optimization]
 # A fixed update budget prevents later generations from receiving more gradient
 # steps merely because their replay buffer has grown.
-steps_per_generation = 1000
+steps_per_generation = 400
 validation_interval_steps = 100
 batch_size = 256
 learning_rate = 0.001

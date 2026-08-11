@@ -100,7 +100,7 @@ and temperature-based action sampling.
 ## AlphaZero training
 
 The checked-in configuration targets Metal and is intentionally substantial:
-256 self-play games, 1,000 optimizer steps, a 200-game paired arena, a 64-game
+256 self-play games, 400 optimizer steps, a 200-game paired arena, a 64-game
 mirror diagnostic and a 64-game exploratory probe. Self-play runs 16 concurrent
 games and selects 8 distinct MCTS leaves per game before each inference, which
 feeds Metal efficiently without requiring hundreds of blocked game threads. The

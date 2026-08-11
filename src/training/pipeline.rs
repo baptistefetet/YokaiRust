@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    AlphaZeroNetworkConfig, ArenaError, ArenaProgress, ArenaResult, EpochReport, InferenceService,
-    InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError, NetworkEvaluator,
-    Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError, SelfPlayError, SelfPlayGame,
-    TrainingConfig, TrainingReport, generate_self_play_with_progress, load_champion,
-    next_generation, publish_champion, run_arena_with_progress, save_generation,
+    AlphaZeroNetworkConfig, ArenaError, ArenaProgress, ArenaResult, EpochReport, InferenceClient,
+    InferenceService, InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError,
+    NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError,
+    SelfPlayError, SelfPlayGame, TrainingConfig, TrainingReport, generate_self_play_with_progress,
+    load_champion, next_generation, publish_champion, run_arena_with_progress, save_generation,
     train_candidate_with_progress,
 };
 
@@ -448,22 +448,12 @@ where
     )?;
     let candidate_client = candidate_service.client();
     let champion_client = champion_service.client();
-    let mut arena = run_arena_with_progress(
+    let mut arena = run_official_arena(
         &candidate_client,
         &champion_client,
-        &config.arena,
-        config.arena.workers,
-        config.self_play.max_game_plies,
-        config
-            .seed
-            .wrapping_add(u64::from(candidate_generation) << 40),
-        &|arena_progress| {
-            if progress_checkpoint(arena_progress.completed, arena_progress.total) {
-                progress(TrainingProgress::ArenaAdvanced {
-                    progress: arena_progress,
-                });
-            }
-        },
+        config,
+        candidate_generation,
+        progress,
     )?;
     let candidate_inference = candidate_service.stats();
     let champion_inference = champion_service.stats();
@@ -472,79 +462,13 @@ where
         candidate_inference,
         champion_inference,
     });
-
-    progress(TrainingProgress::CandidateMirrorStarted {
-        games: config.arena.mirror_games,
-        simulations: config.arena.simulations,
-        max_draw_rate: config.arena.max_mirror_draw_rate,
-    });
-    let mirror_config = crate::ArenaConfig {
-        games: config.arena.mirror_games,
-        promotion_score: 1.0,
-        ..config.arena.clone()
-    };
-    let candidate_mirror = run_arena_with_progress(
+    let candidate_gates = run_candidate_gates(
         &candidate_client,
-        &candidate_client,
-        &mirror_config,
-        config.arena.workers.min(config.arena.mirror_games),
-        config.self_play.max_game_plies,
-        config
-            .seed
-            .wrapping_add(u64::from(candidate_generation) << 48),
-        &|mirror_progress| {
-            if progress_checkpoint(mirror_progress.completed, mirror_progress.total) {
-                progress(TrainingProgress::CandidateMirrorAdvanced {
-                    progress: mirror_progress,
-                });
-            }
-        },
+        config,
+        candidate_generation,
+        &mut arena,
+        progress,
     )?;
-    let mirror_draw_rate = ratio(candidate_mirror.draws, config.arena.mirror_games);
-    let mirror_gate_passed = mirror_draw_rate <= config.arena.max_mirror_draw_rate;
-    arena.promoted &= mirror_gate_passed;
-    progress(TrainingProgress::CandidateMirrorFinished {
-        result: candidate_mirror,
-        draw_rate: mirror_draw_rate,
-        gate_passed: mirror_gate_passed,
-        candidate_promoted: arena.promoted,
-    });
-    let candidate_self_play = if arena.promoted {
-        progress(TrainingProgress::CandidateSelfPlayStarted {
-            games: config.arena.candidate_self_play_games,
-            simulations: config.self_play.simulations,
-            max_draw_rate: config.arena.max_candidate_self_play_draw_rate,
-        });
-        let mut probe_config = config.self_play.clone();
-        probe_config.games_per_generation = config.arena.candidate_self_play_games;
-        probe_config.workers = probe_config.workers.min(probe_config.games_per_generation);
-        let probe_games = generate_self_play_with_progress(
-            &candidate_client,
-            &probe_config,
-            candidate_generation,
-            config
-                .seed
-                .wrapping_add(u64::from(candidate_generation) << 56),
-            &|completed, total| {
-                if progress_checkpoint(completed, total) {
-                    progress(TrainingProgress::CandidateSelfPlayAdvanced { completed, total });
-                }
-            },
-        )?;
-        let outcomes = outcome_stats(&probe_games);
-        let draw_rate = ratio(outcomes.draws, probe_games.len());
-        let gate_passed = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
-        arena.promoted &= gate_passed;
-        progress(TrainingProgress::CandidateSelfPlayFinished {
-            outcomes,
-            draw_rate,
-            gate_passed,
-            candidate_promoted: arena.promoted,
-        });
-        Some(outcomes)
-    } else {
-        None
-    };
     drop(candidate_service);
     drop(champion_service);
     if arena.promoted {
@@ -579,9 +503,171 @@ where
         self_play_outcomes,
         training,
         arena,
-        candidate_mirror,
-        candidate_self_play,
+        candidate_mirror: candidate_gates.mirror,
+        candidate_self_play: candidate_gates.exploratory,
     })
+}
+
+struct CandidateGates {
+    mirror: ArenaResult,
+    exploratory: Option<GameOutcomeStats>,
+}
+
+/// Plays the candidate against the current champion with official rules.
+fn run_official_arena<F>(
+    candidate: &InferenceClient,
+    champion: &InferenceClient,
+    config: &TrainingConfig,
+    candidate_generation: u32,
+    progress: &F,
+) -> Result<ArenaResult, PipelineError>
+where
+    F: Fn(TrainingProgress) + Sync,
+{
+    Ok(run_arena_with_progress(
+        candidate,
+        champion,
+        &config.arena,
+        config.arena.workers,
+        config.self_play.max_game_plies,
+        config
+            .seed
+            .wrapping_add(u64::from(candidate_generation) << 40),
+        &|arena_progress| {
+            if progress_checkpoint(arena_progress.completed, arena_progress.total) {
+                progress(TrainingProgress::ArenaAdvanced {
+                    progress: arena_progress,
+                });
+            }
+        },
+    )?)
+}
+
+/// Applies the two anti-cycle gates after the official candidate arena.
+fn run_candidate_gates<F>(
+    candidate: &InferenceClient,
+    config: &TrainingConfig,
+    candidate_generation: u32,
+    arena: &mut ArenaResult,
+    progress: &F,
+) -> Result<CandidateGates, PipelineError>
+where
+    F: Fn(TrainingProgress) + Sync,
+{
+    let (mirror, mirror_passed) = run_mirror_gate(
+        candidate,
+        config,
+        candidate_generation,
+        arena.promoted,
+        progress,
+    )?;
+    arena.promoted &= mirror_passed;
+
+    let exploratory = if arena.promoted {
+        let (outcomes, exploratory_passed) =
+            run_exploratory_gate(candidate, config, candidate_generation, progress)?;
+        arena.promoted &= exploratory_passed;
+        Some(outcomes)
+    } else {
+        None
+    };
+
+    Ok(CandidateGates {
+        mirror,
+        exploratory,
+    })
+}
+
+/// Checks deterministic candidate-versus-candidate repetition behavior.
+fn run_mirror_gate<F>(
+    candidate: &InferenceClient,
+    config: &TrainingConfig,
+    candidate_generation: u32,
+    arena_passed: bool,
+    progress: &F,
+) -> Result<(ArenaResult, bool), PipelineError>
+where
+    F: Fn(TrainingProgress) + Sync,
+{
+    progress(TrainingProgress::CandidateMirrorStarted {
+        games: config.arena.mirror_games,
+        simulations: config.arena.simulations,
+        max_draw_rate: config.arena.max_mirror_draw_rate,
+    });
+    let mirror_config = crate::ArenaConfig {
+        games: config.arena.mirror_games,
+        promotion_score: 1.0,
+        ..config.arena.clone()
+    };
+    let result = run_arena_with_progress(
+        candidate,
+        candidate,
+        &mirror_config,
+        config.arena.workers.min(config.arena.mirror_games),
+        config.self_play.max_game_plies,
+        config
+            .seed
+            .wrapping_add(u64::from(candidate_generation) << 48),
+        &|mirror_progress| {
+            if progress_checkpoint(mirror_progress.completed, mirror_progress.total) {
+                progress(TrainingProgress::CandidateMirrorAdvanced {
+                    progress: mirror_progress,
+                });
+            }
+        },
+    )?;
+    let draw_rate = ratio(result.draws, config.arena.mirror_games);
+    let gate_passed = draw_rate <= config.arena.max_mirror_draw_rate;
+    progress(TrainingProgress::CandidateMirrorFinished {
+        result,
+        draw_rate,
+        gate_passed,
+        candidate_promoted: arena_passed && gate_passed,
+    });
+    Ok((result, gate_passed))
+}
+
+/// Checks repetition behavior under the actual noisy self-play settings.
+fn run_exploratory_gate<F>(
+    candidate: &InferenceClient,
+    config: &TrainingConfig,
+    candidate_generation: u32,
+    progress: &F,
+) -> Result<(GameOutcomeStats, bool), PipelineError>
+where
+    F: Fn(TrainingProgress) + Sync,
+{
+    progress(TrainingProgress::CandidateSelfPlayStarted {
+        games: config.arena.candidate_self_play_games,
+        simulations: config.self_play.simulations,
+        max_draw_rate: config.arena.max_candidate_self_play_draw_rate,
+    });
+    let mut probe_config = config.self_play.clone();
+    probe_config.games_per_generation = config.arena.candidate_self_play_games;
+    probe_config.workers = probe_config.workers.min(probe_config.games_per_generation);
+    let probe_games = generate_self_play_with_progress(
+        candidate,
+        &probe_config,
+        candidate_generation,
+        config
+            .seed
+            .wrapping_add(u64::from(candidate_generation) << 56),
+        &|completed, total| {
+            if progress_checkpoint(completed, total) {
+                progress(TrainingProgress::CandidateSelfPlayAdvanced { completed, total });
+            }
+        },
+    )?;
+    let outcomes = outcome_stats(&probe_games);
+    let draw_rate = ratio(outcomes.draws, probe_games.len());
+    let gate_passed = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
+    progress(TrainingProgress::CandidateSelfPlayFinished {
+        outcomes,
+        draw_rate,
+        gate_passed,
+        candidate_promoted: gate_passed,
+    });
+    Ok((outcomes, gate_passed))
 }
 
 #[allow(clippy::cast_precision_loss)]

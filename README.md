@@ -40,6 +40,16 @@ first trainable AlphaZero pipeline:
 
 Ratatui is deliberately deferred to the next milestone.
 
+## Learning and code-reading guides
+
+- [Reading YokaiRust as a C++ developer learning Rust](docs/reading-guide.md)
+- [AlphaZero in YokaiRust](docs/alphazero-guide.md)
+
+The first guide maps the Rust constructs used here to familiar C++ concepts and
+suggests a module-by-module reading order. The second explains policy/value
+targets, the terminal curriculum, promotion gates and why continued self-play is
+not a proof of perfect play.
+
 ## Board coordinates
 
 The engine keeps one absolute orientation. First starts at the bottom and moves

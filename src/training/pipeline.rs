@@ -404,7 +404,7 @@ where
     drop(candidate_service);
     drop(reference_service);
 
-    Ok(GenerationReport {
+    let report = GenerationReport {
         source_generation: source_metadata.generation,
         candidate_generation,
         generated_games: games.len(),
@@ -415,7 +415,14 @@ where
         arena,
         candidate_mirror: candidate_diagnostics.mirror,
         candidate_self_play: candidate_diagnostics.exploratory,
-    })
+    };
+    save_generation_report(
+        Path::new(&config.paths.self_play)
+            .join("reports")
+            .join(format!("generation-{candidate_generation:06}.json")),
+        &report,
+    )?;
+    Ok(report)
 }
 
 struct CandidateDiagnostics {
@@ -612,6 +619,13 @@ fn save_self_play_generation(
             .join(format!("generation-{generation:06}.json")),
         games,
     )
+}
+
+fn save_generation_report(
+    path: impl AsRef<Path>,
+    report: &GenerationReport,
+) -> Result<(), PipelineError> {
+    atomic_json_write(path.as_ref(), report)
 }
 
 fn load_self_play_generation(

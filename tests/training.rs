@@ -479,6 +479,13 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
         2
     );
     assert_eq!(reloaded_buffer.len(), 2);
+    let persisted_report: yokai::GenerationReport = serde_json::from_slice(
+        &fs::read(self_play.join("reports/generation-000001.json"))
+            .expect("persisted generation report"),
+    )
+    .expect("generation report JSON");
+    assert_eq!(persisted_report.candidate_generation, 1);
+    assert_eq!(persisted_report.training.steps_completed, 1);
     let replay_directory = self_play.join("replays/generation-000001");
     assert_eq!(
         fs::read_dir(replay_directory)

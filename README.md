@@ -182,7 +182,8 @@ network. Each new checkpoint also contains `training-model.bin` and
 `optimizer.bin`; these make optimizer resume exact but use additional disk space.
 Existing `models/champion` pointers are still accepted during migration.
 The replay buffer is stored in
-`data/self-play/buffer.json`. Writes use
+`data/self-play/buffer.json`, and structured generation summaries are stored in
+`data/self-play/reports/`. Writes use
 temporary paths followed by atomic renames so an interrupted write cannot replace
 the last complete generation. After `Ctrl+C`, rerunning the command starts again
 from the last published network.

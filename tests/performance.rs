@@ -241,6 +241,56 @@ fn compare_continuous_generations_by_absolute_player() {
 }
 
 #[test]
+#[ignore = "manual fixed-step historical-baseline diagnostic"]
+fn compare_fixed_step_generation_12_against_history() {
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    let root = Path::new("models/alpha-zero-fixed-step-v2");
+    let (candidate_model, _) =
+        load_generation::<MetalBackend>(root, 12, &device).expect("generation 12 checkpoint");
+    let candidate = InferenceService::start_with_batching(
+        NetworkEvaluator::new(candidate_model, device.clone()),
+        20,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("candidate inference service");
+    let config = ArenaConfig {
+        games: 40,
+        workers: 40,
+        simulations: 400,
+        search_batch_size: 1,
+        score_threshold: 0.55,
+        mirror_games: 40,
+        max_mirror_draw_rate: 1.0,
+        candidate_self_play_games: 2,
+        max_candidate_self_play_draw_rate: 1.0,
+    };
+
+    for reference_generation in [1_u32, 4, 8, 11] {
+        let (reference_model, _) =
+            load_generation::<MetalBackend>(root, reference_generation, &device)
+                .expect("historical checkpoint");
+        let reference = InferenceService::start_with_batching(
+            NetworkEvaluator::new(reference_model, device.clone()),
+            20,
+            128,
+            Duration::from_millis(1),
+        )
+        .expect("reference inference service");
+        let result = run_arena(
+            &candidate.client(),
+            &reference.client(),
+            &config,
+            config.workers,
+            512,
+            120_000_u64.wrapping_add(u64::from(reference_generation) << 32),
+        )
+        .expect("historical baseline arena");
+        println!("generation-12-vs-{reference_generation}={result:?}");
+    }
+}
+
+#[test]
 #[ignore = "manual saved-champion self-play diagnostic"]
 #[allow(clippy::cast_precision_loss)]
 fn compare_saved_champion_search_modes() {

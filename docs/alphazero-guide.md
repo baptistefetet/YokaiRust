@@ -78,24 +78,29 @@ indicator, not as a publication condition.
 - [AlphaZero paper](https://arxiv.org/abs/1712.01815)
 - [AlphaGo Zero paper](https://www.nature.com/articles/nature24270)
 
-## Why draws increased
+## Why draws can increase while strength improves
 
-An official repetition is worth zero. If an inaccurate value head predicts that
-all non-repeating alternatives lose, deeper MCTS rationally selects the safe
-draw. Self-play then trains the policy to reproduce that branch and trains the
-value to predict zero, creating a feedback loop.
+An official repetition is worth zero. If the value head predicts that
+non-repeating alternatives lose, deeper MCTS rationally selects the safe draw.
+Self-play then trains the policy to reproduce that branch and trains the value
+to predict zero, creating a feedback loop. This can reflect an inaccurate value
+estimate, but it can also be the correct decision against an equally strong
+opponent.
 
 The standard configuration deliberately leaves this feedback visible rather
 than changing its objective: all positions remain in the dataset, repetition
 contempt is zero and every generation continues. Three separate measurements
-make a collapse easy to identify:
+make this behavior visible:
 
 - self-play W/L/D shows behavior with exploration;
 - the mirror probe exposes deterministic repetition cycles;
 - the paired arena tells whether the new network improved against its predecessor.
 
-Terminal windows and repetition contempt remain available as explicit research
-experiments, not hidden corrections to the default algorithm.
+The fixed-step generation-12 run demonstrates why no single draw threshold can
+diagnose strength: it drew 141/256 self-play games, yet beat generations 1, 4
+and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
+Terminal windows and repetition contempt remain explicit research experiments,
+not hidden corrections to the default algorithm.
 
 ## Reading the metrics
 
@@ -134,7 +139,7 @@ turn that process into a proof of optimal play.
 A convincing **strong** model should satisfy all of these repeatedly:
 
 - immediate and multi-ply tactical suites;
-- stable low draw rates with and without exploration noise;
+- stable, explainable W/L/D behavior with and without exploration noise;
 - positive results against frozen historical baselines;
 - progress across multiple seeds and historical checkpoints;
 - calibrated value predictions on held-out games.

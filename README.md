@@ -115,7 +115,7 @@ samples from MCTS visits for the first 12 plies, then becomes greedy. All played
 non-terminal positions enter the rolling buffer and official draws always have
 value zero.
 
-The 55% paired score and the 35%/20% draw limits are health indicators only.
+The 55% paired score and the 35%/20% draw limits are behavior indicators only.
 They are logged but cannot reject a generation. A finite
 `terminal_window_plies` and non-zero `repetition_contempt` remain available for
 controlled experiments, but neither is enabled by the standard configuration.
@@ -209,18 +209,50 @@ epochs made the number of optimizer updates grow with the buffer.
 | 15 | 130/256 | 100/0/100 | 64/64 | 27/64 | 1.099 / 0.552 |
 
 The run proves that the continuous-update plumbing works, including generations
-that score below 55%. It also reproduces the failure: deterministic play becomes
-repetition-dominated from generation 10 onward and does not recover by generation
-15. Lower losses do not contradict that result. Policy loss measures agreement
-with the current MCTS target, so it can improve while MCTS learns a bad cycle;
-value loss also becomes easier when more targets are the draw value zero. Top-1
-still rose from 9% during the first epoch to about 70%, while illegal policy mass
-fell from 91% to 4%, confirming that optimization itself was active.
+that score below 55%. It also reproduces the symptom that originally looked like
+a failure: deterministic play becomes repetition-dominated from generation 10
+onward and does not recover by generation 15. Lower losses do not resolve that
+ambiguity. Policy loss measures agreement with the current MCTS target, so it can
+improve while MCTS learns either a strong strategy or a bad cycle; value loss also
+becomes easier when more targets are the draw value zero. Top-1 still rose from 9%
+during the first epoch to about 70%, while illegal policy mass fell from 91% to
+4%, confirming that optimization itself was active. The frozen-baseline results
+below are needed to interpret the symptom as strength progress rather than
+stagnation.
 
 The isolated artifacts are under ignored paths
 `models/alpha-zero-from-zero/` and `data/alpha-zero-from-zero/`. Generation 15 is
 the last complete checkpoint. Generation 16 self-play completed and was saved,
 but training was interrupted before its checkpoint was created.
+
+### Fixed-step verification (August 2026)
+
+After preserving Adam across checkpoints and replacing growing full-buffer
+epochs with 400 sampled mini-batch updates, a second clean run was stopped after
+generation 12. Its artifacts are under `models/alpha-zero-fixed-step-v2/` and
+`data/alpha-zero-fixed-step-v2/`.
+
+| Generation | Self-play draws | Previous-generation arena C/R/D | Mirror draws | Exploratory draws | Validation policy/value |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 4/256 | 200/0/0 | 0/64 | 2/64 | 2.676 / 1.185 |
+| 4 | 43/256 | 200/0/0 | 64/64 | 6/64 | 1.547 / 0.772 |
+| 8 | 69/256 | 100/0/100 | 64/64 | 29/64 | 1.295 / 0.621 |
+| 10 | 84/256 | 100/0/100 | 64/64 | 31/64 | 1.193 / 0.497 |
+| 11 | 115/256 | 0/0/200 | 64/64 | 37/64 | 1.219 / 0.533 |
+| 12 | 141/256 | 100/0/100 | 0/64 | 24/64 | 1.131 / 0.461 |
+
+The draw curve therefore survived the optimizer corrections and closely matched
+the earlier run: generation 12 had 141 draws instead of 144. It is not, however,
+evidence of stagnant playing strength. In paired 40-game arenas, generation 12
+beat generations 1, 4 and 8 by 40-0. Against generation 11 it scored 20 wins,
+20 draws and no losses. Every color split was favorable or undefeated.
+
+The correct interpretation is that deterministic copies can converge on a
+repetition while the newer network still dominates historical opponents. Draw
+rate remains useful behavioral information, especially under exploratory
+self-play, but an arbitrary low-draw threshold is not a strength oracle. Frozen
+baselines—and eventually an exact solver—are required before changing the
+official zero value of a repetition.
 
 ### Historical guarded-pipeline observations
 

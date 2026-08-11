@@ -125,7 +125,7 @@ pub enum TrainingProgress {
     CandidateMirrorFinished {
         result: ArenaResult,
         draw_rate: f32,
-        healthy: bool,
+        within_configured_limit: bool,
     },
     CandidateSelfPlayStarted {
         games: usize,
@@ -139,7 +139,7 @@ pub enum TrainingProgress {
     CandidateSelfPlayFinished {
         outcomes: GameOutcomeStats,
         draw_rate: f32,
-        healthy: bool,
+        within_configured_limit: bool,
     },
     LatestPublished {
         generation: u32,
@@ -517,11 +517,11 @@ where
         },
     )?;
     let draw_rate = ratio(result.draws, config.arena.mirror_games);
-    let healthy = draw_rate <= config.arena.max_mirror_draw_rate;
+    let within_configured_limit = draw_rate <= config.arena.max_mirror_draw_rate;
     progress(TrainingProgress::CandidateMirrorFinished {
         result,
         draw_rate,
-        healthy,
+        within_configured_limit,
     });
     Ok(result)
 }
@@ -559,11 +559,11 @@ where
     )?;
     let outcomes = outcome_stats(&probe_games);
     let draw_rate = ratio(outcomes.draws, probe_games.len());
-    let healthy = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
+    let within_configured_limit = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
     progress(TrainingProgress::CandidateSelfPlayFinished {
         outcomes,
         draw_rate,
-        healthy,
+        within_configured_limit,
     });
     Ok(outcomes)
 }

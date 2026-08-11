@@ -329,9 +329,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         TrainingProgress::CandidateMirrorFinished {
             result,
             draw_rate,
-            healthy,
+            within_configured_limit,
         } => eprintln!(
-            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), healthy={healthy} (diagnostic only)",
+            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), within_configured_limit={within_configured_limit} (diagnostic only)",
             result.draws,
             result.candidate_wins + result.reference_wins + result.draws,
             draw_rate * 100.0,
@@ -351,9 +351,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         TrainingProgress::CandidateSelfPlayFinished {
             outcomes,
             draw_rate,
-            healthy,
+            within_configured_limit,
         } => eprintln!(
-            "[{elapsed}] candidate exploratory probe finished: first/second/draw={}/{}/{}, draw_rate={:.1}%, healthy={healthy} (diagnostic only)",
+            "[{elapsed}] candidate exploratory probe finished: first/second/draw={}/{}/{}, draw_rate={:.1}%, within_configured_limit={within_configured_limit} (diagnostic only)",
             outcomes.first_wins,
             outcomes.second_wins,
             outcomes.draws,

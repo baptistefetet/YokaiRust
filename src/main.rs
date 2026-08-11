@@ -236,11 +236,19 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             training_examples,
             validation_examples,
             terminal_window_plies,
+            terminal_extra_examples,
         } => {
-            let selection = terminal_window_plies.map_or_else(
-                || "all positions".to_owned(),
-                |plies| format!("last {plies} plies of decisive games"),
-            );
+            let selection = if *terminal_extra_examples > 0 {
+                format!(
+                    "all positions + {terminal_extra_examples} oversampled examples from the last {} decisive plies",
+                    terminal_window_plies.unwrap_or_default(),
+                )
+            } else {
+                terminal_window_plies.map_or_else(
+                    || "all positions".to_owned(),
+                    |plies| format!("last {plies} plies of decisive games"),
+                )
+            };
             eprintln!(
                 "[{elapsed}] dataset ready: {buffer_games} buffered games; {selection}; train={training_games} games/{training_examples} examples, valid={validation_games} games/{validation_examples} examples"
             );
@@ -403,12 +411,13 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source={} games={} buffer_examples={} terminal_window={:?}",
+        "generation={} source={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={}",
         report.candidate_generation,
         report.source_generation,
         report.generated_games,
         report.buffer_examples,
         report.terminal_window_plies,
+        report.terminal_extra_examples,
     );
     if let Some(checkpoint) = report.training.selected() {
         println!("training metrics at step={}", checkpoint.step);

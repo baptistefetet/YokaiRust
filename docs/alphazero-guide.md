@@ -113,10 +113,12 @@ Terminal windows and repetition contempt remain explicit research experiments,
 not hidden corrections to the default algorithm.
 
 For a controlled bootstrap, `terminal_window_schedule` automates the diagnostic
-suggested during development: begin with only the final decisive positions,
-then widen the tail geometrically and finally restore every position and draw.
-The schedule depends only on the checkpoint generation, so interruption and
-resume cannot silently change the selected dataset.
+suggested during development without replacing the normal replay buffer. Every
+position and draw remains present; final decisive positions are oversampled to
+`decisive_fraction`, their tail widens geometrically, and the additional
+sampling eventually stops. The schedule depends only on the checkpoint
+generation, so interruption and resume cannot silently change the selected
+dataset.
 
 For this particular game, draws cannot be treated as the expected endpoint of
 perfect play. Dōbutsu Shōgi, whose 3×4 rules and initial position correspond to

@@ -220,6 +220,7 @@ fn terminal_window_schedule_expands_then_restores_full_alphazero_data() {
     optimization.terminal_window_schedule = Some(TerminalWindowSchedule {
         initial_plies: 1,
         growth_factor: 2,
+        decisive_fraction: 0.25,
         full_dataset_generation: 5,
     });
 

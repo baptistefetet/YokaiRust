@@ -14,10 +14,10 @@ use crate::{
     AlphaZeroNetworkConfig, AlphaZeroTrainingState, ArenaError, ArenaProgress, ArenaResult,
     InferenceClient, InferenceService, InferenceServiceError, InferenceStats, ModelMetadata,
     ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig,
-    ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingReport, TrainingStepReport,
-    generate_self_play_with_progress, load_generation, load_latest, load_training_generation,
-    next_generation, publish_latest, run_arena_with_progress, save_generation,
-    save_training_generation, train_state_with_progress,
+    ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample, TrainingReport,
+    TrainingStepReport, generate_self_play_with_progress, load_generation, load_latest,
+    load_training_generation, next_generation, publish_latest, run_arena_with_progress,
+    save_generation, save_training_generation, train_state_with_progress,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -45,6 +45,8 @@ pub struct GenerationReport {
     pub buffer_examples: usize,
     #[serde(default)]
     pub terminal_window_plies: Option<usize>,
+    #[serde(default)]
+    pub terminal_extra_examples: usize,
     pub self_play_outcomes: GameOutcomeStats,
     pub training: TrainingReport,
     pub arena: ArenaResult,
@@ -94,6 +96,7 @@ pub enum TrainingProgress {
         training_examples: usize,
         validation_examples: usize,
         terminal_window_plies: Option<usize>,
+        terminal_extra_examples: usize,
     },
     TrainingStarted {
         steps: usize,
@@ -302,12 +305,44 @@ where
     let terminal_window_plies = config
         .optimization
         .terminal_window_for_generation(candidate_generation);
-    let (training_games, validation_games) = split.selected_game_counts(terminal_window_plies);
-    let training_examples = split.training_examples_with_window(
-        config.optimization.mirror_augmentation,
+    let (training_games, validation_games, mut training_examples, validation_examples) = if config
+        .optimization
+        .terminal_window_schedule
+        .is_some()
+        && terminal_window_plies.is_some()
+    {
+        let (training_games, validation_games) = split.selected_game_counts(None);
+        (
+            training_games,
+            validation_games,
+            split.training_examples(config.optimization.mirror_augmentation),
+            split.validation_examples(),
+        )
+    } else {
+        let (training_games, validation_games) = split.selected_game_counts(terminal_window_plies);
+        (
+            training_games,
+            validation_games,
+            split.training_examples_with_window(
+                config.optimization.mirror_augmentation,
+                terminal_window_plies,
+            ),
+            split.validation_examples_with_window(terminal_window_plies),
+        )
+    };
+    let terminal_extra_examples = match (
+        config.optimization.terminal_window_schedule,
         terminal_window_plies,
-    );
-    let validation_examples = split.validation_examples_with_window(terminal_window_plies);
+    ) {
+        (Some(schedule), Some(window)) => {
+            let tail = split.training_examples_with_window(
+                config.optimization.mirror_augmentation,
+                Some(window),
+            );
+            oversample_tail(&mut training_examples, &tail, schedule.decisive_fraction)
+        }
+        _ => 0,
+    };
     if training_examples.is_empty() {
         return Err(PipelineError::EmptyTrainingSet);
     }
@@ -318,6 +353,7 @@ where
         training_examples: training_examples.len(),
         validation_examples: validation_examples.len(),
         terminal_window_plies,
+        terminal_extra_examples,
     });
     let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
         models_root,
@@ -424,6 +460,7 @@ where
         buffer_games: buffer.len(),
         buffer_examples: buffer.example_count(),
         terminal_window_plies,
+        terminal_extra_examples,
         self_play_outcomes,
         training,
         arena,
@@ -585,6 +622,26 @@ where
 #[allow(clippy::cast_precision_loss)]
 fn ratio(numerator: usize, denominator: usize) -> f32 {
     numerator as f32 / denominator as f32
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn oversample_tail(
+    training: &mut Vec<TrainingExample>,
+    tail: &[TrainingExample],
+    desired_fraction: f32,
+) -> usize {
+    if tail.is_empty() {
+        return 0;
+    }
+    let initial_len = training.len();
+    let mut effective_tail = tail.len();
+    let mut cursor = 0;
+    while (effective_tail as f32) / (training.len() as f32) < desired_fraction {
+        training.push(tail[cursor % tail.len()].clone());
+        effective_tail += 1;
+        cursor += 1;
+    }
+    training.len() - initial_len
 }
 
 fn progress_checkpoint(completed: usize, total: usize) -> bool {

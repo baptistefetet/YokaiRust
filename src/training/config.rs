@@ -50,10 +50,12 @@ pub struct OptimizationConfig {
     pub replay_buffer: ReplayBufferConfig,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TerminalWindowSchedule {
     pub initial_plies: usize,
     pub growth_factor: usize,
+    /// Desired fraction of training samples belonging to the decisive tail.
+    pub decisive_fraction: f32,
     /// This generation and all later ones use the complete replay buffer.
     pub full_dataset_generation: u32,
 }
@@ -282,10 +284,12 @@ fn validate_terminal_window(optimization: &OptimizationConfig) -> Result<(), Tra
         }
         if schedule.initial_plies == 0
             || schedule.growth_factor == 0
+            || !schedule.decisive_fraction.is_finite()
+            || !(0.0..1.0).contains(&schedule.decisive_fraction)
             || schedule.full_dataset_generation < 2
         {
             return Err(TrainingConfigError::Invalid(
-                "terminal window schedule requires positive sizes and a full-dataset generation of at least two",
+                "terminal window schedule requires positive sizes, a decisive fraction in (0, 1), and a full-dataset generation of at least two",
             ));
         }
     }

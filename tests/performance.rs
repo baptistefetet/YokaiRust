@@ -9,8 +9,8 @@ use std::{
 use burn::prelude::Backend;
 use yokai::{
     AlphaZeroNetworkConfig, ArenaConfig, CpuBackend, EvaluationRequest, Evaluator, Game,
-    InferenceService, MetalBackend, NetworkEvaluator, Player, SelfPlayConfig, generate_self_play,
-    load_generation, run_arena,
+    InferenceService, MetalBackend, NetworkEvaluator, Outcome, Player, SelfPlayConfig,
+    generate_self_play, load_generation, run_arena,
 };
 
 const BATCH_SIZES: [usize; 6] = [1, 8, 16, 32, 64, 128];
@@ -287,6 +287,76 @@ fn compare_fixed_step_generation_12_against_history() {
         )
         .expect("historical baseline arena");
         println!("generation-12-vs-{reference_generation}={result:?}");
+    }
+}
+
+#[test]
+#[ignore = "manual generation-12 exploration-schedule diagnostic"]
+fn compare_generation_12_exploration_schedules() {
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    let (model, _) =
+        load_generation::<MetalBackend>(Path::new("models/alpha-zero-fixed-step-v2"), 12, &device)
+            .expect("generation 12 checkpoint");
+    let service = InferenceService::start_with_batching(
+        NetworkEvaluator::new(model, device),
+        128,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("inference service");
+
+    for (label, exploration_plies, final_temperature) in [
+        ("baseline", 12, 0.0),
+        ("explore-32", 32, 0.0),
+        ("explore-48", 48, 0.0),
+        ("soft-tail", 32, 0.25),
+    ] {
+        let config = SelfPlayConfig {
+            games_per_generation: 64,
+            workers: 16,
+            simulations: 200,
+            search_batch_size: 8,
+            max_game_plies: 512,
+            inference_batch_size: 128,
+            inference_wait_ms: 1,
+            exploration_plies,
+            exploration_temperature: 1.0,
+            final_temperature,
+            repetition_contempt: 0.0,
+        };
+        let started = Instant::now();
+        let games = generate_self_play(&service.client(), &config, 12, 202_608_120)
+            .expect("exploration diagnostic self-play");
+        let wins = games
+            .iter()
+            .filter(|game| matches!(game.outcome, Outcome::Win { .. }))
+            .count();
+        let draws = games.len() - wins;
+        let starter_wins = games
+            .iter()
+            .filter(|game| {
+                matches!(
+                    (game.outcome, game.replay.as_ref()),
+                    (Outcome::Win { player, .. }, Some(replay))
+                        if player == replay.initial_player
+                )
+            })
+            .count();
+        let non_starter_wins = wins - starter_wins;
+        let decisive_examples = games
+            .iter()
+            .filter(|game| matches!(game.outcome, Outcome::Win { .. }))
+            .map(|game| game.examples.len())
+            .sum::<usize>();
+        let draw_examples = games
+            .iter()
+            .filter(|game| matches!(game.outcome, Outcome::Draw { .. }))
+            .map(|game| game.examples.len())
+            .sum::<usize>();
+        println!(
+            "{label}: exploration_plies={exploration_plies} final_temperature={final_temperature:.2} starter/non-starter/draw={starter_wins}/{non_starter_wins}/{draws} decisive_examples={decisive_examples} draw_examples={draw_examples} wall={:.2}s",
+            started.elapsed().as_secs_f64(),
+        );
     }
 }
 

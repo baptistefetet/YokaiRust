@@ -183,6 +183,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.network.residual_blocks, 4);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
+    assert_eq!(config.self_play.exploration_plies, 12);
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
@@ -468,6 +469,13 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     .expect("persisted buffer");
 
     assert_eq!(report.generated_games, 2);
+    assert_eq!(
+        report.self_play_outcomes.starter_wins
+            + report.self_play_outcomes.non_starter_wins
+            + report.self_play_outcomes.unclassified_wins,
+        report.self_play_outcomes.first_wins + report.self_play_outcomes.second_wins,
+    );
+    assert_eq!(report.self_play_outcomes.unclassified_wins, 0);
     assert_eq!(
         report.arena.candidate_wins + report.arena.reference_wins + report.arena.draws,
         200

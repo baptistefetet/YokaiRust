@@ -259,6 +259,8 @@ pub struct SearchResult {
     pub best_action: Action,
     pub selected_action: Action,
     pub root_value: f32,
+    /// Raw normalized MCTS visit counts used as the neural policy target.
+    /// Move-selection temperature must not sharpen this training signal.
     pub policy: [f32; POLICY_ACTIONS],
     pub analysis: Vec<ActionAnalysis>,
 }
@@ -735,13 +737,19 @@ impl<E: Evaluator> Mcts<E> {
             .copied()
             .max_by(|&left, &right| self.compare_final_children(left, right, player))
             .ok_or(SearchError::NoLegalAction)?;
-        let probabilities = self.visit_probabilities(&children, temperature, best_child);
-        let selected_child = children[sample_probability_index(&probabilities, &mut self.rng)];
+        let policy_probabilities = self.visit_probabilities(&children, 1.0, best_child);
+        let selection_probabilities = if (temperature - 1.0).abs() <= f32::EPSILON {
+            policy_probabilities.clone()
+        } else {
+            self.visit_probabilities(&children, temperature, best_child)
+        };
+        let selected_child =
+            children[sample_probability_index(&selection_probabilities, &mut self.rng)];
         let mut policy = [0.0; POLICY_ACTIONS];
         let mut analysis = children
             .iter()
             .copied()
-            .zip(probabilities.iter().copied())
+            .zip(policy_probabilities.iter().copied())
             .filter_map(|(child_index, visit_probability)| {
                 let child = self.arena[child_index];
                 let action = child.action?;

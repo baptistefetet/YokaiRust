@@ -216,8 +216,13 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             inference,
         } => {
             eprintln!(
-                "[{elapsed}] self-play finished: {games} games, {examples} examples, first/second/draw={}/{}/{}",
-                outcomes.first_wins, outcomes.second_wins, outcomes.draws
+                "[{elapsed}] self-play finished: {games} games, {examples} examples, absolute first/second/draw={}/{}/{}, mover starter/non-starter/unclassified={}/{}/{}",
+                outcomes.first_wins,
+                outcomes.second_wins,
+                outcomes.draws,
+                outcomes.starter_wins,
+                outcomes.non_starter_wins,
+                outcomes.unclassified_wins,
             );
             print_inference_stats(&elapsed, "self-play inference", inference);
         }
@@ -353,10 +358,13 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             draw_rate,
             within_configured_limit,
         } => eprintln!(
-            "[{elapsed}] candidate exploratory probe finished: first/second/draw={}/{}/{}, draw_rate={:.1}%, within_configured_limit={within_configured_limit} (diagnostic only)",
+            "[{elapsed}] candidate exploratory probe finished: absolute first/second/draw={}/{}/{}, mover starter/non-starter/unclassified={}/{}/{}, draw_rate={:.1}%, within_configured_limit={within_configured_limit} (diagnostic only)",
             outcomes.first_wins,
             outcomes.second_wins,
             outcomes.draws,
+            outcomes.starter_wins,
+            outcomes.non_starter_wins,
+            outcomes.unclassified_wins,
             draw_rate * 100.0,
         ),
         TrainingProgress::LatestPublished { generation } => {

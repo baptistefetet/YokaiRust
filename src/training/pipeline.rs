@@ -25,6 +25,15 @@ pub struct GameOutcomeStats {
     pub first_wins: usize,
     pub second_wins: usize,
     pub draws: usize,
+    /// Wins by the side selected to make the first move.
+    #[serde(default)]
+    pub starter_wins: usize,
+    /// Wins by the side that did not make the first move.
+    #[serde(default)]
+    pub non_starter_wins: usize,
+    /// Wins from legacy self-play records without an initial-player replay.
+    #[serde(default)]
+    pub unclassified_wins: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -706,6 +715,13 @@ fn outcome_stats(games: &[SelfPlayGame]) -> GameOutcomeStats {
             } => stats.second_wins += 1,
             Outcome::Draw { .. } => stats.draws += 1,
             Outcome::Ongoing => {}
+        }
+        if let Outcome::Win { player, .. } = game.outcome {
+            match game.replay.as_ref().map(|replay| replay.initial_player) {
+                Some(starter) if player == starter => stats.starter_wins += 1,
+                Some(_) => stats.non_starter_wins += 1,
+                None => stats.unclassified_wins += 1,
+            }
         }
     }
     stats

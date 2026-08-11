@@ -13,6 +13,9 @@ For every non-terminal position, the network produces:
 The policy is not trained directly on the action that happened. Its target is
 the normalized MCTS visit distribution after illegal actions are masked. This
 retains information about alternatives explored by the search.
+Move-selection temperature is applied only when choosing the played action. It
+never sharpens the stored policy target: even after self-play becomes greedy,
+the target remains the complete normalized visit distribution.
 
 The value target is the final game result:
 
@@ -101,6 +104,21 @@ diagnose strength: it drew 141/256 self-play games, yet beat generations 1, 4
 and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
 Terminal windows and repetition contempt remain explicit research experiments,
 not hidden corrections to the default algorithm.
+
+For this particular game, draws cannot be treated as the expected endpoint of
+perfect play. Dōbutsu Shōgi, whose 3×4 rules and initial position correspond to
+this implementation, has been strongly solved: the player moving second has a
+forced win in 78 plies. Self-play reports therefore distinguish absolute piece
+owner (`First`/`Second`) from move order (`starter`/`non-starter`). Progress
+toward the known result should eventually favor `non-starter`, not repetition.
+
+A longer exploration window is not automatically an improvement. In a paired
+generation-12 diagnostic using identical seeds and 200 simulations per move,
+the 12-ply schedule produced starter/non-starter/draw counts of 14/32/18. A
+48-ply schedule reduced draws to 8/64 but changed the split to 29/27/8: it mostly
+replaced repetitions with random mistakes and erased the known second-mover
+signal. The default therefore remains 12 plies while the training-data remedy is
+evaluated separately.
 
 ## Reading the metrics
 

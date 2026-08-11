@@ -281,6 +281,33 @@ fn self_play_temperature_changes_after_the_configured_ply() {
 }
 
 #[test]
+fn move_temperature_does_not_sharpen_the_policy_target() {
+    let game = Game::new(Player::First);
+    let config = search_config(64);
+    let mut greedy = Mcts::new(UniformEvaluator, config, 29).expect("valid search");
+    let mut sampling = Mcts::new(UniformEvaluator, config, 29).expect("valid search");
+
+    let greedy_result = greedy.search(&game, 0.0).expect("greedy search");
+    let sampling_result = sampling.search(&game, 1.0).expect("sampling search");
+
+    assert!(greedy_result.policy.iter().zip(sampling_result.policy).all(
+        |(&greedy_probability, sampling_probability)| {
+            (greedy_probability - sampling_probability).abs() < f32::EPSILON
+        }
+    ));
+    assert!(
+        greedy_result
+            .policy
+            .iter()
+            .filter(|&&probability| probability > 0.0)
+            .count()
+            > 1,
+        "a greedy played move must retain the complete visit distribution as its target",
+    );
+    assert_eq!(greedy_result.selected_action, greedy_result.best_action);
+}
+
+#[test]
 fn arena_tree_is_reused_after_the_played_action() {
     let mut game = Game::new(Player::First);
     let mut mcts = Mcts::new(UniformEvaluator, search_config(64), 5).expect("valid search");

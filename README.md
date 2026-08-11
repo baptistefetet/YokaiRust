@@ -254,6 +254,16 @@ self-play, but an arbitrary low-draw threshold is not a strength oracle. Frozen
 baselines—and eventually an exact solver—are required before changing the
 official zero value of a repetition.
 
+This does not make a draw-dominated replay buffer harmless. In the generation-12
+batch, drawn games already supplied 4,385 of 8,500 examples (51.6%), and the
+starter/non-starter/draw result was 57/58/141. The model was stronger than its
+history but was not yet moving toward the known theoretical result: the side
+that moves second has a forced win. Extending stochastic move selection from 12
+to 48 plies reduced a paired probe from 18 to 8 draws, but changed the
+starter/non-starter win split from 14/32 to 29/27. It replaced repetitions with
+random mistakes rather than improving the signal, so that setting was not
+adopted as a quick fix.
+
 ### Historical guarded-pipeline observations
 
 The following measurements predate the switch to continuous AlphaZero updates.

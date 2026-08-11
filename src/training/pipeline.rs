@@ -1,4 +1,4 @@
-//! One recoverable `AlphaZero` update followed by non-blocking diagnostics.
+//! One recoverable `AlphaZero` candidate followed by guarded promotion.
 
 use std::{
     fs, io,
@@ -15,8 +15,8 @@ use crate::{
     InferenceClient, InferenceService, InferenceServiceError, InferenceStats, ModelMetadata,
     ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig,
     ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample, TrainingReport,
-    TrainingStepReport, generate_self_play_with_progress, load_generation, load_latest,
-    load_training_generation, next_generation, publish_latest, run_arena_with_progress,
+    TrainingStepReport, generate_self_play_with_progress, load_champion, load_generation,
+    load_training_generation, next_generation, publish_champion, run_arena_with_progress,
     save_generation, save_training_generation, train_state_with_progress,
 };
 
@@ -54,12 +54,34 @@ pub struct GenerationReport {
     pub arena: ArenaResult,
     pub candidate_mirror: ArenaResult,
     pub candidate_self_play: GameOutcomeStats,
+    #[serde(default)]
+    pub promotion: PromotionDecision,
 }
 
 impl GenerationReport {
     #[must_use]
     pub const fn arena_threshold_reached(&self) -> bool {
         self.arena.threshold_reached
+    }
+
+    #[must_use]
+    pub const fn promoted(&self) -> bool {
+        self.promotion.promoted()
+    }
+}
+
+/// Every independent condition that protects the next self-play source.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PromotionDecision {
+    pub arena_passed: bool,
+    pub mirror_draw_gate_passed: bool,
+    pub exploratory_draw_gate_passed: bool,
+}
+
+impl PromotionDecision {
+    #[must_use]
+    pub const fn promoted(self) -> bool {
+        self.arena_passed && self.mirror_draw_gate_passed && self.exploratory_draw_gate_passed
     }
 }
 
@@ -158,39 +180,56 @@ pub enum TrainingProgress {
         draw_rate: f32,
         within_configured_limit: bool,
     },
-    LatestPublished {
+    ChampionPromoted {
         generation: u32,
+    },
+    CandidateRejected {
+        generation: u32,
+        decision: PromotionDecision,
     },
 }
 
-/// Creates generation zero only when no latest-network pointer exists.
+/// Creates generation zero only when no champion pointer exists.
 ///
 /// # Errors
 ///
 /// Returns [`PipelineError`] for model storage or loading failures.
-pub fn bootstrap_latest<B: Backend>(
+pub fn bootstrap_champion<B: Backend>(
     root: impl AsRef<Path>,
     architecture: AlphaZeroNetworkConfig,
     device: &B::Device,
 ) -> Result<ModelMetadata, PipelineError> {
     let root = root.as_ref();
     if root.join("latest").exists() || root.join("champion").exists() {
-        let (_, metadata) = load_latest::<B>(root, device)?;
+        let (_, metadata) = load_champion::<B>(root, device)?;
         return Ok(metadata);
     }
     let generation = next_generation(root)?;
     let model = architecture.init::<B>(device);
     let metadata = ModelMetadata::new(generation, architecture);
     save_generation(root, &metadata, &model)?;
-    publish_latest(root, generation)?;
+    publish_champion(root, generation)?;
     Ok(metadata)
 }
 
-/// Runs a complete update and atomically publishes it as the latest network.
+/// Backward-compatible name for [`bootstrap_champion`].
 ///
 /// # Errors
 ///
-/// The arena and draw probes report regressions but never reject the update.
+/// Returns [`PipelineError`] under the same conditions as [`bootstrap_champion`].
+pub fn bootstrap_latest<B: Backend>(
+    root: impl AsRef<Path>,
+    architecture: AlphaZeroNetworkConfig,
+    device: &B::Device,
+) -> Result<ModelMetadata, PipelineError> {
+    bootstrap_champion::<B>(root, architecture, device)
+}
+
+/// Runs a complete candidate and atomically promotes it only on success.
+///
+/// # Errors
+///
+/// Official strength and both draw gates must pass before the champion changes.
 pub fn run_generation<B>(
     config: &TrainingConfig,
     buffer: &mut ReplayBuffer,
@@ -227,7 +266,7 @@ where
 {
     config.validate().map_err(PipelineError::Configuration)?;
     let models_root = Path::new(&config.paths.models);
-    let (_, source_metadata) = load_latest::<B::InnerBackend>(models_root, device)?;
+    let (_, source_metadata) = load_champion::<B::InnerBackend>(models_root, device)?;
     let candidate_generation = next_generation(models_root)?;
     progress(TrainingProgress::GenerationStarted {
         source_generation: source_metadata.generation,
@@ -254,7 +293,7 @@ where
             search_batch_size: config.self_play.search_batch_size,
             repetition_contempt: config.self_play.repetition_contempt,
         });
-        let (source_for_self_play, _) = load_latest::<B::InnerBackend>(models_root, device)?;
+        let (source_for_self_play, _) = load_champion::<B::InnerBackend>(models_root, device)?;
         let self_play_service = InferenceService::start_with_batching(
             NetworkEvaluator::new(source_for_self_play, device.clone()),
             config
@@ -366,7 +405,7 @@ where
     )? {
         (state, true)
     } else {
-        let (source_for_training, _) = load_latest::<B>(models_root, device)?;
+        let (source_for_training, _) = load_champion::<B>(models_root, device)?;
         (
             AlphaZeroTrainingState::new(source_for_training, &config.optimization),
             false,
@@ -402,13 +441,6 @@ where
     progress(TrainingProgress::CandidateSaved {
         generation: candidate_generation,
     });
-    // AlphaZero always feeds the newest parameters into subsequent self-play.
-    // Diagnostics below deliberately cannot reject this network.
-    publish_latest(models_root, candidate_generation)?;
-    progress(TrainingProgress::LatestPublished {
-        generation: candidate_generation,
-    });
-
     progress(TrainingProgress::ArenaStarted {
         games: config.arena.games,
         workers: config.arena.workers,
@@ -456,6 +488,19 @@ where
     drop(candidate_service);
     drop(reference_service);
 
+    let promotion = promotion_decision(&arena, &candidate_diagnostics, config);
+    if promotion.promoted() {
+        publish_champion(models_root, candidate_generation)?;
+        progress(TrainingProgress::ChampionPromoted {
+            generation: candidate_generation,
+        });
+    } else {
+        progress(TrainingProgress::CandidateRejected {
+            generation: candidate_generation,
+            decision: promotion,
+        });
+    }
+
     let report = GenerationReport {
         source_generation: source_metadata.generation,
         candidate_generation,
@@ -470,6 +515,7 @@ where
         arena,
         candidate_mirror: candidate_diagnostics.mirror,
         candidate_self_play: candidate_diagnostics.exploratory,
+        promotion,
     };
     save_generation_report(
         Path::new(&config.paths.self_play)
@@ -483,6 +529,29 @@ where
 struct CandidateDiagnostics {
     mirror: ArenaResult,
     exploratory: GameOutcomeStats,
+}
+
+fn promotion_decision(
+    arena: &ArenaResult,
+    diagnostics: &CandidateDiagnostics,
+    config: &TrainingConfig,
+) -> PromotionDecision {
+    let mirror_games = diagnostics.mirror.candidate_wins
+        + diagnostics.mirror.reference_wins
+        + diagnostics.mirror.draws;
+    let exploratory_games = diagnostics.exploratory.first_wins
+        + diagnostics.exploratory.second_wins
+        + diagnostics.exploratory.draws;
+    let arena_passed = arena.threshold_reached;
+    let mirror_draw_gate_passed =
+        ratio(diagnostics.mirror.draws, mirror_games) <= config.arena.max_mirror_draw_rate;
+    let exploratory_draw_gate_passed = ratio(diagnostics.exploratory.draws, exploratory_games)
+        <= config.arena.max_candidate_self_play_draw_rate;
+    PromotionDecision {
+        arena_passed,
+        mirror_draw_gate_passed,
+        exploratory_draw_gate_passed,
+    }
 }
 
 /// Plays the new network against its source network with official rules.
@@ -515,7 +584,7 @@ where
     )?)
 }
 
-/// Measures deterministic and exploratory draw behavior without gating updates.
+/// Measures deterministic and exploratory draw behavior before promotion.
 fn run_candidate_diagnostics<F>(
     candidate: &InferenceClient,
     config: &TrainingConfig,

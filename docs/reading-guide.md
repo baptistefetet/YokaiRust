@@ -114,14 +114,15 @@ The sign convention is tested explicitly in `tests/search.rs`.
 The top-level function in `training/pipeline.rs` should now read as these named
 steps:
 
-1. load the latest network;
+1. load the accepted champion;
 2. generate self-play and persist replays;
 3. select whole-game train/validation splits;
 4. restore the trainable weights and Adam moments, then apply a fixed number of
    sampled mini-batch updates;
-5. save and publish it unconditionally;
-6. `run_official_arena` against the previous network;
-7. `run_candidate_diagnostics` with mirror and exploratory draw probes.
+5. save the candidate without changing the champion;
+6. `run_official_arena` against the champion;
+7. `run_candidate_diagnostics` with mirror and exploratory draw gates;
+8. publish the candidate only when all three gates pass.
 
 Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
 `main.rs` decides how to print it. Ratatui can later consume the same events.

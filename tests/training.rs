@@ -399,7 +399,7 @@ fn arena_progress_reports_consistent_running_outcomes() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
+fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     use burn::prelude::Backend;
 
     let nonce = SystemTime::now()
@@ -516,6 +516,13 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     .expect("generation report JSON");
     assert_eq!(persisted_report.candidate_generation, 1);
     assert_eq!(persisted_report.training.steps_completed, 1);
+    assert_eq!(persisted_report.promotion, report.promotion);
+    assert_eq!(
+        report.promoted(),
+        report.promotion.arena_passed
+            && report.promotion.mirror_draw_gate_passed
+            && report.promotion.exploratory_draw_gate_passed
+    );
     let replay_directory = self_play.join("replays/generation-000001");
     assert_eq!(
         fs::read_dir(replay_directory)
@@ -547,11 +554,11 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
         TrainingProgress::ArenaAdvanced { progress }
             if progress.completed == 200 && progress.total == 200
     )));
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, TrainingProgress::LatestPublished { generation: 1 }))
-    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        TrainingProgress::ChampionPromoted { generation: 1 }
+            | TrainingProgress::CandidateRejected { generation: 1, .. }
+    )));
     assert!(events.iter().any(|event| matches!(
         event,
         TrainingProgress::TrainingStarted {
@@ -566,10 +573,8 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     );
     assert!(models.join("generation-000001/optimizer.bin").is_file());
     let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("latest model");
-    assert_eq!(
-        latest.generation, 1,
-        "arena score cannot reject generation 1"
-    );
+    let expected_champion = u32::from(report.promoted());
+    assert_eq!(latest.generation, expected_champion);
     drop(events);
 
     // Simulate Ctrl+C after generation-2 self-play was persisted but before its
@@ -580,7 +585,7 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     )
     .expect("persisted game JSON");
     for game in &mut persisted_games {
-        game.generation = 1;
+        game.generation = expected_champion;
         game.seed = game.seed.wrapping_add(10_000);
     }
     fs::write(
@@ -590,7 +595,7 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     .expect("generation-2 persistence");
     let resumed_events = Arc::new(Mutex::new(Vec::new()));
     let recorded_resumed_events = resumed_events.clone();
-    run_generation_with_progress::<CpuTrainingBackend, _>(
+    let resumed_report = run_generation_with_progress::<CpuTrainingBackend, _>(
         &config,
         &mut buffer,
         &device,
@@ -615,20 +620,24 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
                 }
             ))
     );
-    assert!(
-        resumed_events
-            .lock()
-            .expect("resumed events")
-            .iter()
-            .any(|event| matches!(
-                event,
-                TrainingProgress::TrainingStarted {
-                    optimizer_resumed: true,
-                    ..
-                }
-            ))
-    );
+    let optimizer_was_resumed = resumed_events
+        .lock()
+        .expect("resumed events")
+        .iter()
+        .find_map(|event| match event {
+            TrainingProgress::TrainingStarted {
+                optimizer_resumed, ..
+            } => Some(*optimizer_resumed),
+            _ => None,
+        })
+        .expect("training start event");
+    assert_eq!(optimizer_was_resumed, report.promoted());
     let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("resumed latest model");
-    assert_eq!(latest.generation, 2);
+    let expected_champion = if resumed_report.promoted() {
+        2
+    } else {
+        expected_champion
+    };
+    assert_eq!(latest.generation, expected_champion);
     fs::remove_dir_all(root).expect("pipeline test cleanup");
 }

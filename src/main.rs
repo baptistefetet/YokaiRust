@@ -13,7 +13,7 @@ use rand_chacha::ChaCha8Rng;
 use yokai::{
     BackendKind, CachedEvaluator, CpuBackend, CpuTrainingBackend, Game, Mcts, MetalBackend,
     MetalTrainingBackend, Replay, SearchConfig, TrainingConfig, TrainingProgress, UniformEvaluator,
-    bootstrap_latest, load_replay_buffer, run_generation_with_progress,
+    bootstrap_champion, load_replay_buffer, run_generation_with_progress,
 };
 
 fn main() -> ExitCode {
@@ -128,15 +128,15 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
             let device = burn::backend::flex::FlexDevice;
             CpuBackend::seed(&device, config.seed);
             CpuTrainingBackend::seed(&device, config.seed);
-            let latest = bootstrap_latest::<CpuBackend>(
+            let champion = bootstrap_champion::<CpuBackend>(
                 &config.paths.models,
                 config.network.clone(),
                 &device,
             )?;
             eprintln!(
-                "[{}] latest network generation={} ready",
+                "[{}] champion network generation={} ready",
                 elapsed_text(started.elapsed()),
-                latest.generation
+                champion.generation
             );
             let mut buffer = load_replay_buffer(
                 Path::new(&config.paths.self_play).join("buffer.json"),
@@ -157,15 +157,15 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
             let device = burn::backend::wgpu::WgpuDevice::default();
             MetalBackend::seed(&device, config.seed);
             MetalTrainingBackend::seed(&device, config.seed);
-            let latest = bootstrap_latest::<MetalBackend>(
+            let champion = bootstrap_champion::<MetalBackend>(
                 &config.paths.models,
                 config.network.clone(),
                 &device,
             )?;
             eprintln!(
-                "[{}] latest network generation={} ready",
+                "[{}] champion network generation={} ready",
                 elapsed_text(started.elapsed()),
-                latest.generation
+                champion.generation
             );
             let mut buffer = load_replay_buffer(
                 Path::new(&config.paths.self_play).join("buffer.json"),
@@ -345,7 +345,7 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             draw_rate,
             within_configured_limit,
         } => eprintln!(
-            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), within_configured_limit={within_configured_limit} (diagnostic only)",
+            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), gate_passed={within_configured_limit}",
             result.draws,
             result.candidate_wins + result.reference_wins + result.draws,
             draw_rate * 100.0,
@@ -367,7 +367,7 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             draw_rate,
             within_configured_limit,
         } => eprintln!(
-            "[{elapsed}] candidate exploratory probe finished: absolute first/second/draw={}/{}/{}, mover starter/non-starter/unclassified={}/{}/{}, draw_rate={:.1}%, within_configured_limit={within_configured_limit} (diagnostic only)",
+            "[{elapsed}] candidate exploratory probe finished: absolute first/second/draw={}/{}/{}, mover starter/non-starter/unclassified={}/{}/{}, draw_rate={:.1}%, gate_passed={within_configured_limit}",
             outcomes.first_wins,
             outcomes.second_wins,
             outcomes.draws,
@@ -376,8 +376,19 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             outcomes.unclassified_wins,
             draw_rate * 100.0,
         ),
-        TrainingProgress::LatestPublished { generation } => {
-            eprintln!("[{elapsed}] generation {generation} published as latest network");
+        TrainingProgress::ChampionPromoted { generation } => {
+            eprintln!("[{elapsed}] candidate {generation} promoted as champion");
+        }
+        TrainingProgress::CandidateRejected {
+            generation,
+            decision,
+        } => {
+            eprintln!(
+                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_gate={} exploratory_draw_gate={}",
+                decision.arena_passed,
+                decision.mirror_draw_gate_passed,
+                decision.exploratory_draw_gate_passed,
+            );
         }
     }
 }
@@ -412,9 +423,10 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
+        "generation={} source_champion={} promoted={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
+        report.promoted(),
         report.generated_games,
         report.buffer_examples,
         report.terminal_window_plies,

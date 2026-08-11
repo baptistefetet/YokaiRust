@@ -27,15 +27,15 @@ first trainable AlphaZero pipeline:
 - CPU inference for deterministic tests and WGPU/Metal inference on Apple Silicon;
 - a batching inference service shared by concurrent self-play games;
 - generation-based SafeTensors checkpoints with validated metadata and an
-  atomically published pointer to the latest network;
+  atomically published pointer to the accepted champion;
 - reproducible parallel self-play, a rolling replay buffer and whole-game
   training/validation splits;
 - the complete AlphaZero dataset by default, with a terminal-window mode kept
   only for focused diagnostic experiments;
 - explicit policy/value metrics, including entropy, calibration, illegal policy
   mass and top-1 accuracy;
-- a paired, color-alternating arena against the previous network;
-- noise-free mirror and noisy self-play diagnostics for repetition cycles;
+- a paired, color-alternating promotion arena against the champion;
+- noise-free mirror and noisy self-play gates against repetition cycles;
 - unit and property-based tests.
 
 Ratatui is deliberately deferred to the next milestone.
@@ -47,8 +47,8 @@ Ratatui is deliberately deferred to the next milestone.
 
 The first guide maps the Rust constructs used here to familiar C++ concepts and
 suggests a module-by-module reading order. The second explains policy/value
-targets, continuous latest-network updates, draw diagnostics and why continued
-self-play is not a proof of perfect play.
+targets, guarded champion updates, draw diagnostics and why continued self-play
+is not a proof of perfect play.
 
 ## Board coordinates
 
@@ -109,26 +109,23 @@ arena uses sequential PUCT (`search_batch_size = 1`), so virtual losses cannot
 influence its measurement. Workers are concurrent games, not a promise to keep
 the same number of CPU cores busy.
 
-The default loop follows AlphaZero's latest-network behavior. Every trained
-generation is published atomically and produces the next self-play batch,
-regardless of its arena score. Self-play adds Dirichlet noise at every root,
-samples from MCTS visits for the first 12 plies, then becomes greedy. All played
-non-terminal positions enter the rolling buffer and official draws always have
-value zero.
-
-The 55% paired score and the 35%/20% draw limits are behavior indicators only.
-They are logged but cannot reject a generation. A finite
-`terminal_window_plies` and non-zero `repetition_contempt` remain available for
-controlled experiments, but neither is enabled by the standard configuration.
+The default loop now protects self-play with an accepted champion. A trained
+candidate is promoted only when it scores at least 55% in the paired arena,
+stays below 35% draws in deterministic mirror games and below 20% draws in its
+noisy self-play probe. Rejected checkpoints remain available for diagnosis, but
+never generate later training data. Self-play adds Dirichlet noise at every
+root, samples from MCTS visits for the first 12 plies, then becomes greedy. All
+non-terminal positions produced by the champion enter the rolling buffer and
+official draws always have value zero.
 
 ```bash
 # Run one generation with the checked-in Metal configuration.
 cargo run --release -- train --config config/training.toml --headless
 
-# Resume automatically from the latest network and replay buffer.
+# Resume automatically from the champion and replay buffer.
 cargo run --release -- train --resume latest --headless
 
-# Run five successive generations, still resuming from the latest network.
+# Run five successive candidate generations from the current champion.
 cargo run --release -- train --resume latest --generations 5 --headless
 ```
 
@@ -165,11 +162,12 @@ between generations.
 Set `backend = "cpu"` in the TOML file for deterministic debugging without
 Metal. The command bootstraps generation zero when no model exists, then:
 
-1. generates self-play games from the latest network;
+1. generates self-play games from the champion;
 2. updates the rolling replay buffer and trains the next network;
-3. saves and publishes that network for subsequent self-play;
-4. evaluates it against the previous generation with paired seeds and colors;
-5. measures its noise-free mirror and noisy self-play draw rates.
+3. saves the candidate without changing the champion;
+4. evaluates it against the champion with paired seeds and colors;
+5. measures its noise-free mirror and noisy self-play draw rates;
+6. publishes it only if the strength arena and both draw gates pass.
 
 Training performs a fixed `steps_per_generation` number of uniformly sampled
 mini-batch updates. Its work therefore does not silently grow with the replay
@@ -185,9 +183,10 @@ by `growth_factor` each generation, and the extra sampling ends at
 `full_dataset_generation`. Reports store the effective window and number of
 extra examples, so a resumed run follows the same deterministic curriculum.
 
-Each invocation completes the requested number of generations. Checkpoints are
-written under `models/generation-N/`; `models/latest` points to the latest
-network. Each new checkpoint also contains `training-model.bin` and
+Each invocation completes the requested number of candidate generations.
+Checkpoints are written under `models/generation-N/`; for compatibility the
+`models/latest` pointer now identifies the accepted champion, not merely the
+newest saved candidate. Each new checkpoint also contains `training-model.bin` and
 `optimizer.bin`; these make optimizer resume exact but use additional disk space.
 Existing `models/champion` pointers are still accepted during migration.
 The replay buffer is stored in
@@ -195,7 +194,7 @@ The replay buffer is stored in
 `data/self-play/reports/`. Writes use
 temporary paths followed by atomic renames so an interrupted write cannot replace
 the last complete generation. After `Ctrl+C`, rerunning the command starts again
-from the last published network.
+from the last accepted champion.
 
 ### Continuous AlphaZero experiment (August 2026)
 

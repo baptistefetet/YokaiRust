@@ -52,24 +52,16 @@ probably contains a bug. It is not enabled in normal training.
 ## One generation
 
 ```text
-latest network
-      |
-      +--> noisy self-play --> replay buffer --> train/validation split
-                                                   |
-                                                   v
-                                             next network
-                                                   |
-                                      save and publish unconditionally
-                                                   |
-                    +------------------------------+------------------+
-                    |                              |                  |
-              vs previous                    mirror probe        noisy probe
-             score diagnostic               draw warning       draw warning
+champion --> noisy self-play --> replay buffer --> train candidate
+   ^                                                |
+   |                                                v
+   +--- promote only if 55% arena + mirror gate + noisy draw gate
 ```
 
-The next network starts from the latest weights. Once training completes, it
-becomes the source of the following self-play batch. Arena and draw results are
-measurements: they never choose which network is allowed to continue learning.
+The candidate starts from the champion weights. It becomes the source of the
+following self-play batch only after passing the official paired arena and both
+anti-cycle gates. A rejected checkpoint is retained for analysis while the
+champion and its optimizer state remain unchanged.
 
 Optimization is continuous too. Each generation performs a fixed number of
 uniformly sampled mini-batch updates instead of full passes over an ever-growing
@@ -78,12 +70,13 @@ moments, so restarting the command does not silently reset the optimizer.
 Validation checkpoints are measurements; they no longer roll the model back to
 an earlier point with optimizer moments belonging to a different model.
 
-This is the specific distinction made by the original publications. AlphaGo
-Zero evaluated each candidate and promoted it only above 55%; AlphaZero used the
-latest parameters continuously and omitted that selection step. Many community
-projects still call the gated variant “AlphaZero”, which explains the common
-terminology overlap. YokaiRust keeps the 55% number as a readable strength
-indicator, not as a publication condition.
+This deliberately follows the guarded AlphaGo Zero-style update used in the
+project's original plan. AlphaGo Zero evaluated each candidate and promoted it
+only above 55%; AlphaZero used the latest parameters continuously and omitted
+that selection step. The continuous variant was tested here first, but one
+anti-repetition experiment published a candidate that then lost 0-200 to its
+source. YokaiRust therefore requires the 55% result and both draw gates before
+publication.
 
 - [AlphaZero paper](https://arxiv.org/abs/1712.01815)
 - [AlphaGo Zero paper](https://www.nature.com/articles/nature24270)
@@ -97,10 +90,9 @@ to predict zero, creating a feedback loop. This can reflect an inaccurate value
 estimate, but it can also be the correct decision against an equally strong
 opponent.
 
-The standard configuration deliberately leaves this feedback visible rather
-than changing its objective: all positions remain in the dataset, repetition
-contempt is zero and every generation continues. Three separate measurements
-make this behavior visible:
+The standard configuration keeps the official objective: all positions remain
+in the dataset and repetition contempt is zero. Three separate measurements
+both expose the behavior and protect the next self-play source:
 
 - self-play W/L/D shows behavior with exploration;
 - the mirror probe exposes deterministic repetition cycles;

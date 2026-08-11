@@ -49,8 +49,9 @@ workers = 128
 simulations = 400
 search_batch_size = 1
 score_threshold = 0.55
-# Candidate-versus-itself and noisy self-play checks are diagnostics only. Their
-# thresholds produce warnings but never block publication of the latest network.
+# The candidate must pass both draw gates as well as the official 55% arena.
+# A rejected checkpoint remains available for diagnosis but can never generate
+# the next self-play batch.
 mirror_games = 64
 max_mirror_draw_rate = 0.35
 candidate_self_play_games = 64

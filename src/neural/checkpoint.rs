@@ -1,4 +1,4 @@
-//! Atomic, versioned model generations and latest-network publication.
+//! Atomic, versioned model generations and accepted-champion publication.
 
 use std::{
     fs, io,
@@ -99,7 +99,7 @@ pub enum ModelStoreError {
     GenerationExists(u32),
     #[error("model generation {0} does not exist")]
     GenerationMissing(u32),
-    #[error("latest-network pointer is missing or invalid")]
+    #[error("champion pointer is missing or invalid")]
     InvalidLatest,
 }
 
@@ -291,13 +291,13 @@ pub fn load_generation<B: Backend>(
     Ok((model, metadata))
 }
 
-/// Atomically updates the latest-network pointer after verifying the generation.
+/// Atomically updates the champion pointer after verifying the generation.
 ///
 /// # Errors
 ///
 /// Returns [`ModelStoreError`] when the generation is absent or the pointer
 /// cannot be written.
-pub fn publish_latest(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
+pub fn publish_champion(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
     let root = root.as_ref();
     if !generation_directory(root, generation).is_dir() {
         return Err(ModelStoreError::GenerationMissing(generation));
@@ -308,7 +308,17 @@ pub fn publish_latest(root: impl AsRef<Path>, generation: u32) -> Result<(), Mod
     Ok(())
 }
 
-/// Loads the generation referenced by the latest-network pointer.
+/// Backward-compatible name for [`publish_champion`].
+///
+/// # Errors
+///
+/// Returns [`ModelStoreError`] under the same conditions as
+/// [`publish_champion`].
+pub fn publish_latest(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
+    publish_champion(root, generation)
+}
+
+/// Loads the generation referenced by the accepted-champion pointer.
 ///
 /// Repositories created before continuous updates used a `champion` file. It is
 /// accepted as a read-only fallback and replaced by `latest` on the next update.
@@ -316,7 +326,7 @@ pub fn publish_latest(root: impl AsRef<Path>, generation: u32) -> Result<(), Mod
 /// # Errors
 ///
 /// Returns [`ModelStoreError`] for an invalid pointer or checkpoint.
-pub fn load_latest<B: Backend>(
+pub fn load_champion<B: Backend>(
     root: impl AsRef<Path>,
     device: &B::Device,
 ) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
@@ -339,6 +349,18 @@ pub fn load_latest<B: Backend>(
         .parse::<u32>()
         .map_err(|_| ModelStoreError::InvalidLatest)?;
     load_generation(root, generation, device)
+}
+
+/// Backward-compatible name for [`load_champion`].
+///
+/// # Errors
+///
+/// Returns [`ModelStoreError`] under the same conditions as [`load_champion`].
+pub fn load_latest<B: Backend>(
+    root: impl AsRef<Path>,
+    device: &B::Device,
+) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
+    load_champion(root, device)
 }
 
 /// Returns one more than the greatest generation directory currently present.

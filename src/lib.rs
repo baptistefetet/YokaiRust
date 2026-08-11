@@ -18,13 +18,13 @@ pub use game::{
     WinReason,
 };
 pub use neural::{
-    ENCODER_VERSION, EncodedPosition, INPUT_PLANES,
+    ENCODER_VERSION, EncodedPosition, HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES,
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_generation, load_latest,
         load_training_generation, next_generation, publish_latest, save_generation,
         save_training_generation,
     },
-    encode_game, encode_position, encoded_batch_tensor,
+    encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
     evaluator::{
         CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend, NetworkEvaluator,
     },

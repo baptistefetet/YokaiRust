@@ -170,6 +170,8 @@ fn terminal_window_keeps_only_the_tail_of_decisive_games() {
     assert_eq!(validation.len(), 2);
     assert_eq!(validation[0].repetition_count, 4);
     assert_eq!(validation[1].repetition_count, 5);
+    assert_eq!(validation[1].history[0], Some(validation[0].position));
+    assert!(validation[0].history[0].is_some());
     assert_eq!(split.training_examples(false).len(), 10);
     assert_eq!(split.validation_examples().len(), 10);
 }

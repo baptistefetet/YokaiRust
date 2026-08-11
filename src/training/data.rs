@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    Action, Game, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position, Replay, SearchResult,
+    Action, Game, HISTORY_POSITIONS, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position,
+    Replay, SearchResult,
 };
 
 const POLICY_TOLERANCE: f32 = 1.0e-4;
@@ -17,6 +18,10 @@ const POLICY_TOLERANCE: f32 = 1.0e-4;
 pub struct TrainingExample {
     pub position: Position,
     pub repetition_count: u8,
+    /// Runtime-only preceding states, reconstructed from the containing game.
+    /// Keeping this out of JSON avoids duplicating history for every ply.
+    #[serde(skip)]
+    pub history: [Option<Position>; HISTORY_POSITIONS],
     #[serde(with = "policy_serde")]
     pub policy: [f32; POLICY_ACTIONS],
     /// Final game result from `position.side_to_move()`'s perspective.
@@ -29,6 +34,9 @@ impl TrainingExample {
         Self {
             position: self.position.mirrored_horizontally(),
             repetition_count: self.repetition_count,
+            history: self
+                .history
+                .map(|position| position.map(Position::mirrored_horizontally)),
             policy: mirror_policy(&self.policy, self.position.side_to_move()),
             value: self.value,
         }
@@ -50,7 +58,7 @@ impl SelfPlayGame {
     /// Returns owned examples, optionally interleaving every horizontal mirror.
     #[must_use]
     pub fn augmented_examples(&self, mirror: bool) -> Vec<TrainingExample> {
-        augment_examples(&self.examples, mirror)
+        self.selected_examples(mirror, None)
     }
 
     /// Selects the complete game, or a tactical tail from a decisive game.
@@ -64,14 +72,27 @@ impl SelfPlayGame {
         mirror: bool,
         terminal_window_plies: Option<usize>,
     ) -> Vec<TrainingExample> {
-        let selected = match terminal_window_plies {
-            None => self.examples.as_slice(),
+        let start = match terminal_window_plies {
+            None => 0,
             Some(window) if matches!(self.outcome, Outcome::Win { .. }) => {
-                &self.examples[self.examples.len().saturating_sub(window)..]
+                self.examples.len().saturating_sub(window)
             }
-            Some(_) => &[],
+            Some(_) => return Vec::new(),
         };
-        augment_examples(selected, mirror)
+        let selected = (start..self.examples.len())
+            .map(|index| self.example_with_history(index))
+            .collect::<Vec<_>>();
+        augment_examples(&selected, mirror)
+    }
+
+    fn example_with_history(&self, index: usize) -> TrainingExample {
+        let mut example = self.examples[index].clone();
+        example.history = std::array::from_fn(|offset| {
+            index
+                .checked_sub(offset + 1)
+                .map(|previous| self.examples[previous].position)
+        });
+        example
     }
 }
 
@@ -162,6 +183,7 @@ impl SelfPlayRecorder {
             .map(|pending| TrainingExample {
                 position: pending.position,
                 repetition_count: pending.repetition_count,
+                history: [None; HISTORY_POSITIONS],
                 policy: pending.policy,
                 value: outcome_value(outcome, pending.position.side_to_move()),
             })

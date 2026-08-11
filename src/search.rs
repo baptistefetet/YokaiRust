@@ -6,21 +6,32 @@ use rand_distr::{Distribution, Gamma};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{Action, Game, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position};
+use crate::{
+    Action, Game, HISTORY_POSITIONS, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position,
+};
 
 /// Input expected by a policy/value evaluator.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct EvaluationRequest {
     pub position: Position,
     pub repetition_count: u8,
+    /// Most recent position first; missing pre-game frames are `None`.
+    pub history: [Option<Position>; HISTORY_POSITIONS],
 }
 
 impl EvaluationRequest {
     #[must_use]
     pub fn from_game(game: &Game) -> Self {
+        let positions = game.position_history();
         Self {
             position: *game.position(),
             repetition_count: game.current_repetition_count(),
+            history: std::array::from_fn(|offset| {
+                positions
+                    .len()
+                    .checked_sub(offset + 2)
+                    .map(|index| positions[index])
+            }),
         }
     }
 }

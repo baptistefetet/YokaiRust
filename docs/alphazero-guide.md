@@ -10,6 +10,13 @@ For every non-terminal position, the network produces:
 - **policy**: 132 logits, one per encoded action;
 - **value**: one number in `[-1, 1]` from the current player's perspective.
 
+Its input contains the current state plus the seven preceding states. Each
+state contributes 16 planes for pieces and hands; a final plane contains the
+current repetition count, for 129 planes in total. This history is necessary
+because repetition makes the board alone non-Markovian: the same visible
+position can have a different value depending on which earlier state the next
+move would repeat.
+
 The policy is not trained directly on the action that happened. Its target is
 the normalized MCTS visit distribution after illegal actions are masked. This
 retains information about alternatives explored by the search.

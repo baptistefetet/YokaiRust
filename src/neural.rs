@@ -11,17 +11,20 @@ use crate::{
     BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, Game, HandPiece, PieceKind, Player, Position, Square,
 };
 
-pub const ENCODER_VERSION: u16 = 1;
-pub const INPUT_PLANES: usize = 17;
+pub const ENCODER_VERSION: u16 = 2;
+pub const HISTORY_LENGTH: usize = 8;
+pub const HISTORY_POSITIONS: usize = HISTORY_LENGTH - 1;
+const POSITION_PLANES: usize = 16;
+pub const INPUT_PLANES: usize = POSITION_PLANES * HISTORY_LENGTH + 1;
 pub const INPUT_VALUES: usize = INPUT_PLANES * BOARD_SQUARES;
 
-const CURRENT_PIECES_START: usize = 0;
-const OPPONENT_PIECES_START: usize = 5;
-const CURRENT_HAND_START: usize = 10;
-const OPPONENT_HAND_START: usize = 13;
-const REPETITION_PLANE: usize = 16;
+const CURRENT_PIECES_OFFSET: usize = 0;
+const OPPONENT_PIECES_OFFSET: usize = 5;
+const CURRENT_HAND_OFFSET: usize = 10;
+const OPPONENT_HAND_OFFSET: usize = 13;
+const REPETITION_PLANE: usize = INPUT_PLANES - 1;
 
-/// A channel-first `[17, 4, 3]` input stored contiguously.
+/// A channel-first `[129, 4, 3]` input stored contiguously.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EncodedPosition {
     values: [f32; INPUT_VALUES],
@@ -64,42 +67,44 @@ pub fn encoded_batch_tensor<B: Backend>(
 /// Encodes a game from the perspective of its player to move.
 #[must_use]
 pub fn encode_game(game: &Game) -> EncodedPosition {
-    encode_position(game.position(), game.current_repetition_count())
+    let positions = game.position_history();
+    let history = std::array::from_fn(|offset| {
+        positions
+            .len()
+            .checked_sub(offset + 2)
+            .map(|index| positions[index])
+    });
+    encode_position_with_history(game.position(), game.current_repetition_count(), &history)
 }
 
 /// Encodes a position using the canonical perspective of its player to move.
 ///
-/// The first ten planes are the five current and five opposing piece types.
-/// Six constant planes hold normalized hand counts, and the last constant
-/// plane stores the current occurrence count normalized by three.
+/// This compatibility helper encodes an isolated position with zero-filled
+/// history. Inference and training should provide real history whenever it is
+/// available.
 #[must_use]
 pub fn encode_position(position: &Position, repetition_count: u8) -> EncodedPosition {
+    encode_position_with_history(position, repetition_count, &[None; HISTORY_POSITIONS])
+}
+
+/// Encodes the current position and up to seven preceding positions.
+///
+/// Each time step contains five current-player piece planes, five opponent
+/// piece planes and six normalized hand-count planes. Every frame is oriented
+/// and owned from the current player's perspective. Missing history is zero;
+/// the final plane stores the current occurrence count normalized by three.
+#[must_use]
+pub fn encode_position_with_history(
+    position: &Position,
+    repetition_count: u8,
+    history: &[Option<Position>; HISTORY_POSITIONS],
+) -> EncodedPosition {
     let current = position.side_to_move();
     let mut values = [0.0; INPUT_VALUES];
-
-    for absolute_square in Square::ALL {
-        let Some(piece) = position.piece_at(absolute_square) else {
-            continue;
-        };
-        let canonical_square = canonical_square(absolute_square, current);
-        let owner_offset = if piece.owner == current {
-            CURRENT_PIECES_START
-        } else {
-            OPPONENT_PIECES_START
-        };
-        let plane = owner_offset + piece_plane(piece.kind);
-        values[index(plane, canonical_square)] = 1.0;
-    }
-
-    for player in [current, current.opponent()] {
-        let plane_start = if player == current {
-            CURRENT_HAND_START
-        } else {
-            OPPONENT_HAND_START
-        };
-        for piece in HandPiece::ALL {
-            let normalized = f32::from(position.hand_count(player, piece)) / 2.0;
-            fill_plane(&mut values, plane_start + piece.index(), normalized);
+    encode_frame(&mut values, 0, position, current);
+    for (offset, historical) in history.iter().enumerate() {
+        if let Some(historical) = historical {
+            encode_frame(&mut values, offset + 1, historical, current);
         }
     }
 
@@ -109,6 +114,45 @@ pub fn encode_position(position: &Position, repetition_count: u8) -> EncodedPosi
         f32::from(repetition_count.min(3)) / 3.0,
     );
     EncodedPosition { values }
+}
+
+fn encode_frame(
+    values: &mut [f32; INPUT_VALUES],
+    frame: usize,
+    position: &Position,
+    current: Player,
+) {
+    let frame_start = frame * POSITION_PLANES;
+
+    for absolute_square in Square::ALL {
+        let Some(piece) = position.piece_at(absolute_square) else {
+            continue;
+        };
+        let canonical_square = canonical_square(absolute_square, current);
+        let owner_offset = if piece.owner == current {
+            CURRENT_PIECES_OFFSET
+        } else {
+            OPPONENT_PIECES_OFFSET
+        };
+        let plane = frame_start + owner_offset + piece_plane(piece.kind);
+        values[index(plane, canonical_square)] = 1.0;
+    }
+
+    for player in [current, current.opponent()] {
+        let plane_start = if player == current {
+            CURRENT_HAND_OFFSET
+        } else {
+            OPPONENT_HAND_OFFSET
+        };
+        for piece in HandPiece::ALL {
+            let normalized = f32::from(position.hand_count(player, piece)) / 2.0;
+            fill_plane(
+                values,
+                frame_start + plane_start + piece.index(),
+                normalized,
+            );
+        }
+    }
 }
 
 const fn canonical_square(square: Square, current: Player) -> Square {

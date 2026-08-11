@@ -21,7 +21,8 @@ first trainable AlphaZero pipeline:
 - self-play-only Dirichlet noise and a configurable temperature schedule;
 - legal-policy masking plus per-action prior, visits, policy and Q diagnostics;
 - optional MCTS analyses embedded in validated replay files;
-- a versioned 17-plane canonical neural encoder with horizontal augmentation;
+- a versioned 129-plane canonical neural encoder covering eight successive
+  states, with horizontal augmentation;
 - a configurable Burn residual network with 132 policy logits and a value head;
 - CPU inference for deterministic tests and WGPU/Metal inference on Apple Silicon;
 - a batching inference service shared by concurrent self-play games;

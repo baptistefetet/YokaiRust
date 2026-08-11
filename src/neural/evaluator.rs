@@ -8,7 +8,7 @@ use burn::{
 
 use crate::{
     Evaluation, EvaluationError, EvaluationRequest, Evaluator, POLICY_ACTIONS,
-    neural::{encode_position, encoded_batch_tensor, model::AlphaZeroNetwork},
+    neural::{encode_position_with_history, encoded_batch_tensor, model::AlphaZeroNetwork},
 };
 
 pub type CpuBackend = Flex<f32, i32>;
@@ -56,7 +56,13 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
 
         let encoded = requests
             .iter()
-            .map(|request| encode_position(&request.position, request.repetition_count))
+            .map(|request| {
+                encode_position_with_history(
+                    &request.position,
+                    request.repetition_count,
+                    &request.history,
+                )
+            })
             .collect::<Vec<_>>();
         let output = self
             .model

@@ -17,8 +17,8 @@ use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AlphaZeroNetwork, POLICY_ACTIONS, TrainingExample, encode_position, encoded_batch_tensor,
-    training::config::OptimizationConfig,
+    AlphaZeroNetwork, POLICY_ACTIONS, TrainingExample, encode_position_with_history,
+    encoded_batch_tensor, training::config::OptimizationConfig,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -267,7 +267,13 @@ impl<B: Backend> BatchTensors<B> {
     fn new(examples: &[TrainingExample], device: &B::Device) -> Self {
         let encoded = examples
             .iter()
-            .map(|example| encode_position(&example.position, example.repetition_count))
+            .map(|example| {
+                encode_position_with_history(
+                    &example.position,
+                    example.repetition_count,
+                    &example.history,
+                )
+            })
             .collect::<Vec<_>>();
         let policy = examples
             .iter()

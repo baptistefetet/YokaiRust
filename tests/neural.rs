@@ -9,7 +9,7 @@ use std::{
 };
 
 use yokai::{
-    AlphaZeroNetworkConfig, BOARD_SQUARES, CpuBackend, EncodedPosition, Evaluation,
+    Action, AlphaZeroNetworkConfig, BOARD_SQUARES, CpuBackend, EncodedPosition, Evaluation,
     EvaluationError, EvaluationRequest, Evaluator, Game, HandPiece, INPUT_PLANES, InferenceService,
     MetalBackend, ModelMetadata, ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece,
     PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_generation,
@@ -40,6 +40,26 @@ fn official_setup_has_the_same_canonical_encoding_for_both_players() {
     assert_eq!(first, second);
     assert!((first.get(0, 3, 1) - 1.0).abs() < f32::EPSILON);
     assert!((first.get(5, 0, 1) - 1.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn game_encoding_includes_the_previous_position() {
+    let mut game = Game::new(Player::First);
+    let initial = *game.position();
+    game.apply(Action::Move {
+        from: square(2, 1),
+        to: square(1, 1),
+    })
+    .expect("initial Kodama capture is legal");
+
+    let request = EvaluationRequest::from_game(&game);
+    let encoded = yokai::encode_game(&game);
+
+    assert_eq!(request.history[0], Some(initial));
+    assert!(request.history[1..].iter().all(Option::is_none));
+    // Frame one starts at plane 16 and is canonicalized for Second, who now moves.
+    assert!((encoded.get(16, 3, 1) - 1.0).abs() < f32::EPSILON);
+    assert!((encoded.get(21, 0, 1) - 1.0).abs() < f32::EPSILON);
 }
 
 #[test]

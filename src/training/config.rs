@@ -81,7 +81,7 @@ impl Default for TrainingConfig {
                 inference_batch_size: 128,
                 inference_wait_ms: 1,
                 exploration_plies: 12,
-                exploration_temperature: 1.0,
+                exploration_temperature: 0.0,
                 final_temperature: 0.0,
             },
             optimization: OptimizationConfig {

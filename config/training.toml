@@ -17,7 +17,9 @@ max_game_plies = 512
 inference_batch_size = 128
 inference_wait_ms = 1
 exploration_plies = 12
-exploration_temperature = 1.0
+# Root Dirichlet noise still explores alternative moves. Greedy action selection
+# avoids turning those noisy visit distributions into learned repetition cycles.
+exploration_temperature = 0.0
 final_temperature = 0.0
 
 [optimization]

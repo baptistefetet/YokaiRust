@@ -97,6 +97,14 @@ losses cannot influence its decision. Workers are concurrent games, not a promis
 to keep the same number of CPU cores busy. Adjust `config/training.toml` for short
 experiments.
 
+Self-play keeps Dirichlet noise at every root but selects the most visited move
+(`exploration_temperature = 0`). Experiments with champion 5 showed 6 draws in
+64 games with this setting, versus 26/64 at temperature 1. Intermediate
+temperatures and shorter sampling schedules still produced 14–26 draws. The
+complete noisy MCTS visit distribution remains the policy training target, so
+the network still learns about explored alternatives even though the played move
+is selected greedily.
+
 ```bash
 # Run one generation with the checked-in Metal configuration.
 cargo run --release -- train --config config/training.toml --headless

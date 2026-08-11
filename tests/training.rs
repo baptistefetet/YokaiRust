@@ -149,6 +149,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.network.residual_blocks, 4);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
+    assert!(config.self_play.exploration_temperature.abs() < f32::EPSILON);
     assert_eq!(config.optimization.early_stopping_patience, 2);
     assert_eq!(config.arena.games, 200);
     assert_eq!(config.arena.workers, 128);

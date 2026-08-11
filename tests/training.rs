@@ -9,11 +9,11 @@ use yokai::{
     Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
     CpuTrainingBackend, DatasetSplit, DrawReason, Game, Mcts, ModelMetadata, OptimizationConfig,
     PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig,
-    SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig,
-    TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_latest,
-    generate_self_play, load_generation, load_latest, load_replay_buffer, run_arena,
-    run_arena_with_progress, run_generation_with_progress, save_generation, train_candidate,
-    validate_model,
+    SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule,
+    TrainingConfig, TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator,
+    bootstrap_latest, generate_self_play, load_generation, load_latest, load_replay_buffer,
+    run_arena, run_arena_with_progress, run_generation_with_progress, save_generation,
+    train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -215,6 +215,23 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 }
 
 #[test]
+fn terminal_window_schedule_expands_then_restores_full_alphazero_data() {
+    let mut optimization = TrainingConfig::default().optimization;
+    optimization.terminal_window_schedule = Some(TerminalWindowSchedule {
+        initial_plies: 1,
+        growth_factor: 2,
+        full_dataset_generation: 5,
+    });
+
+    assert_eq!(optimization.terminal_window_for_generation(1), Some(1));
+    assert_eq!(optimization.terminal_window_for_generation(2), Some(2));
+    assert_eq!(optimization.terminal_window_for_generation(3), Some(4));
+    assert_eq!(optimization.terminal_window_for_generation(4), Some(8));
+    assert_eq!(optimization.terminal_window_for_generation(5), None);
+    assert_eq!(optimization.terminal_window_for_generation(12), None);
+}
+
+#[test]
 fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
     use burn::{module::AutodiffModule, prelude::Backend};
 
@@ -236,6 +253,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         validation_fraction: 0.5,
         mirror_augmentation: true,
         terminal_window_plies: None,
+        terminal_window_schedule: None,
         replay_buffer: ReplayBufferConfig::default(),
     };
 
@@ -422,6 +440,7 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
             validation_fraction: 0.5,
             mirror_augmentation: true,
             terminal_window_plies: None,
+            terminal_window_schedule: None,
             replay_buffer: ReplayBufferConfig {
                 max_games: 8,
                 generations_to_keep: 2,

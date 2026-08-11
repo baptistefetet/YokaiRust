@@ -43,7 +43,37 @@ pub struct OptimizationConfig {
     /// When set, train only on this many final positions from decisive games.
     /// `None` restores the regular `AlphaZero` dataset containing every position.
     pub terminal_window_plies: Option<usize>,
+    /// Optional automatic bootstrap that expands a decisive-game tail before
+    /// switching to the complete `AlphaZero` dataset.
+    #[serde(default)]
+    pub terminal_window_schedule: Option<TerminalWindowSchedule>,
     pub replay_buffer: ReplayBufferConfig,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalWindowSchedule {
+    pub initial_plies: usize,
+    pub growth_factor: usize,
+    /// This generation and all later ones use the complete replay buffer.
+    pub full_dataset_generation: u32,
+}
+
+impl OptimizationConfig {
+    #[must_use]
+    pub fn terminal_window_for_generation(&self, generation: u32) -> Option<usize> {
+        let Some(schedule) = self.terminal_window_schedule else {
+            return self.terminal_window_plies;
+        };
+        if generation >= schedule.full_dataset_generation {
+            return None;
+        }
+        let exponent = generation.saturating_sub(1);
+        Some(
+            schedule
+                .initial_plies
+                .saturating_mul(schedule.growth_factor.saturating_pow(exponent)),
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,6 +136,7 @@ impl Default for TrainingConfig {
                 validation_fraction: 0.1,
                 mirror_augmentation: true,
                 terminal_window_plies: None,
+                terminal_window_schedule: None,
                 replay_buffer: ReplayBufferConfig::default(),
             },
             arena: ArenaConfig {
@@ -202,11 +233,7 @@ impl TrainingConfig {
                 "validation fraction must be in [0, 1)",
             ));
         }
-        if optimization.terminal_window_plies == Some(0) {
-            return Err(TrainingConfigError::Invalid(
-                "terminal training window must contain at least one ply",
-            ));
-        }
+        validate_terminal_window(optimization)?;
         if optimization.replay_buffer.max_games == 0
             || optimization.replay_buffer.generations_to_keep == 0
         {
@@ -239,6 +266,30 @@ impl TrainingConfig {
         }
         Ok(())
     }
+}
+
+fn validate_terminal_window(optimization: &OptimizationConfig) -> Result<(), TrainingConfigError> {
+    if optimization.terminal_window_plies == Some(0) {
+        return Err(TrainingConfigError::Invalid(
+            "terminal training window must contain at least one ply",
+        ));
+    }
+    if let Some(schedule) = optimization.terminal_window_schedule {
+        if optimization.terminal_window_plies.is_some() {
+            return Err(TrainingConfigError::Invalid(
+                "static and scheduled terminal windows cannot both be configured",
+            ));
+        }
+        if schedule.initial_plies == 0
+            || schedule.growth_factor == 0
+            || schedule.full_dataset_generation < 2
+        {
+            return Err(TrainingConfigError::Invalid(
+                "terminal window schedule requires positive sizes and a full-dataset generation of at least two",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Error)]

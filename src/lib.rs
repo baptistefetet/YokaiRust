@@ -41,8 +41,8 @@ pub use training::arena::{
     ArenaError, ArenaProgress, ArenaResult, ArenaSeatResult, run_arena, run_arena_with_progress,
 };
 pub use training::config::{
-    ArenaConfig, BackendKind, OptimizationConfig, PathsConfig, SelfPlayConfig, TrainingConfig,
-    TrainingConfigError,
+    ArenaConfig, BackendKind, OptimizationConfig, PathsConfig, SelfPlayConfig,
+    TerminalWindowSchedule, TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{
     DatasetSplit, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,

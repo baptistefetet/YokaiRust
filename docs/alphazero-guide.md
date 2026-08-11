@@ -112,6 +112,12 @@ and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
 Terminal windows and repetition contempt remain explicit research experiments,
 not hidden corrections to the default algorithm.
 
+For a controlled bootstrap, `terminal_window_schedule` automates the diagnostic
+suggested during development: begin with only the final decisive positions,
+then widen the tail geometrically and finally restore every position and draw.
+The schedule depends only on the checkpoint generation, so interruption and
+resume cannot silently change the selected dataset.
+
 For this particular game, draws cannot be treated as the expected endpoint of
 perfect play. Dōbutsu Shōgi, whose 3×4 rules and initial position correspond to
 this implementation, has been strongly solved: the player moving second has a

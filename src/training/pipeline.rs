@@ -43,6 +43,8 @@ pub struct GenerationReport {
     pub generated_games: usize,
     pub buffer_games: usize,
     pub buffer_examples: usize,
+    #[serde(default)]
+    pub terminal_window_plies: Option<usize>,
     pub self_play_outcomes: GameOutcomeStats,
     pub training: TrainingReport,
     pub arena: ArenaResult,
@@ -297,7 +299,9 @@ where
     )?;
 
     let split = buffer.split(config.optimization.validation_fraction, config.seed)?;
-    let terminal_window_plies = config.optimization.terminal_window_plies;
+    let terminal_window_plies = config
+        .optimization
+        .terminal_window_for_generation(candidate_generation);
     let (training_games, validation_games) = split.selected_game_counts(terminal_window_plies);
     let training_examples = split.training_examples_with_window(
         config.optimization.mirror_augmentation,
@@ -419,6 +423,7 @@ where
         generated_games: games.len(),
         buffer_games: buffer.len(),
         buffer_examples: buffer.example_count(),
+        terminal_window_plies,
         self_play_outcomes,
         training,
         arena,

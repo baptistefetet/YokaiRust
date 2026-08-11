@@ -403,11 +403,12 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source={} games={} buffer_examples={}",
+        "generation={} source={} games={} buffer_examples={} terminal_window={:?}",
         report.candidate_generation,
         report.source_generation,
         report.generated_games,
-        report.buffer_examples
+        report.buffer_examples,
+        report.terminal_window_plies,
     );
     if let Some(checkpoint) = report.training.selected() {
         println!("training metrics at step={}", checkpoint.step);

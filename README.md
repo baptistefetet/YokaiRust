@@ -177,6 +177,13 @@ buffer. Adam moments are stored with every generation and restored before the
 next one; the log reports `Adam resumed=true` when continuity was recovered.
 Validation is diagnostic and runs every `validation_interval_steps` updates.
 
+An optional terminal-window schedule can bootstrap the pipeline from decisive
+tactics without manual generation-by-generation edits. It starts with the last
+`initial_plies` positions of won games, multiplies the window by
+`growth_factor` each generation, then restores the complete replay buffer at
+`full_dataset_generation`. Reports store the effective window, so a resumed run
+follows the same deterministic curriculum.
+
 Each invocation completes the requested number of generations. Checkpoints are
 written under `models/generation-N/`; `models/latest` points to the latest
 network. Each new checkpoint also contains `training-model.bin` and

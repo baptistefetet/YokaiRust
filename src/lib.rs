@@ -40,16 +40,17 @@ pub use training::arena::{
     ArenaError, ArenaProgress, ArenaResult, run_arena, run_arena_with_progress,
 };
 pub use training::config::{
-    ArenaConfig, BackendKind, OptimizationConfig, PathsConfig, SelfPlayConfig, TrainingConfig,
-    TrainingConfigError,
+    ArenaConfig, BackendKind, CurriculumPhaseConfig, OptimizationConfig, PathsConfig,
+    SelfPlayConfig, TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{
     DatasetSplit, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,
     TrainingDataError, TrainingExample, mirror_policy,
 };
 pub use training::pipeline::{
-    GameOutcomeStats, GenerationReport, PipelineError, TrainingProgress, bootstrap_champion,
-    load_replay_buffer, run_generation, run_generation_with_progress, save_replay_buffer,
+    CURRICULUM_STATE_FORMAT_VERSION, CurriculumState, GameOutcomeStats, GenerationReport,
+    PipelineError, TrainingProgress, bootstrap_champion, load_curriculum_state, load_replay_buffer,
+    run_generation, run_generation_with_progress, save_curriculum_state, save_replay_buffer,
 };
 pub use training::self_play::{
     SelfPlayError, generate_self_play, generate_self_play_with_progress, play_self_play_game,

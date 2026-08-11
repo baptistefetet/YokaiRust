@@ -29,10 +29,13 @@ first trainable AlphaZero pipeline:
   atomically published `champion` pointer;
 - reproducible parallel self-play, a rolling replay buffer and whole-game
   training/validation splits;
+- a persistent tactical curriculum that expands from terminal positions to the
+  full dataset only after validated promotions;
 - explicit policy/value metrics, including entropy, calibration, illegal policy
   mass and top-1 accuracy;
 - a paired, color-alternating promotion arena without noise and with a 55%
   promotion threshold;
+- a second noise-free candidate mirror gate that rejects repetition-prone models;
 - unit and property-based tests.
 
 Ratatui is deliberately deferred to the next milestone.
@@ -88,22 +91,33 @@ and temperature-based action sampling.
 ## AlphaZero training
 
 The checked-in configuration targets Metal and is intentionally substantial:
-256 self-play games, 400 simulations per move, 10 training epochs and a
-200-game paired arena. Self-play runs 16 concurrent games and selects 8 distinct
-MCTS leaves per game before each inference, which feeds Metal efficiently without
-requiring hundreds of blocked game threads. The promotion arena instead runs 128
-games concurrently with sequential PUCT (`search_batch_size = 1`), so virtual
-losses cannot influence its decision. Workers are concurrent games, not a promise
-to keep the same number of CPU cores busy. Adjust `config/training.toml` for short
-experiments.
+256 self-play games, 10 training epochs, a 200-game paired arena and a 64-game
+candidate mirror diagnostic. Self-play runs 16 concurrent games and selects 8
+distinct MCTS leaves per game before each inference, which feeds Metal efficiently
+without requiring hundreds of blocked game threads. The promotion arenas instead
+use sequential PUCT (`search_batch_size = 1`), so virtual losses cannot influence
+their decisions. Workers are concurrent games, not a promise to keep the same
+number of CPU cores busy.
 
 Self-play keeps Dirichlet noise at every root but selects the most visited move
-(`exploration_temperature = 0`). Experiments with champion 5 showed 6 draws in
-64 games with this setting, versus 26/64 at temperature 1. Intermediate
-temperatures and shorter sampling schedules still produced 14–26 draws. The
-complete noisy MCTS visit distribution remains the policy training target, so
-the network still learns about explored alternatives even though the played move
-is selected greedily.
+(`exploration_temperature = 0`). The complete noisy MCTS visit distribution
+remains the policy training target, so the network still learns about explored
+alternatives even though the played move is selected greedily.
+
+Training starts with an automatic terminal curriculum. Its checked-in phases use
+the last 8, 16, 32 and 64 plies of decisive games before returning to the complete
+dataset. Early positions with ambiguous outcomes and draw cycles are therefore
+not allowed to drown the initial tactical signal. Each phase specifies its own
+search budget and self-play-only repetition contempt. A rejected candidate stays
+in the same phase; only a successful promotion advances the persistent state in
+`data/self-play/curriculum-state.json`. The final phase repeats indefinitely, so
+one command can train from generation zero without per-generation editing.
+
+Repetition contempt changes search exploration only: official outcomes, stored
+value targets and promotion games still score a draw as zero. A candidate must
+both reach the 55% paired-arena score and keep its noise-free mirror draw rate at
+or below 35% over 64 games. This prevents a model that merely exploits the old
+champion while cycling against itself from being published.
 
 ```bash
 # Run one generation with the checked-in Metal configuration.
@@ -118,28 +132,32 @@ cargo run --release -- train --resume latest --generations 5 --headless
 
 `--headless` disables the future TUI, not textual diagnostics. Progress is
 written immediately to standard error: roughly twenty updates during self-play,
-one metrics line per epoch, roughly twenty arena updates, and every checkpoint
-or promotion decision. Arena updates include the running candidate/champion/draw
-counts and provisional score. All lines include elapsed wall-clock time. Phase
-summaries also report average/maximum inference batch, backend throughput and
-client wait. One generation is run by default; use `--generations N` to request
-an explicit sequence.
+one metrics line per epoch, roughly twenty updates per arena, and every checkpoint,
+curriculum or promotion decision. Arena updates include the running
+candidate/champion/draw counts and provisional score. All lines include elapsed
+wall-clock time. Phase summaries also report average/maximum inference batch,
+backend throughput and client wait. One generation is run by default; use
+`--generations N` to request an explicit sequence.
 
-On the development M4 Max, a measured generation took about 3 minutes 30 seconds
-in release mode: roughly 1 minute 55 for self-play, 15 seconds for training and
-1 minute 20 for the arena. This excludes a one-time 30-second incremental release
-relink. The original one-leaf implementation projected roughly 16 minutes for
-self-play alone. These figures are measurements, not runtime guarantees; game
-length and model behavior change between generations. Generation 5 took 5 minutes
-19 seconds because its games were more than twice as long as generation 1 games.
+On the development M4 Max, the terminal-8 experiment took about 2 minutes 40
+seconds. A measured full-depth terminal-32 generation including the new mirror
+gate took about 6 minutes 45 seconds: 3 minutes 20 for self-play, 17 seconds for
+training, 2 minutes 15 for the paired arena and 53 seconds for the mirror gate.
+This excludes a one-time 30-second incremental release relink. The original
+one-leaf implementation projected roughly 16 minutes for self-play alone. These
+figures are measurements, not guarantees; game length and model behavior change
+between generations.
 
 Set `backend = "cpu"` in the TOML file for deterministic debugging without
 Metal. The command bootstraps generation zero when no model exists, then:
 
 1. generates self-play games from the current champion;
-2. updates the rolling replay buffer and trains a candidate;
+2. selects the active curriculum window, updates the rolling replay buffer and
+   trains a candidate;
 3. evaluates candidate and champion with paired seeds and alternating colors;
-4. publishes the candidate as champion only if its arena score reaches 55%.
+4. runs the candidate against an identical copy with official draw values;
+5. publishes the candidate only if both the arena score and mirror gate pass,
+   then advances the curriculum when its phase has enough promotions.
 
 Training keeps the epoch with the lowest combined validation loss. It stops
 early after `early_stopping_patience` consecutive epochs without improvement,
@@ -152,7 +170,7 @@ temporary paths followed by atomic renames so an interrupted write cannot replac
 the last complete generation. After `Ctrl+C`, rerunning the command starts again
 from the last published champion.
 
-### Experimental observations through generation 5
+### Experimental observations and draw-cycle diagnosis
 
 The first local training sequence produced the following self-play trend. An
 example corresponds to one played position, so examples per game also measure
@@ -166,18 +184,35 @@ average game length.
 | 4 | 256 | 15,826 | 61.8 | 80 (31.3%) |
 | 5 | 256 | 16,113 | 62.9 | 93 (36.3%) |
 
-The steadily increasing draw rate reproduces the same failure mode previously
-observed in the C++ and Node.js prototypes. Its cause is not established yet: it
-may represent convergence toward drawing play, or an undesirable learned cycle.
-It must therefore be treated as an open training-quality problem rather than as
-evidence that later generations are unconditionally stronger.
+The steadily increasing draw rate reproduced the same failure mode previously
+observed in the C++ and Node.js prototypes. Diagnostics established that it was
+an undesirable learned cycle: champion 5 drew all 32 noise-free mirror games,
+and increasing its search from 200 to 400 simulations made draws substantially
+more frequent. Because an official repetition is worth zero, a deeper search
+rationally preferred it whenever the inaccurate value head rated alternatives
+as losses.
 
-At the same time, the observed promotion arenas were decisive, including 200-0
-scores for generations 4 and 5. A diagnostic with the generation 3 and 4 models
-in both argument orders produced 20-0 for generation 4 and 0-20 after swapping
-them, ruling out an inverted candidate/champion counter. The discrepancy between
-decisive zero-temperature arenas and increasingly draw-heavy exploratory
-self-play remains to be investigated through replay analysis and fixed baselines.
+The arena counters were checked in both argument orders, ruling out an inverted
+candidate/champion result. The real weakness was the promotion protocol: a model
+could decisively exploit its predecessor while developing a different mirror
+cycle. Generation 13 demonstrated this by passing its old arena but drawing
+42/64 neutral mirror games; its checkpoint was retained but the champion pointer
+was returned to generation 11.
+
+The terminal curriculum proposed during debugging, combined with repetition
+contempt during full-depth self-play, reversed the trend:
+
+| Candidate data | Terminal window | Simulations | Contempt | Draws |
+| ---: | ---: | ---: | ---: | ---: |
+| 11 | 16 | 400 | 0.50 | 38/256 (14.8%) |
+| 12 | 16 | 400 | 0.50 | 21/256 (8.2%) |
+| 13 | 32 | 400 | 0.50 | 18/256 (7.0%) |
+| 14 | 32 | 400 | 0.50 | 16/256 (6.25%) |
+
+Candidate 14 then produced 0/64 mirror draws but was correctly rejected because
+its paired score against champion 11 was only 50%. These measurements show that
+the runaway draw trend is controlled without weakening the official rules or
+promoting a merely non-cycling but otherwise equal candidate.
 
 Generation 4 also exposed validation overfitting: validation loss was best at
 epoch 1 and degraded through epoch 10 while training loss kept improving. The

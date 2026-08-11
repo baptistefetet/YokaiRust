@@ -196,13 +196,43 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         } => eprintln!(
             "[{elapsed}] generation {candidate_generation} started from champion {champion_generation}"
         ),
+        TrainingProgress::CurriculumPhaseStarted {
+            phase_index,
+            phase_count,
+            name,
+            promotions_in_phase,
+            promotions_required,
+            simulations,
+            repetition_contempt,
+            terminal_window_plies,
+        } => {
+            let window = terminal_window_plies.map_or_else(
+                || "all positions".to_owned(),
+                |plies| format!("last {plies} decisive plies"),
+            );
+            eprintln!(
+                "[{elapsed}] curriculum phase {}/{} {name}: promotions={promotions_in_phase}/{promotions_required}, {simulations} simulations, contempt={repetition_contempt:.2}, {window}",
+                phase_index + 1,
+                phase_count,
+            );
+        }
+        TrainingProgress::CurriculumAdvanced {
+            phase_index,
+            phase_count,
+            name,
+        } => eprintln!(
+            "[{elapsed}] curriculum advanced to phase {}/{} {name}",
+            phase_index + 1,
+            phase_count,
+        ),
         TrainingProgress::SelfPlayStarted {
             games,
             workers,
             simulations,
             search_batch_size,
+            repetition_contempt,
         } => eprintln!(
-            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference"
+            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}"
         ),
         TrainingProgress::SelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] self-play {completed}/{total} ({:.1}%)",
@@ -222,11 +252,20 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         }
         TrainingProgress::DatasetReady {
             buffer_games,
+            training_games,
+            validation_games,
             training_examples,
             validation_examples,
-        } => eprintln!(
-            "[{elapsed}] dataset ready: {buffer_games} games, {training_examples} train examples, {validation_examples} validation examples"
-        ),
+            terminal_window_plies,
+        } => {
+            let curriculum = terminal_window_plies.map_or_else(
+                || "all positions".to_owned(),
+                |plies| format!("last {plies} plies of decisive games"),
+            );
+            eprintln!(
+                "[{elapsed}] dataset ready: {buffer_games} buffered games; {curriculum}; train={training_games} games/{training_examples} examples, valid={validation_games} games/{validation_examples} examples"
+            );
+        }
         TrainingProgress::TrainingStarted { epochs, batch_size } => {
             eprintln!("[{elapsed}] training started: {epochs} epochs, batch size {batch_size}");
         }
@@ -295,6 +334,32 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             print_inference_stats(&elapsed, "candidate inference", candidate_inference);
             print_inference_stats(&elapsed, "champion inference", champion_inference);
         }
+        TrainingProgress::CandidateMirrorStarted {
+            games,
+            simulations,
+            max_draw_rate,
+        } => eprintln!(
+            "[{elapsed}] candidate mirror started: {games} games, {simulations} simulations/move, maximum draw rate={:.1}%",
+            max_draw_rate * 100.0
+        ),
+        TrainingProgress::CandidateMirrorAdvanced { progress } => eprintln!(
+            "[{elapsed}] candidate mirror {}/{} ({:.1}%): draws={}",
+            progress.completed,
+            progress.total,
+            percentage(progress.completed, progress.total),
+            progress.draws,
+        ),
+        TrainingProgress::CandidateMirrorFinished {
+            result,
+            draw_rate,
+            gate_passed,
+            candidate_promoted,
+        } => eprintln!(
+            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), gate_passed={gate_passed}, promotion_eligible={candidate_promoted}",
+            result.draws,
+            result.candidate_wins + result.champion_wins + result.draws,
+            draw_rate * 100.0,
+        ),
         TrainingProgress::ChampionPromoted { generation } => {
             eprintln!("[{elapsed}] generation {generation} promoted to champion");
         }
@@ -370,6 +435,15 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         report.arena.draws,
         report.arena.score,
         report.promoted()
+    );
+    let mirror_games = report.candidate_mirror.candidate_wins
+        + report.candidate_mirror.champion_wins
+        + report.candidate_mirror.draws;
+    println!(
+        "candidate mirror draws={}/{} ({:.1}%)",
+        report.candidate_mirror.draws,
+        mirror_games,
+        percentage(report.candidate_mirror.draws, mirror_games),
     );
 }
 

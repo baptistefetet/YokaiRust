@@ -50,16 +50,41 @@ impl SelfPlayGame {
     /// Returns owned examples, optionally interleaving every horizontal mirror.
     #[must_use]
     pub fn augmented_examples(&self, mirror: bool) -> Vec<TrainingExample> {
-        if !mirror {
-            return self.examples.clone();
-        }
-        let mut examples = Vec::with_capacity(self.examples.len() * 2);
-        for example in &self.examples {
-            examples.push(example.clone());
-            examples.push(example.mirrored());
-        }
-        examples
+        augment_examples(&self.examples, mirror)
     }
+
+    /// Selects the complete game, or a tactical tail from a decisive game.
+    ///
+    /// A terminal window intentionally rejects draws: unlike a win, their last
+    /// action is merely the action that repeated a position, not a forced tactic
+    /// that the policy should learn to reproduce.
+    #[must_use]
+    pub fn curriculum_examples(
+        &self,
+        mirror: bool,
+        terminal_window_plies: Option<usize>,
+    ) -> Vec<TrainingExample> {
+        let selected = match terminal_window_plies {
+            None => self.examples.as_slice(),
+            Some(window) if matches!(self.outcome, Outcome::Win { .. }) => {
+                &self.examples[self.examples.len().saturating_sub(window)..]
+            }
+            Some(_) => &[],
+        };
+        augment_examples(selected, mirror)
+    }
+}
+
+fn augment_examples(examples: &[TrainingExample], mirror: bool) -> Vec<TrainingExample> {
+    if !mirror {
+        return examples.to_vec();
+    }
+    let mut augmented = Vec::with_capacity(examples.len() * 2);
+    for example in examples {
+        augmented.push(example.clone());
+        augmented.push(example.mirrored());
+    }
+    augmented
 }
 
 #[derive(Default)]
@@ -251,18 +276,46 @@ pub struct DatasetSplit {
 impl DatasetSplit {
     #[must_use]
     pub fn training_examples(&self, mirror: bool) -> Vec<TrainingExample> {
+        self.training_examples_with_curriculum(mirror, None)
+    }
+
+    #[must_use]
+    pub fn training_examples_with_curriculum(
+        &self,
+        mirror: bool,
+        terminal_window_plies: Option<usize>,
+    ) -> Vec<TrainingExample> {
         self.training_games
             .iter()
-            .flat_map(|game| game.augmented_examples(mirror))
+            .flat_map(|game| game.curriculum_examples(mirror, terminal_window_plies))
             .collect()
     }
 
     #[must_use]
     pub fn validation_examples(&self) -> Vec<TrainingExample> {
+        self.validation_examples_with_curriculum(None)
+    }
+
+    #[must_use]
+    pub fn validation_examples_with_curriculum(
+        &self,
+        terminal_window_plies: Option<usize>,
+    ) -> Vec<TrainingExample> {
         self.validation_games
             .iter()
-            .flat_map(|game| game.augmented_examples(false))
+            .flat_map(|game| game.curriculum_examples(false, terminal_window_plies))
             .collect()
+    }
+
+    #[must_use]
+    pub fn selected_game_counts(&self, terminal_window_plies: Option<usize>) -> (usize, usize) {
+        let is_selected = |game: &&SelfPlayGame| {
+            terminal_window_plies.is_none() || matches!(game.outcome, Outcome::Win { .. })
+        };
+        (
+            self.training_games.iter().filter(is_selected).count(),
+            self.validation_games.iter().filter(is_selected).count(),
+        )
     }
 }
 

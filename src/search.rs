@@ -199,6 +199,9 @@ pub struct SearchConfig {
     pub c_puct: f32,
     pub dirichlet_alpha: f32,
     pub dirichlet_weight: f32,
+    /// Search-only reward given to the opponent when a player causes a draw.
+    /// Zero preserves the official game-theoretic value.
+    pub repetition_contempt: f32,
 }
 
 impl Default for SearchConfig {
@@ -209,6 +212,7 @@ impl Default for SearchConfig {
             c_puct: 1.5,
             dirichlet_alpha: 0.3,
             dirichlet_weight: 0.25,
+            repetition_contempt: 0.0,
         }
     }
 }
@@ -589,7 +593,11 @@ impl<E: Evaluator> Mcts<E> {
 
         if game.outcome().is_terminal() {
             self.arena[node_index].terminal = true;
-            let value = terminal_value(game.outcome(), game.position().side_to_move());
+            let value = terminal_value(
+                game.outcome(),
+                game.position().side_to_move(),
+                self.config.repetition_contempt,
+            );
             self.backpropagate(&path, value);
             Ok(PreparedSimulation::Completed)
         } else if !self.arena[node_index].expanded {
@@ -882,6 +890,12 @@ fn validate_config(config: SearchConfig) -> Result<(), SearchError> {
             "Dirichlet weight must be between zero and one",
         ));
     }
+    if !config.repetition_contempt.is_finite() || !(0.0..=1.0).contains(&config.repetition_contempt)
+    {
+        return Err(SearchError::InvalidConfiguration(
+            "repetition contempt must be finite and between zero and one",
+        ));
+    }
     Ok(())
 }
 
@@ -935,9 +949,13 @@ fn sample_probability_index<R: Rng + ?Sized>(probabilities: &[f32], rng: &mut R)
     probabilities.len().saturating_sub(1)
 }
 
-fn terminal_value(outcome: Outcome, player_to_move: Player) -> f32 {
+fn terminal_value(outcome: Outcome, player_to_move: Player, repetition_contempt: f32) -> f32 {
     match outcome {
-        Outcome::Ongoing | Outcome::Draw { .. } => 0.0,
+        Outcome::Ongoing => 0.0,
+        // `player_to_move` is the opponent of the player whose move completed
+        // the repetition, so a positive value makes that action unattractive
+        // to the player who caused the draw on the preceding tree edge.
+        Outcome::Draw { .. } => repetition_contempt,
         Outcome::Win { player, .. } if player == player_to_move => 1.0,
         Outcome::Win { .. } => -1.0,
     }

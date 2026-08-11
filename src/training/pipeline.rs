@@ -19,6 +19,58 @@ use crate::{
     train_candidate_with_progress,
 };
 
+pub const CURRICULUM_STATE_FORMAT_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CurriculumState {
+    pub format_version: u32,
+    pub phase_index: usize,
+    pub promotions_in_phase: usize,
+    pub champion_generation: u32,
+}
+
+impl CurriculumState {
+    const fn new(champion_generation: u32) -> Self {
+        Self {
+            format_version: CURRICULUM_STATE_FORMAT_VERSION,
+            phase_index: 0,
+            promotions_in_phase: 0,
+            champion_generation,
+        }
+    }
+
+    fn reconcile(&mut self, champion_generation: u32, config: &TrainingConfig) {
+        if self.champion_generation == champion_generation {
+            return;
+        }
+        if champion_generation > self.champion_generation {
+            self.record_promotion(champion_generation, config);
+        } else {
+            // A deliberate champion rollback must not pretend that a new model
+            // passed the curriculum gate.
+            self.champion_generation = champion_generation;
+        }
+    }
+
+    fn record_promotion(&mut self, generation: u32, config: &TrainingConfig) -> bool {
+        self.champion_generation = generation;
+        let Some(phase) = config.curriculum.get(self.phase_index) else {
+            return false;
+        };
+        self.promotions_in_phase = self.promotions_in_phase.saturating_add(1);
+        if self.promotions_in_phase >= phase.promotions_required
+            && self.phase_index + 1 < config.curriculum.len()
+        {
+            self.phase_index += 1;
+            self.promotions_in_phase = 0;
+            true
+        } else {
+            self.promotions_in_phase = self.promotions_in_phase.min(phase.promotions_required);
+            false
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GameOutcomeStats {
     pub first_wins: usize,
@@ -36,6 +88,7 @@ pub struct GenerationReport {
     pub self_play_outcomes: GameOutcomeStats,
     pub training: TrainingReport,
     pub arena: ArenaResult,
+    pub candidate_mirror: ArenaResult,
 }
 
 impl GenerationReport {
@@ -46,8 +99,23 @@ impl GenerationReport {
 }
 
 /// Coarse-grained events emitted by a complete `AlphaZero` generation.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TrainingProgress {
+    CurriculumPhaseStarted {
+        phase_index: usize,
+        phase_count: usize,
+        name: String,
+        promotions_in_phase: usize,
+        promotions_required: usize,
+        simulations: u32,
+        repetition_contempt: f32,
+        terminal_window_plies: Option<usize>,
+    },
+    CurriculumAdvanced {
+        phase_index: usize,
+        phase_count: usize,
+        name: String,
+    },
     GenerationStarted {
         champion_generation: u32,
         candidate_generation: u32,
@@ -57,6 +125,7 @@ pub enum TrainingProgress {
         workers: usize,
         simulations: u32,
         search_batch_size: usize,
+        repetition_contempt: f32,
     },
     SelfPlayAdvanced {
         completed: usize,
@@ -70,8 +139,11 @@ pub enum TrainingProgress {
     },
     DatasetReady {
         buffer_games: usize,
+        training_games: usize,
+        validation_games: usize,
         training_examples: usize,
         validation_examples: usize,
+        terminal_window_plies: Option<usize>,
     },
     TrainingStarted {
         epochs: usize,
@@ -101,6 +173,20 @@ pub enum TrainingProgress {
         result: ArenaResult,
         candidate_inference: InferenceStats,
         champion_inference: InferenceStats,
+    },
+    CandidateMirrorStarted {
+        games: usize,
+        simulations: u32,
+        max_draw_rate: f32,
+    },
+    CandidateMirrorAdvanced {
+        progress: ArenaProgress,
+    },
+    CandidateMirrorFinished {
+        result: ArenaResult,
+        draw_rate: f32,
+        gate_passed: bool,
+        candidate_promoted: bool,
     },
     ChampionPromoted {
         generation: u32,
@@ -173,8 +259,11 @@ where
     NetworkEvaluator<B::InnerBackend>: Send,
     F: Fn(TrainingProgress) + Sync,
 {
-    config.validate().map_err(PipelineError::Configuration)?;
-    let models_root = Path::new(&config.paths.models);
+    let base_config = config;
+    base_config
+        .validate()
+        .map_err(PipelineError::Configuration)?;
+    let models_root = Path::new(&base_config.paths.models);
     let (_, champion_metadata) = load_champion::<B::InnerBackend>(models_root, device)?;
     let candidate_generation = next_generation(models_root)?;
     progress(TrainingProgress::GenerationStarted {
@@ -182,11 +271,44 @@ where
         candidate_generation,
     });
 
+    let curriculum_path = Path::new(&base_config.paths.self_play).join("curriculum-state.json");
+    let mut curriculum_state = if base_config.curriculum.is_empty() {
+        None
+    } else {
+        let mut state = load_curriculum_state(&curriculum_path, champion_metadata.generation)?;
+        if state.phase_index >= base_config.curriculum.len() {
+            state.phase_index = base_config.curriculum.len() - 1;
+            state.promotions_in_phase = 0;
+        }
+        state.reconcile(champion_metadata.generation, base_config);
+        save_curriculum_state(&curriculum_path, &state)?;
+        Some(state)
+    };
+    let mut effective_config = base_config.clone();
+    if let Some(state) = &curriculum_state {
+        let phase = &base_config.curriculum[state.phase_index];
+        effective_config.self_play.simulations = phase.simulations;
+        effective_config.self_play.repetition_contempt = phase.repetition_contempt;
+        effective_config.optimization.terminal_window_plies = phase.terminal_window_plies;
+        progress(TrainingProgress::CurriculumPhaseStarted {
+            phase_index: state.phase_index,
+            phase_count: base_config.curriculum.len(),
+            name: phase.name.clone(),
+            promotions_in_phase: state.promotions_in_phase,
+            promotions_required: phase.promotions_required,
+            simulations: phase.simulations,
+            repetition_contempt: phase.repetition_contempt,
+            terminal_window_plies: phase.terminal_window_plies,
+        });
+    }
+    let config = &effective_config;
+
     progress(TrainingProgress::SelfPlayStarted {
         games: config.self_play.games_per_generation,
         workers: config.self_play.workers,
         simulations: config.self_play.simulations,
         search_batch_size: config.self_play.search_batch_size,
+        repetition_contempt: config.self_play.repetition_contempt,
     });
     let (champion_for_self_play, _) = load_champion::<B::InnerBackend>(models_root, device)?;
     let self_play_service = InferenceService::start_with_batching(
@@ -234,15 +356,23 @@ where
     )?;
 
     let split = buffer.split(config.optimization.validation_fraction, config.seed)?;
-    let training_examples = split.training_examples(config.optimization.mirror_augmentation);
-    let validation_examples = split.validation_examples();
+    let terminal_window_plies = config.optimization.terminal_window_plies;
+    let (training_games, validation_games) = split.selected_game_counts(terminal_window_plies);
+    let training_examples = split.training_examples_with_curriculum(
+        config.optimization.mirror_augmentation,
+        terminal_window_plies,
+    );
+    let validation_examples = split.validation_examples_with_curriculum(terminal_window_plies);
     if training_examples.is_empty() {
         return Err(PipelineError::EmptyTrainingSet);
     }
     progress(TrainingProgress::DatasetReady {
         buffer_games: buffer.len(),
+        training_games,
+        validation_games,
         training_examples: training_examples.len(),
         validation_examples: validation_examples.len(),
+        terminal_window_plies,
     });
     progress(TrainingProgress::TrainingStarted {
         epochs: config.optimization.epochs,
@@ -302,7 +432,7 @@ where
     )?;
     let candidate_client = candidate_service.client();
     let champion_client = champion_service.client();
-    let arena = run_arena_with_progress(
+    let mut arena = run_arena_with_progress(
         &candidate_client,
         &champion_client,
         &config.arena,
@@ -321,15 +451,64 @@ where
     )?;
     let candidate_inference = candidate_service.stats();
     let champion_inference = champion_service.stats();
-    drop(candidate_service);
-    drop(champion_service);
     progress(TrainingProgress::ArenaFinished {
         result: arena,
         candidate_inference,
         champion_inference,
     });
+
+    progress(TrainingProgress::CandidateMirrorStarted {
+        games: config.arena.mirror_games,
+        simulations: config.arena.simulations,
+        max_draw_rate: config.arena.max_mirror_draw_rate,
+    });
+    let mirror_config = crate::ArenaConfig {
+        games: config.arena.mirror_games,
+        promotion_score: 1.0,
+        ..config.arena.clone()
+    };
+    let candidate_mirror = run_arena_with_progress(
+        &candidate_client,
+        &candidate_client,
+        &mirror_config,
+        config.arena.workers.min(config.arena.mirror_games),
+        config.self_play.max_game_plies,
+        config
+            .seed
+            .wrapping_add(u64::from(candidate_generation) << 48),
+        &|mirror_progress| {
+            if progress_checkpoint(mirror_progress.completed, mirror_progress.total) {
+                progress(TrainingProgress::CandidateMirrorAdvanced {
+                    progress: mirror_progress,
+                });
+            }
+        },
+    )?;
+    let mirror_draw_rate = ratio(candidate_mirror.draws, config.arena.mirror_games);
+    let mirror_gate_passed = mirror_draw_rate <= config.arena.max_mirror_draw_rate;
+    arena.promoted &= mirror_gate_passed;
+    progress(TrainingProgress::CandidateMirrorFinished {
+        result: candidate_mirror,
+        draw_rate: mirror_draw_rate,
+        gate_passed: mirror_gate_passed,
+        candidate_promoted: arena.promoted,
+    });
+    drop(candidate_service);
+    drop(champion_service);
     if arena.promoted {
         publish_champion(models_root, candidate_generation)?;
+        if let Some(state) = &mut curriculum_state {
+            let advanced = state.record_promotion(candidate_generation, base_config);
+            save_curriculum_state(&curriculum_path, state)?;
+            if advanced {
+                let phase = &base_config.curriculum[state.phase_index];
+                progress(TrainingProgress::CurriculumAdvanced {
+                    phase_index: state.phase_index,
+                    phase_count: base_config.curriculum.len(),
+                    name: phase.name.clone(),
+                });
+            }
+        }
         progress(TrainingProgress::ChampionPromoted {
             generation: candidate_generation,
         });
@@ -348,12 +527,56 @@ where
         self_play_outcomes,
         training,
         arena,
+        candidate_mirror,
     })
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn ratio(numerator: usize, denominator: usize) -> f32 {
+    numerator as f32 / denominator as f32
 }
 
 fn progress_checkpoint(completed: usize, total: usize) -> bool {
     let interval = total.div_ceil(20).max(1);
     completed == 1 || completed == total || completed.is_multiple_of(interval)
+}
+
+/// Loads the persisted automatic curriculum, creating phase zero when absent.
+///
+/// # Errors
+///
+/// Returns [`PipelineError`] for malformed or unsupported state files.
+pub fn load_curriculum_state(
+    path: impl AsRef<Path>,
+    champion_generation: u32,
+) -> Result<CurriculumState, PipelineError> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            let state: CurriculumState = serde_json::from_slice(&bytes)?;
+            if state.format_version != CURRICULUM_STATE_FORMAT_VERSION {
+                return Err(PipelineError::UnsupportedCurriculumState(
+                    state.format_version,
+                ));
+            }
+            Ok(state)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(CurriculumState::new(champion_generation))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Atomically persists an automatic curriculum phase.
+///
+/// # Errors
+///
+/// Returns [`PipelineError`] on serialization or I/O failures.
+pub fn save_curriculum_state(
+    path: impl AsRef<Path>,
+    state: &CurriculumState,
+) -> Result<(), PipelineError> {
+    atomic_json_write(path.as_ref(), state)
 }
 
 /// Atomically stores the replay buffer for generation-boundary resume.
@@ -473,6 +696,8 @@ pub enum PipelineError {
     Replay(#[from] ReplayError),
     #[error("training split produced no examples")]
     EmptyTrainingSet,
+    #[error("unsupported curriculum state version {0}")]
+    UnsupportedCurriculumState(u32),
     #[error("training pipeline I/O error: {0}")]
     Io(#[from] io::Error),
     #[error("training pipeline JSON error: {0}")]

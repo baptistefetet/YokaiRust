@@ -113,6 +113,8 @@ fn benchmark_metal_default_arena() {
             simulations: 400,
             search_batch_size: 1,
             promotion_score: 0.55,
+            mirror_games: 64,
+            max_mirror_draw_rate: 0.35,
         },
         128,
         512,
@@ -164,6 +166,8 @@ fn compare_saved_generations_in_both_argument_orders() {
         simulations: 100,
         search_batch_size: 1,
         promotion_score: 0.55,
+        mirror_games: 20,
+        max_mirror_draw_rate: 1.0,
     };
     let newer_as_candidate = run_arena(
         &newer.client(),
@@ -190,17 +194,16 @@ fn compare_saved_generations_in_both_argument_orders() {
 #[ignore = "manual saved-champion self-play diagnostic"]
 #[allow(clippy::cast_precision_loss)]
 fn compare_saved_champion_search_modes() {
-    for (label, exploration_plies) in [
-        ("batched-exploration-2", 2_usize),
-        ("batched-exploration-4", 4_usize),
-        ("batched-exploration-6", 6_usize),
-        ("batched-exploration-8", 8_usize),
+    const GENERATION: u32 = 13;
+    for (label, simulations, repetition_contempt) in [
+        ("neutral-curriculum-200", 200, 0.0_f32),
+        ("neutral-full-search-400", 400, 0.0_f32),
     ] {
         let workers = 16_usize;
         let search_batch_size = 8_usize;
         let device = burn::backend::wgpu::WgpuDevice::default();
-        let (model, _) = load_generation::<MetalBackend>(Path::new("models"), 5, &device)
-            .expect("generation 5 checkpoint");
+        let (model, _) = load_generation::<MetalBackend>(Path::new("models"), GENERATION, &device)
+            .expect("saved champion checkpoint");
         let service = InferenceService::start_with_batching(
             NetworkEvaluator::new(model, device),
             workers.saturating_mul(search_batch_size).min(128),
@@ -211,17 +214,18 @@ fn compare_saved_champion_search_modes() {
         let config = SelfPlayConfig {
             games_per_generation: 64,
             workers,
-            simulations: 200,
+            simulations,
             search_batch_size,
             max_game_plies: 512,
             inference_batch_size: 128,
             inference_wait_ms: 1,
-            exploration_plies,
-            exploration_temperature: 1.0,
+            exploration_plies: 12,
+            exploration_temperature: 0.0,
             final_temperature: 0.0,
+            repetition_contempt,
         };
         let started = Instant::now();
-        let games = generate_self_play(&service.client(), &config, 5, 50_000)
+        let games = generate_self_play(&service.client(), &config, GENERATION, 50_000)
             .expect("diagnostic self-play");
         let draws = games
             .iter()
@@ -265,6 +269,8 @@ fn compare_saved_champion_against_itself() {
         simulations: 400,
         search_batch_size: 1,
         promotion_score: 0.55,
+        mirror_games: 32,
+        max_mirror_draw_rate: 1.0,
     };
     let started = Instant::now();
     let result = run_arena(
@@ -337,6 +343,7 @@ fn benchmark_metal_self_play_case_with_config(
         exploration_plies: 12,
         exploration_temperature: 1.0,
         final_temperature: 0.0,
+        repetition_contempt: 0.0,
     };
     let started = Instant::now();
     let games = generate_self_play(&service.client(), &config, 0, 8_000)

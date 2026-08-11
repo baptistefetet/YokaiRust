@@ -6,13 +6,15 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
-    CpuTrainingBackend, Game, Mcts, ModelMetadata, OptimizationConfig, PathsConfig, Piece,
-    PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig,
-    SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig, TrainingConfigError,
-    TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_champion, generate_self_play,
-    load_generation, load_replay_buffer, run_arena, run_arena_with_progress,
-    run_generation_with_progress, save_generation, train_candidate, validate_model,
+    Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind,
+    CURRICULUM_STATE_FORMAT_VERSION, CpuBackend, CpuTrainingBackend, CurriculumState, DatasetSplit,
+    DrawReason, Game, Mcts, ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind,
+    Player, Position, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayConfig,
+    SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig, TrainingConfigError, TrainingDataError,
+    TrainingProgress, UniformEvaluator, bootstrap_champion, generate_self_play,
+    load_curriculum_state, load_generation, load_replay_buffer, run_arena, run_arena_with_progress,
+    run_generation_with_progress, save_curriculum_state, save_generation, train_candidate,
+    validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -141,6 +143,39 @@ fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
 }
 
 #[test]
+fn terminal_curriculum_keeps_only_the_tail_of_decisive_games() {
+    let mut decisive = recorded_game(3, 100);
+    let example = decisive.examples[0].clone();
+    decisive.examples = (1..=5)
+        .map(|repetition_count| {
+            let mut example = example.clone();
+            example.repetition_count = repetition_count;
+            example
+        })
+        .collect();
+    let mut drawn = decisive.clone();
+    drawn.seed = 101;
+    drawn.outcome = yokai::Outcome::Draw {
+        reason: DrawReason::ThreefoldRepetition,
+    };
+    let split = DatasetSplit {
+        training_games: vec![decisive.clone(), drawn.clone()],
+        validation_games: vec![decisive, drawn],
+    };
+
+    let training = split.training_examples_with_curriculum(true, Some(2));
+    let validation = split.validation_examples_with_curriculum(Some(2));
+
+    assert_eq!(split.selected_game_counts(Some(2)), (1, 1));
+    assert_eq!(training.len(), 4, "two tail positions plus mirrors");
+    assert_eq!(validation.len(), 2);
+    assert_eq!(validation[0].repetition_count, 4);
+    assert_eq!(validation[1].repetition_count, 5);
+    assert_eq!(split.training_examples(false).len(), 10);
+    assert_eq!(split.validation_examples().len(), 10);
+}
+
+#[test]
 fn checked_in_training_configuration_is_valid_and_strict() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/training.toml");
     let config = TrainingConfig::load(path).expect("checked-in config must be valid");
@@ -151,10 +186,16 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.self_play.inference_wait_ms, 1);
     assert!(config.self_play.exploration_temperature.abs() < f32::EPSILON);
     assert_eq!(config.optimization.early_stopping_patience, 2);
+    assert_eq!(config.optimization.terminal_window_plies, Some(8));
     assert_eq!(config.arena.games, 200);
     assert_eq!(config.arena.workers, 128);
     assert_eq!(config.arena.search_batch_size, 1);
     assert!((config.arena.promotion_score - 0.55).abs() < f32::EPSILON);
+    assert_eq!(config.arena.mirror_games, 64);
+    assert!((config.arena.max_mirror_draw_rate - 0.35).abs() < f32::EPSILON);
+    assert_eq!(config.curriculum.len(), 5);
+    assert_eq!(config.curriculum[0].terminal_window_plies, Some(8));
+    assert_eq!(config.curriculum[4].terminal_window_plies, None);
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -162,6 +203,46 @@ fn checked_in_training_configuration_is_valid_and_strict() {
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
+
+    invalid.arena.games = 200;
+    invalid.optimization.terminal_window_plies = Some(0);
+    assert!(matches!(
+        invalid.validate(),
+        Err(TrainingConfigError::Invalid(_))
+    ));
+}
+
+#[test]
+fn curriculum_state_round_trips_and_rejects_unknown_versions() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "yokai-curriculum-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let path = root.join("state.json");
+    let state = CurriculumState {
+        format_version: CURRICULUM_STATE_FORMAT_VERSION,
+        phase_index: 2,
+        promotions_in_phase: 1,
+        champion_generation: 11,
+    };
+
+    save_curriculum_state(&path, &state).expect("curriculum save");
+    assert_eq!(
+        load_curriculum_state(&path, 0).expect("curriculum load"),
+        state
+    );
+    let unsupported = CurriculumState {
+        format_version: CURRICULUM_STATE_FORMAT_VERSION + 1,
+        ..state
+    };
+    save_curriculum_state(&path, &unsupported).expect("unsupported state save");
+    assert!(load_curriculum_state(&path, 0).is_err());
+
+    fs::remove_dir_all(root).expect("curriculum test cleanup");
 }
 
 #[test]
@@ -185,6 +266,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         weight_decay: 0.0,
         validation_fraction: 0.5,
         mirror_augmentation: true,
+        terminal_window_plies: None,
         replay_buffer: ReplayBufferConfig::default(),
     };
 
@@ -231,6 +313,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         exploration_plies: 6,
         exploration_temperature: 1.0,
         final_temperature: 0.0,
+        repetition_contempt: 0.0,
     };
 
     let first = generate_self_play(&UniformEvaluator, &config, 2, 500)
@@ -257,6 +340,8 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
             simulations: 16,
             search_batch_size: 1,
             promotion_score: 0.55,
+            mirror_games: 2,
+            max_mirror_draw_rate: 1.0,
         },
         2,
         256,
@@ -285,6 +370,8 @@ fn arena_progress_reports_consistent_running_outcomes() {
             simulations: 4,
             search_batch_size: 1,
             promotion_score: 0.55,
+            mirror_games: 4,
+            max_mirror_draw_rate: 1.0,
         },
         2,
         256,
@@ -347,6 +434,7 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             exploration_plies: 4,
             exploration_temperature: 1.0,
             final_temperature: 0.0,
+            repetition_contempt: 0.0,
         },
         optimization: OptimizationConfig {
             epochs: 1,
@@ -356,6 +444,7 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             weight_decay: 0.0,
             validation_fraction: 0.5,
             mirror_augmentation: true,
+            terminal_window_plies: None,
             replay_buffer: ReplayBufferConfig {
                 max_games: 8,
                 generations_to_keep: 2,
@@ -367,11 +456,14 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             simulations: 1,
             search_batch_size: 1,
             promotion_score: 0.55,
+            mirror_games: 2,
+            max_mirror_draw_rate: 1.0,
         },
         paths: PathsConfig {
             models: models.to_string_lossy().into_owned(),
             self_play: self_play.to_string_lossy().into_owned(),
         },
+        curriculum: Vec::new(),
     };
     let device = burn::backend::flex::FlexDevice;
     CpuTrainingBackend::seed(&device, config.seed);
@@ -404,6 +496,12 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
     assert_eq!(
         report.arena.candidate_wins + report.arena.champion_wins + report.arena.draws,
         200
+    );
+    assert_eq!(
+        report.candidate_mirror.candidate_wins
+            + report.candidate_mirror.champion_wins
+            + report.candidate_mirror.draws,
+        2
     );
     assert_eq!(reloaded_buffer.len(), 2);
     let replay_directory = self_play.join("replays/generation-000001");

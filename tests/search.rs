@@ -97,6 +97,67 @@ fn mcts_finds_an_immediate_win_and_orients_its_value_for_the_root() {
 }
 
 #[test]
+fn repetition_contempt_penalizes_only_the_player_causing_the_draw() {
+    let position = position_with(
+        &[
+            (3, 1, PieceKind::Koropokkuru, Player::First),
+            (0, 1, PieceKind::Koropokkuru, Player::Second),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    );
+    let mut game = Game::from_position(position);
+    let cycle = [
+        Action::Move {
+            from: square(3, 1),
+            to: square(3, 0),
+        },
+        Action::Move {
+            from: square(0, 1),
+            to: square(0, 2),
+        },
+        Action::Move {
+            from: square(3, 0),
+            to: square(3, 1),
+        },
+        Action::Move {
+            from: square(0, 2),
+            to: square(0, 1),
+        },
+    ];
+    for action in cycle.into_iter().chain(cycle.into_iter().take(3)) {
+        game.apply(action).expect("repetition setup action");
+    }
+    let drawing_action = cycle[3];
+
+    let mut neutral = Mcts::new(UniformEvaluator, search_config(128), 71).expect("neutral search");
+    let mut contempt = Mcts::new(
+        UniformEvaluator,
+        SearchConfig {
+            simulations: 128,
+            repetition_contempt: 1.0,
+            ..SearchConfig::default()
+        },
+        71,
+    )
+    .expect("contempt search");
+    let neutral_result = neutral.search(&game, 0.0).expect("neutral result");
+    let contempt_result = contempt.search(&game, 0.0).expect("contempt result");
+    let q_for = |result: &yokai::SearchResult| {
+        result
+            .analysis
+            .iter()
+            .find(|entry| entry.action == drawing_action)
+            .expect("drawing action analysis")
+            .q_value
+    };
+
+    assert!(q_for(&neutral_result).abs() < f32::EPSILON);
+    assert!(q_for(&contempt_result) < -0.99);
+    assert_ne!(contempt_result.best_action, drawing_action);
+}
+
+#[test]
 fn batched_mcts_evaluates_distinct_leaves_and_recovers_after_failure() {
     let game = Game::new(Player::First);
     let batch_sizes = Arc::new(Mutex::new(Vec::new()));

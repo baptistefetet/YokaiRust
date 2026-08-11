@@ -35,7 +35,7 @@ first trainable AlphaZero pipeline:
   mass and top-1 accuracy;
 - a paired, color-alternating promotion arena without noise and with a 55%
   promotion threshold;
-- a second noise-free candidate mirror gate that rejects repetition-prone models;
+- noise-free mirror and noisy self-play gates that reject repetition-prone models;
 - unit and property-based tests.
 
 Ratatui is deliberately deferred to the next milestone.
@@ -91,8 +91,9 @@ and temperature-based action sampling.
 ## AlphaZero training
 
 The checked-in configuration targets Metal and is intentionally substantial:
-256 self-play games, 10 training epochs, a 200-game paired arena and a 64-game
-candidate mirror diagnostic. Self-play runs 16 concurrent games and selects 8
+256 self-play games, 10 training epochs, a 200-game paired arena, a 64-game
+candidate mirror diagnostic and a 64-game exploratory candidate probe. Self-play
+runs 16 concurrent games and selects 8
 distinct MCTS leaves per game before each inference, which feeds Metal efficiently
 without requiring hundreds of blocked game threads. The promotion arenas instead
 use sequential PUCT (`search_batch_size = 1`), so virtual losses cannot influence
@@ -115,9 +116,10 @@ one command can train from generation zero without per-generation editing.
 
 Repetition contempt changes search exploration only: official outcomes, stored
 value targets and promotion games still score a draw as zero. A candidate must
-both reach the 55% paired-arena score and keep its noise-free mirror draw rate at
-or below 35% over 64 games. This prevents a model that merely exploits the old
-champion while cycling against itself from being published.
+reach the 55% paired-arena score, keep its noise-free mirror draw rate at or below
+35%, and keep its noisy self-play draw rate at or below 20%. Both gates use 64
+games. The exploratory probe catches models whose cycles appear only after root
+Dirichlet noise changes the trajectory.
 
 ```bash
 # Run one generation with the checked-in Metal configuration.
@@ -156,7 +158,8 @@ Metal. The command bootstraps generation zero when no model exists, then:
    trains a candidate;
 3. evaluates candidate and champion with paired seeds and alternating colors;
 4. runs the candidate against an identical copy with official draw values;
-5. publishes the candidate only if both the arena score and mirror gate pass,
+5. previews candidate self-play with the active exploration settings;
+6. publishes the candidate only if the arena score and both draw gates pass,
    then advances the curriculum when its phase has enough promotions.
 
 Training keeps the epoch with the lowest combined validation loss. It stops
@@ -213,6 +216,18 @@ Candidate 14 then produced 0/64 mirror draws but was correctly rejected because
 its paired score against champion 11 was only 50%. These measurements show that
 the runaway draw trend is controlled without weakening the official rules or
 promoting a merely non-cycling but otherwise equal candidate.
+
+Candidate 15 exposed a second failure mode after initially passing 200-0 and
+0/64 mirror draws: its following noisy self-play batch produced 76/256 draws
+(29.7%). Its checkpoint was retained, champion was returned to generation 11,
+and the exploratory candidate gate was added at 20% so the same regression is
+now rejected before publication.
+
+Candidate 16 confirmed the deterministic gate itself: it also beat champion 11
+by 200-0, then drew all 64 mirror games and was rejected. The exploratory probe
+was skipped because the candidate was already ineligible. Champion 11 therefore
+remains published while its full-depth self-play batches stay in the measured
+5.9-8.2% draw range.
 
 Generation 4 also exposed validation overfitting: validation loss was best at
 epoch 1 and degraded through epoch 10 while training loss kept improving. The

@@ -360,6 +360,30 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             result.candidate_wins + result.champion_wins + result.draws,
             draw_rate * 100.0,
         ),
+        TrainingProgress::CandidateSelfPlayStarted {
+            games,
+            simulations,
+            max_draw_rate,
+        } => eprintln!(
+            "[{elapsed}] candidate exploratory probe started: {games} games, {simulations} simulations/move, maximum draw rate={:.1}%",
+            max_draw_rate * 100.0
+        ),
+        TrainingProgress::CandidateSelfPlayAdvanced { completed, total } => eprintln!(
+            "[{elapsed}] candidate exploratory probe {completed}/{total} ({:.1}%)",
+            percentage(completed, total),
+        ),
+        TrainingProgress::CandidateSelfPlayFinished {
+            outcomes,
+            draw_rate,
+            gate_passed,
+            candidate_promoted,
+        } => eprintln!(
+            "[{elapsed}] candidate exploratory probe finished: first/second/draw={}/{}/{}, draw_rate={:.1}%, gate_passed={gate_passed}, promotion_eligible={candidate_promoted}",
+            outcomes.first_wins,
+            outcomes.second_wins,
+            outcomes.draws,
+            draw_rate * 100.0,
+        ),
         TrainingProgress::ChampionPromoted { generation } => {
             eprintln!("[{elapsed}] generation {generation} promoted to champion");
         }
@@ -445,6 +469,15 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         mirror_games,
         percentage(report.candidate_mirror.draws, mirror_games),
     );
+    if let Some(outcomes) = report.candidate_self_play {
+        let games = outcomes.first_wins + outcomes.second_wins + outcomes.draws;
+        println!(
+            "candidate exploratory draws={}/{} ({:.1}%)",
+            outcomes.draws,
+            games,
+            percentage(outcomes.draws, games),
+        );
+    }
 }
 
 fn analyze_initial_position(simulations: u32, seed: u64) -> Result<(), Box<dyn Error>> {

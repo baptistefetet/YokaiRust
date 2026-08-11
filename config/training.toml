@@ -57,6 +57,10 @@ promotion_score = 0.55
 # models that beat the previous champion but collapse into a new mirror cycle.
 mirror_games = 64
 max_mirror_draw_rate = 0.35
+# Root noise can reveal cycles absent from deterministic mirror play. This
+# second gate uses the active self-play phase settings on the candidate itself.
+candidate_self_play_games = 64
+max_candidate_self_play_draw_rate = 0.20
 
 [paths]
 models = "models"

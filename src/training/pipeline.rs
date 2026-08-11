@@ -89,6 +89,7 @@ pub struct GenerationReport {
     pub training: TrainingReport,
     pub arena: ArenaResult,
     pub candidate_mirror: ArenaResult,
+    pub candidate_self_play: Option<GameOutcomeStats>,
 }
 
 impl GenerationReport {
@@ -184,6 +185,21 @@ pub enum TrainingProgress {
     },
     CandidateMirrorFinished {
         result: ArenaResult,
+        draw_rate: f32,
+        gate_passed: bool,
+        candidate_promoted: bool,
+    },
+    CandidateSelfPlayStarted {
+        games: usize,
+        simulations: u32,
+        max_draw_rate: f32,
+    },
+    CandidateSelfPlayAdvanced {
+        completed: usize,
+        total: usize,
+    },
+    CandidateSelfPlayFinished {
+        outcomes: GameOutcomeStats,
         draw_rate: f32,
         gate_passed: bool,
         candidate_promoted: bool,
@@ -493,6 +509,42 @@ where
         gate_passed: mirror_gate_passed,
         candidate_promoted: arena.promoted,
     });
+    let candidate_self_play = if arena.promoted {
+        progress(TrainingProgress::CandidateSelfPlayStarted {
+            games: config.arena.candidate_self_play_games,
+            simulations: config.self_play.simulations,
+            max_draw_rate: config.arena.max_candidate_self_play_draw_rate,
+        });
+        let mut probe_config = config.self_play.clone();
+        probe_config.games_per_generation = config.arena.candidate_self_play_games;
+        probe_config.workers = probe_config.workers.min(probe_config.games_per_generation);
+        let probe_games = generate_self_play_with_progress(
+            &candidate_client,
+            &probe_config,
+            candidate_generation,
+            config
+                .seed
+                .wrapping_add(u64::from(candidate_generation) << 56),
+            &|completed, total| {
+                if progress_checkpoint(completed, total) {
+                    progress(TrainingProgress::CandidateSelfPlayAdvanced { completed, total });
+                }
+            },
+        )?;
+        let outcomes = outcome_stats(&probe_games);
+        let draw_rate = ratio(outcomes.draws, probe_games.len());
+        let gate_passed = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
+        arena.promoted &= gate_passed;
+        progress(TrainingProgress::CandidateSelfPlayFinished {
+            outcomes,
+            draw_rate,
+            gate_passed,
+            candidate_promoted: arena.promoted,
+        });
+        Some(outcomes)
+    } else {
+        None
+    };
     drop(candidate_service);
     drop(champion_service);
     if arena.promoted {
@@ -528,6 +580,7 @@ where
         training,
         arena,
         candidate_mirror,
+        candidate_self_play,
     })
 }
 

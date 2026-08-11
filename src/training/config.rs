@@ -54,6 +54,9 @@ pub struct ArenaConfig {
     /// Noise-free candidate-versus-itself games used as an anti-cycle gate.
     pub mirror_games: usize,
     pub max_mirror_draw_rate: f32,
+    /// Noisy candidate self-play games used to catch exploration-only cycles.
+    pub candidate_self_play_games: usize,
+    pub max_candidate_self_play_draw_rate: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -127,6 +130,8 @@ impl Default for TrainingConfig {
                 promotion_score: 0.55,
                 mirror_games: 64,
                 max_mirror_draw_rate: 0.35,
+                candidate_self_play_games: 64,
+                max_candidate_self_play_draw_rate: 0.20,
             },
             paths: PathsConfig {
                 models: "models".to_owned(),
@@ -229,10 +234,13 @@ impl TrainingConfig {
             || self.arena.search_batch_size == 0
             || self.arena.mirror_games == 0
             || !self.arena.mirror_games.is_multiple_of(2)
+            || self.arena.candidate_self_play_games == 0
             || !self.arena.promotion_score.is_finite()
             || !(0.5..=1.0).contains(&self.arena.promotion_score)
             || !self.arena.max_mirror_draw_rate.is_finite()
             || !(0.0..=1.0).contains(&self.arena.max_mirror_draw_rate)
+            || !self.arena.max_candidate_self_play_draw_rate.is_finite()
+            || !(0.0..=1.0).contains(&self.arena.max_candidate_self_play_draw_rate)
         {
             return Err(TrainingConfigError::Invalid(
                 "arena requires at least 200 games, a positive even mirror sample, simulations, and valid score/draw thresholds",

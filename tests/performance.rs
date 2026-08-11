@@ -115,6 +115,8 @@ fn benchmark_metal_default_arena() {
             promotion_score: 0.55,
             mirror_games: 64,
             max_mirror_draw_rate: 0.35,
+            candidate_self_play_games: 64,
+            max_candidate_self_play_draw_rate: 0.20,
         },
         128,
         512,
@@ -168,6 +170,8 @@ fn compare_saved_generations_in_both_argument_orders() {
         promotion_score: 0.55,
         mirror_games: 20,
         max_mirror_draw_rate: 1.0,
+        candidate_self_play_games: 2,
+        max_candidate_self_play_draw_rate: 1.0,
     };
     let newer_as_candidate = run_arena(
         &newer.client(),
@@ -271,6 +275,8 @@ fn compare_saved_champion_against_itself() {
         promotion_score: 0.55,
         mirror_games: 32,
         max_mirror_draw_rate: 1.0,
+        candidate_self_play_games: 2,
+        max_candidate_self_play_draw_rate: 1.0,
     };
     let started = Instant::now();
     let result = run_arena(

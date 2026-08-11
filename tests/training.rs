@@ -193,6 +193,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!((config.arena.promotion_score - 0.55).abs() < f32::EPSILON);
     assert_eq!(config.arena.mirror_games, 64);
     assert!((config.arena.max_mirror_draw_rate - 0.35).abs() < f32::EPSILON);
+    assert_eq!(config.arena.candidate_self_play_games, 64);
+    assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
     assert_eq!(config.curriculum.len(), 5);
     assert_eq!(config.curriculum[0].terminal_window_plies, Some(8));
     assert_eq!(config.curriculum[4].terminal_window_plies, None);
@@ -342,6 +344,8 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
             promotion_score: 0.55,
             mirror_games: 2,
             max_mirror_draw_rate: 1.0,
+            candidate_self_play_games: 2,
+            max_candidate_self_play_draw_rate: 1.0,
         },
         2,
         256,
@@ -372,6 +376,8 @@ fn arena_progress_reports_consistent_running_outcomes() {
             promotion_score: 0.55,
             mirror_games: 4,
             max_mirror_draw_rate: 1.0,
+            candidate_self_play_games: 2,
+            max_candidate_self_play_draw_rate: 1.0,
         },
         2,
         256,
@@ -458,6 +464,8 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             promotion_score: 0.55,
             mirror_games: 2,
             max_mirror_draw_rate: 1.0,
+            candidate_self_play_games: 2,
+            max_candidate_self_play_draw_rate: 1.0,
         },
         paths: PathsConfig {
             models: models.to_string_lossy().into_owned(),

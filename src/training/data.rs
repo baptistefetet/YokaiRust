@@ -7,7 +7,9 @@ use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{Action, Game, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position, SearchResult};
+use crate::{
+    Action, Game, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position, Replay, SearchResult,
+};
 
 const POLICY_TOLERANCE: f32 = 1.0e-4;
 
@@ -39,6 +41,9 @@ pub struct SelfPlayGame {
     pub seed: u64,
     pub outcome: Outcome,
     pub examples: Vec<TrainingExample>,
+    /// Versioned game trace. Legacy buffers deserialize with no replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<Replay>,
 }
 
 impl SelfPlayGame {
@@ -66,6 +71,7 @@ struct PendingExample {
     position: Position,
     repetition_count: u8,
     policy: [f32; POLICY_ACTIONS],
+    action: Action,
 }
 
 impl SelfPlayRecorder {
@@ -91,6 +97,7 @@ impl SelfPlayRecorder {
             position: *game.position(),
             repetition_count: game.current_repetition_count(),
             policy: search.policy,
+            action: search.selected_action,
         });
         Ok(())
     }
@@ -113,6 +120,17 @@ impl SelfPlayRecorder {
         if self.pending.is_empty() {
             return Err(TrainingDataError::EmptyGame);
         }
+        let initial_position = self
+            .pending
+            .first()
+            .map(|pending| pending.position)
+            .ok_or(TrainingDataError::EmptyGame)?;
+        let initial_player = initial_position.side_to_move();
+        let actions = self
+            .pending
+            .iter()
+            .map(|pending| pending.action)
+            .collect::<Vec<_>>();
         let examples = self
             .pending
             .into_iter()
@@ -128,6 +146,8 @@ impl SelfPlayRecorder {
             seed,
             outcome,
             examples,
+            replay: (initial_position == Position::initial(initial_player))
+                .then(|| Replay::from_actions(initial_player, actions, outcome, Some(seed))),
         })
     }
 }

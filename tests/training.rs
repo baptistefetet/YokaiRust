@@ -8,11 +8,11 @@ use std::{
 use yokai::{
     Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
     CpuTrainingBackend, Game, Mcts, ModelMetadata, OptimizationConfig, PathsConfig, Piece,
-    PieceKind, Player, Position, ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayConfig,
-    SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig, TrainingConfigError, TrainingDataError,
-    TrainingProgress, UniformEvaluator, bootstrap_champion, generate_self_play, load_generation,
-    load_replay_buffer, run_arena, run_arena_with_progress, run_generation_with_progress,
-    save_generation, train_candidate, validate_model,
+    PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig,
+    SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig, TrainingConfigError,
+    TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_champion, generate_self_play,
+    load_generation, load_replay_buffer, run_arena, run_arena_with_progress,
+    run_generation_with_progress, save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -59,6 +59,7 @@ fn recorder_assigns_final_value_without_a_terminal_policy_target() {
 
     assert_eq!(self_play.examples.len(), 1);
     assert!((self_play.examples[0].value - 1.0).abs() < f32::EPSILON);
+    assert!(self_play.replay.is_none());
 
     let terminal = {
         let mut game = immediate_win_game();
@@ -404,6 +405,16 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
         200
     );
     assert_eq!(reloaded_buffer.len(), 2);
+    let replay_directory = self_play.join("replays/generation-000001");
+    assert_eq!(
+        fs::read_dir(replay_directory)
+            .expect("persisted replay directory")
+            .count(),
+        2
+    );
+    let replay = Replay::read_json(self_play.join("replays/generation-000001/game-0000.json"))
+        .expect("persisted self-play replay");
+    assert!(replay.outcome.is_terminal());
     let events = events.lock().expect("progress event mutex");
     assert!(matches!(
         events.first(),

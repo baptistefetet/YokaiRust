@@ -186,6 +186,102 @@ fn compare_saved_generations_in_both_argument_orders() {
     println!("newer-as-candidate={newer_as_candidate:?} older-as-candidate={older_as_candidate:?}");
 }
 
+#[test]
+#[ignore = "manual saved-champion self-play diagnostic"]
+#[allow(clippy::cast_precision_loss)]
+fn compare_saved_champion_search_modes() {
+    for (label, exploration_plies) in [
+        ("batched-exploration-2", 2_usize),
+        ("batched-exploration-4", 4_usize),
+        ("batched-exploration-6", 6_usize),
+        ("batched-exploration-8", 8_usize),
+    ] {
+        let workers = 16_usize;
+        let search_batch_size = 8_usize;
+        let device = burn::backend::wgpu::WgpuDevice::default();
+        let (model, _) = load_generation::<MetalBackend>(Path::new("models"), 5, &device)
+            .expect("generation 5 checkpoint");
+        let service = InferenceService::start_with_batching(
+            NetworkEvaluator::new(model, device),
+            workers.saturating_mul(search_batch_size).min(128),
+            128,
+            Duration::from_millis(1),
+        )
+        .expect("diagnostic inference service");
+        let config = SelfPlayConfig {
+            games_per_generation: 64,
+            workers,
+            simulations: 200,
+            search_batch_size,
+            max_game_plies: 512,
+            inference_batch_size: 128,
+            inference_wait_ms: 1,
+            exploration_plies,
+            exploration_temperature: 1.0,
+            final_temperature: 0.0,
+        };
+        let started = Instant::now();
+        let games = generate_self_play(&service.client(), &config, 5, 50_000)
+            .expect("diagnostic self-play");
+        let draws = games
+            .iter()
+            .filter(|game| matches!(game.outcome, yokai::Outcome::Draw { .. }))
+            .count();
+        let examples = games.iter().map(|game| game.examples.len()).sum::<usize>();
+        println!(
+            "{label}: wall={:.2}s draws={draws}/{} examples={examples} avg_plies={:.1}",
+            started.elapsed().as_secs_f64(),
+            games.len(),
+            examples as f64 / games.len() as f64,
+        );
+    }
+}
+
+#[test]
+#[ignore = "manual saved-champion mirror arena diagnostic"]
+fn compare_saved_champion_against_itself() {
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    let (left_model, _) = load_generation::<MetalBackend>(Path::new("models"), 5, &device)
+        .expect("left generation 5 checkpoint");
+    let (right_model, _) = load_generation::<MetalBackend>(Path::new("models"), 5, &device)
+        .expect("right generation 5 checkpoint");
+    let left = InferenceService::start_with_batching(
+        NetworkEvaluator::new(left_model, device.clone()),
+        16,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("left inference service");
+    let right = InferenceService::start_with_batching(
+        NetworkEvaluator::new(right_model, device),
+        16,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("right inference service");
+    let config = ArenaConfig {
+        games: 32,
+        workers: 32,
+        simulations: 400,
+        search_batch_size: 1,
+        promotion_score: 0.55,
+    };
+    let started = Instant::now();
+    let result = run_arena(
+        &left.client(),
+        &right.client(),
+        &config,
+        config.workers,
+        512,
+        60_000,
+    )
+    .expect("generation 5 mirror arena");
+    println!(
+        "mirror arena wall={:.2}s result={result:?}",
+        started.elapsed().as_secs_f64()
+    );
+}
+
 fn benchmark_metal_self_play_case(
     device: &burn::backend::wgpu::WgpuDevice,
     workers: usize,

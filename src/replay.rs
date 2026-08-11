@@ -24,16 +24,31 @@ pub struct Replay {
 
 impl Replay {
     #[must_use]
-    pub fn from_game(game: &Game, seed: Option<u64>) -> Self {
+    pub fn from_actions(
+        initial_player: Player,
+        actions: Vec<Action>,
+        outcome: Outcome,
+        seed: Option<u64>,
+    ) -> Self {
         Self {
             format_version: REPLAY_FORMAT_VERSION,
             rules_version: RULES_VERSION,
             seed,
-            initial_player: game.initial_player(),
-            actions: game.actions().to_vec(),
-            outcome: game.outcome(),
+            initial_player,
+            actions,
+            outcome,
             analyses: None,
         }
+    }
+
+    #[must_use]
+    pub fn from_game(game: &Game, seed: Option<u64>) -> Self {
+        Self::from_actions(
+            game.initial_player(),
+            game.actions().to_vec(),
+            game.outcome(),
+            seed,
+        )
     }
 
     /// Attaches one complete legal-action analysis list per played move.

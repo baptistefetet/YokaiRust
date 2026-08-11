@@ -13,9 +13,10 @@ use thiserror::Error;
 use crate::{
     AlphaZeroNetworkConfig, ArenaError, ArenaProgress, ArenaResult, EpochReport, InferenceService,
     InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError, NetworkEvaluator,
-    Outcome, Player, ReplayBuffer, ReplayBufferConfig, SelfPlayError, SelfPlayGame, TrainingConfig,
-    TrainingReport, generate_self_play_with_progress, load_champion, next_generation,
-    publish_champion, run_arena_with_progress, save_generation, train_candidate_with_progress,
+    Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError, SelfPlayError, SelfPlayGame,
+    TrainingConfig, TrainingReport, generate_self_play_with_progress, load_champion,
+    next_generation, publish_champion, run_arena_with_progress, save_generation,
+    train_candidate_with_progress,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -223,6 +224,7 @@ where
         inference: self_play_inference,
     });
     save_self_play_generation(&config.paths.self_play, candidate_generation, &games)?;
+    save_self_play_replays(&config.paths.self_play, candidate_generation, &games)?;
     for game in &games {
         buffer.push(game.clone());
     }
@@ -397,6 +399,26 @@ fn save_self_play_generation(
     )
 }
 
+fn save_self_play_replays(
+    root: impl AsRef<Path>,
+    generation: u32,
+    games: &[SelfPlayGame],
+) -> Result<(), PipelineError> {
+    let directory = root
+        .as_ref()
+        .join("replays")
+        .join(format!("generation-{generation:06}"));
+    fs::create_dir_all(&directory)?;
+    for (index, game) in games.iter().enumerate() {
+        let Some(replay) = &game.replay else {
+            continue;
+        };
+        replay.to_game()?;
+        atomic_json_write(&directory.join(format!("game-{index:04}.json")), replay)?;
+    }
+    Ok(())
+}
+
 fn atomic_json_write<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<(), PipelineError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
@@ -447,6 +469,8 @@ pub enum PipelineError {
     Arena(#[from] ArenaError),
     #[error(transparent)]
     TrainingData(#[from] crate::TrainingDataError),
+    #[error(transparent)]
+    Replay(#[from] ReplayError),
     #[error("training split produced no examples")]
     EmptyTrainingSet,
     #[error("training pipeline I/O error: {0}")]

@@ -20,8 +20,8 @@ pub use game::{
 pub use neural::{
     ENCODER_VERSION, EncodedPosition, INPUT_PLANES,
     checkpoint::{
-        MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
-        next_generation, publish_champion, save_generation,
+        MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_generation, load_latest,
+        next_generation, publish_latest, save_generation,
     },
     encode_game, encode_position, encoded_batch_tensor,
     evaluator::{
@@ -37,20 +37,19 @@ pub use search::{
     Mcts, SearchConfig, SearchError, SearchResult, TemperatureSchedule, UniformEvaluator,
 };
 pub use training::arena::{
-    ArenaError, ArenaProgress, ArenaResult, run_arena, run_arena_with_progress,
+    ArenaError, ArenaProgress, ArenaResult, ArenaSeatResult, run_arena, run_arena_with_progress,
 };
 pub use training::config::{
-    ArenaConfig, BackendKind, CurriculumPhaseConfig, OptimizationConfig, PathsConfig,
-    SelfPlayConfig, TrainingConfig, TrainingConfigError,
+    ArenaConfig, BackendKind, OptimizationConfig, PathsConfig, SelfPlayConfig, TrainingConfig,
+    TrainingConfigError,
 };
 pub use training::data::{
     DatasetSplit, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,
     TrainingDataError, TrainingExample, mirror_policy,
 };
 pub use training::pipeline::{
-    CURRICULUM_STATE_FORMAT_VERSION, CurriculumState, GameOutcomeStats, GenerationReport,
-    PipelineError, TrainingProgress, bootstrap_champion, load_curriculum_state, load_replay_buffer,
-    run_generation, run_generation_with_progress, save_curriculum_state, save_replay_buffer,
+    GameOutcomeStats, GenerationReport, PipelineError, TrainingProgress, bootstrap_latest,
+    load_replay_buffer, run_generation, run_generation_with_progress, save_replay_buffer,
 };
 pub use training::self_play::{
     SelfPlayError, generate_self_play, generate_self_play_with_progress, play_self_play_game,

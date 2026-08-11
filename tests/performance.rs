@@ -112,7 +112,7 @@ fn benchmark_metal_default_arena() {
             workers: 128,
             simulations: 400,
             search_batch_size: 1,
-            promotion_score: 0.55,
+            score_threshold: 0.55,
             mirror_games: 64,
             max_mirror_draw_rate: 0.35,
             candidate_self_play_games: 64,
@@ -130,7 +130,7 @@ fn benchmark_metal_default_arena() {
         "arena_games=200 simulations=400 search_batch=1 workers=128 wait_ms=1 wall_s={:.2} candidate/champion/draw={}/{}/{} candidate_avg_batch={:.1} champion_avg_batch={:.1} combined_positions={} candidate_pos_per_second={:.1} champion_pos_per_second={:.1}",
         elapsed.as_secs_f64(),
         result.candidate_wins,
-        result.champion_wins,
+        result.reference_wins,
         result.draws,
         candidate_stats.average_batch_size(),
         champion_stats.average_batch_size(),
@@ -167,7 +167,7 @@ fn compare_saved_generations_in_both_argument_orders() {
         workers: 16,
         simulations: 100,
         search_batch_size: 1,
-        promotion_score: 0.55,
+        score_threshold: 0.55,
         mirror_games: 20,
         max_mirror_draw_rate: 1.0,
         candidate_self_play_games: 2,
@@ -192,6 +192,52 @@ fn compare_saved_generations_in_both_argument_orders() {
     )
     .expect("older candidate arena");
     println!("newer-as-candidate={newer_as_candidate:?} older-as-candidate={older_as_candidate:?}");
+}
+
+#[test]
+#[ignore = "manual continuous-training seat diagnostic"]
+fn compare_continuous_generations_by_absolute_player() {
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    let root = Path::new("models/alpha-zero-from-zero");
+    let (candidate_model, _) =
+        load_generation::<MetalBackend>(root, 8, &device).expect("generation 8 checkpoint");
+    let (reference_model, _) =
+        load_generation::<MetalBackend>(root, 7, &device).expect("generation 7 checkpoint");
+    let candidate = InferenceService::start_with_batching(
+        NetworkEvaluator::new(candidate_model, device.clone()),
+        8,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("candidate inference service");
+    let reference = InferenceService::start_with_batching(
+        NetworkEvaluator::new(reference_model, device),
+        8,
+        128,
+        Duration::from_millis(1),
+    )
+    .expect("reference inference service");
+    let config = ArenaConfig {
+        games: 200,
+        workers: 128,
+        simulations: 400,
+        search_batch_size: 1,
+        score_threshold: 0.55,
+        mirror_games: 200,
+        max_mirror_draw_rate: 1.0,
+        candidate_self_play_games: 2,
+        max_candidate_self_play_draw_rate: 1.0,
+    };
+    let result = run_arena(
+        &candidate.client(),
+        &reference.client(),
+        &config,
+        config.workers,
+        512,
+        20_260_811_u64.wrapping_add(8_u64 << 40),
+    )
+    .expect("continuous generation arena");
+    println!("generation-8-vs-7={result:?}");
 }
 
 #[test]
@@ -272,7 +318,7 @@ fn compare_saved_champion_against_itself() {
         workers: 32,
         simulations: 400,
         search_batch_size: 1,
-        promotion_score: 0.55,
+        score_threshold: 0.55,
         mirror_games: 32,
         max_mirror_draw_rate: 1.0,
         candidate_self_play_games: 2,

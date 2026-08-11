@@ -59,7 +59,7 @@ impl SelfPlayGame {
     /// action is merely the action that repeated a position, not a forced tactic
     /// that the policy should learn to reproduce.
     #[must_use]
-    pub fn curriculum_examples(
+    pub fn selected_examples(
         &self,
         mirror: bool,
         terminal_window_plies: Option<usize>,
@@ -238,6 +238,13 @@ impl ReplayBuffer {
     }
 
     #[must_use]
+    pub fn contains(&self, generation: u32, seed: u64) -> bool {
+        self.games
+            .iter()
+            .any(|game| game.generation == generation && game.seed == seed)
+    }
+
+    #[must_use]
     pub fn example_count(&self) -> usize {
         self.games.iter().map(|game| game.examples.len()).sum()
     }
@@ -276,34 +283,34 @@ pub struct DatasetSplit {
 impl DatasetSplit {
     #[must_use]
     pub fn training_examples(&self, mirror: bool) -> Vec<TrainingExample> {
-        self.training_examples_with_curriculum(mirror, None)
+        self.training_examples_with_window(mirror, None)
     }
 
     #[must_use]
-    pub fn training_examples_with_curriculum(
+    pub fn training_examples_with_window(
         &self,
         mirror: bool,
         terminal_window_plies: Option<usize>,
     ) -> Vec<TrainingExample> {
         self.training_games
             .iter()
-            .flat_map(|game| game.curriculum_examples(mirror, terminal_window_plies))
+            .flat_map(|game| game.selected_examples(mirror, terminal_window_plies))
             .collect()
     }
 
     #[must_use]
     pub fn validation_examples(&self) -> Vec<TrainingExample> {
-        self.validation_examples_with_curriculum(None)
+        self.validation_examples_with_window(None)
     }
 
     #[must_use]
-    pub fn validation_examples_with_curriculum(
+    pub fn validation_examples_with_window(
         &self,
         terminal_window_plies: Option<usize>,
     ) -> Vec<TrainingExample> {
         self.validation_games
             .iter()
-            .flat_map(|game| game.curriculum_examples(false, terminal_window_plies))
+            .flat_map(|game| game.selected_examples(false, terminal_window_plies))
             .collect()
     }
 

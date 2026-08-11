@@ -26,16 +26,15 @@ first trainable AlphaZero pipeline:
 - CPU inference for deterministic tests and WGPU/Metal inference on Apple Silicon;
 - a batching inference service shared by concurrent self-play games;
 - generation-based SafeTensors checkpoints with validated metadata and an
-  atomically published `champion` pointer;
+  atomically published pointer to the latest network;
 - reproducible parallel self-play, a rolling replay buffer and whole-game
   training/validation splits;
-- a persistent tactical curriculum that expands from terminal positions to the
-  full dataset only after validated promotions;
+- the complete AlphaZero dataset by default, with a terminal-window mode kept
+  only for focused diagnostic experiments;
 - explicit policy/value metrics, including entropy, calibration, illegal policy
   mass and top-1 accuracy;
-- a paired, color-alternating promotion arena without noise and with a 55%
-  promotion threshold;
-- noise-free mirror and noisy self-play gates that reject repetition-prone models;
+- a paired, color-alternating arena against the previous network;
+- noise-free mirror and noisy self-play diagnostics for repetition cycles;
 - unit and property-based tests.
 
 Ratatui is deliberately deferred to the next milestone.
@@ -47,8 +46,8 @@ Ratatui is deliberately deferred to the next milestone.
 
 The first guide maps the Rust constructs used here to familiar C++ concepts and
 suggests a module-by-module reading order. The second explains policy/value
-targets, the terminal curriculum, promotion gates and why continued self-play is
-not a proof of perfect play.
+targets, continuous latest-network updates, draw diagnostics and why continued
+self-play is not a proof of perfect play.
 
 ## Board coordinates
 
@@ -102,54 +101,56 @@ and temperature-based action sampling.
 
 The checked-in configuration targets Metal and is intentionally substantial:
 256 self-play games, 10 training epochs, a 200-game paired arena, a 64-game
-candidate mirror diagnostic and a 64-game exploratory candidate probe. Self-play
-runs 16 concurrent games and selects 8
-distinct MCTS leaves per game before each inference, which feeds Metal efficiently
-without requiring hundreds of blocked game threads. The promotion arenas instead
-use sequential PUCT (`search_batch_size = 1`), so virtual losses cannot influence
-their decisions. Workers are concurrent games, not a promise to keep the same
-number of CPU cores busy.
+mirror diagnostic and a 64-game exploratory probe. Self-play runs 16 concurrent
+games and selects 8 distinct MCTS leaves per game before each inference, which
+feeds Metal efficiently without requiring hundreds of blocked game threads. The
+arena uses sequential PUCT (`search_batch_size = 1`), so virtual losses cannot
+influence its measurement. Workers are concurrent games, not a promise to keep
+the same number of CPU cores busy.
 
-Self-play keeps Dirichlet noise at every root but selects the most visited move
-(`exploration_temperature = 0`). The complete noisy MCTS visit distribution
-remains the policy training target, so the network still learns about explored
-alternatives even though the played move is selected greedily.
+The default loop follows AlphaZero's latest-network behavior. Every trained
+generation is published atomically and produces the next self-play batch,
+regardless of its arena score. Self-play adds Dirichlet noise at every root,
+samples from MCTS visits for the first 12 plies, then becomes greedy. All played
+non-terminal positions enter the rolling buffer and official draws always have
+value zero.
 
-Training starts with an automatic terminal curriculum. Its checked-in phases use
-the last 8, 16, 32 and 64 plies of decisive games before returning to the complete
-dataset. Early positions with ambiguous outcomes and draw cycles are therefore
-not allowed to drown the initial tactical signal. Each phase specifies its own
-search budget and self-play-only repetition contempt. A rejected candidate stays
-in the same phase; only a successful promotion advances the persistent state in
-`data/self-play/curriculum-state.json`. The final phase repeats indefinitely, so
-one command can train from generation zero without per-generation editing.
-
-Repetition contempt changes search exploration only: official outcomes, stored
-value targets and promotion games still score a draw as zero. A candidate must
-reach the 55% paired-arena score, keep its noise-free mirror draw rate at or below
-35%, and keep its noisy self-play draw rate at or below 20%. Both gates use 64
-games. The exploratory probe catches models whose cycles appear only after root
-Dirichlet noise changes the trajectory.
+The 55% paired score and the 35%/20% draw limits are health indicators only.
+They are logged but cannot reject a generation. A finite
+`terminal_window_plies` and non-zero `repetition_contempt` remain available for
+controlled experiments, but neither is enabled by the standard configuration.
 
 ```bash
 # Run one generation with the checked-in Metal configuration.
 cargo run --release -- train --config config/training.toml --headless
 
-# Resume automatically from the latest champion and replay buffer.
+# Resume automatically from the latest network and replay buffer.
 cargo run --release -- train --resume latest --headless
 
-# Run five successive generations, still resuming from the latest champion.
+# Run five successive generations, still resuming from the latest network.
 cargo run --release -- train --resume latest --generations 5 --headless
 ```
 
 `--headless` disables the future TUI, not textual diagnostics. Progress is
 written immediately to standard error: roughly twenty updates during self-play,
-one metrics line per epoch, roughly twenty updates per arena, and every checkpoint,
-curriculum or promotion decision. Arena updates include the running
-candidate/champion/draw counts and provisional score. All lines include elapsed
-wall-clock time. Phase summaries also report average/maximum inference batch,
-backend throughput and client wait. One generation is run by default; use
-`--generations N` to request an explicit sequence.
+one metrics line per epoch, roughly twenty updates per arena, and every checkpoint
+publication. Arena updates include the running candidate/previous/draw counts and
+provisional score. All lines include elapsed wall-clock time. Phase summaries
+also report average/maximum inference batch, backend throughput and client wait.
+One generation is run by default; use `--generations N` to request an explicit
+sequence.
+
+Arena progress is completion-ordered because games run concurrently. Fast wins
+can therefore appear as a block before slower losses even though paired game
+indices alternate the candidate between `First` and `Second`. The final report
+separates both assignments; intermediate counters must not be read as a
+chronological winning streak.
+
+This was verified by replaying the generation-8 arena exactly. The first 100
+completed games were candidate wins and the final 100 were losses, but the
+seat-aware result was candidate `First`: 60 wins/40 losses, candidate `Second`:
+40 wins/60 losses. Completion time, not game index or player assignment, caused
+the apparent two-block result.
 
 On the development M4 Max, the terminal-8 experiment took about 2 minutes 40
 seconds. A measured full-depth terminal-32 generation including the new mirror
@@ -163,27 +164,62 @@ between generations.
 Set `backend = "cpu"` in the TOML file for deterministic debugging without
 Metal. The command bootstraps generation zero when no model exists, then:
 
-1. generates self-play games from the current champion;
-2. selects the active curriculum window, updates the rolling replay buffer and
-   trains a candidate;
-3. evaluates candidate and champion with paired seeds and alternating colors;
-4. runs the candidate against an identical copy with official draw values;
-5. previews candidate self-play with the active exploration settings;
-6. publishes the candidate only if the arena score and both draw gates pass,
-   then advances the curriculum when its phase has enough promotions.
+1. generates self-play games from the latest network;
+2. updates the rolling replay buffer and trains the next network;
+3. saves and publishes that network for subsequent self-play;
+4. evaluates it against the previous generation with paired seeds and colors;
+5. measures its noise-free mirror and noisy self-play draw rates.
 
 Training keeps the epoch with the lowest combined validation loss. It stops
 early after `early_stopping_patience` consecutive epochs without improvement,
 then sends that restored best epoch—not merely the last epoch—to the arena.
 
 Each invocation completes the requested number of generations. Checkpoints are
-written under `models/generation-N/`; `models/champion` points to the published
-champion. The replay buffer is stored in `data/self-play/buffer.json`. Writes use
+written under `models/generation-N/`; `models/latest` points to the latest
+network. Existing `models/champion` pointers are still accepted during migration.
+The replay buffer is stored in
+`data/self-play/buffer.json`. Writes use
 temporary paths followed by atomic renames so an interrupted write cannot replace
 the last complete generation. After `Ctrl+C`, rerunning the command starts again
-from the last published champion.
+from the last published network.
 
-### Experimental observations and draw-cycle diagnosis
+### Continuous AlphaZero experiment (August 2026)
+
+A clean run from random generation 0 was stopped after generation 15 once the
+same draw regime had repeated for several generations. It used the standard
+configuration: all positions, opening temperature 1, official draw value 0 and
+no repetition contempt or promotion gate.
+
+| Generation | Self-play draws | Previous-generation arena | Mirror draws | Exploratory draws | Validation policy/value |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 4/256 | 200/0/0 | 0/64 | 1/64 | 2.619 / 1.159 |
+| 3 | 10/256 | 100/100/0 | 0/64 | 12/64 | 1.819 / 0.802 |
+| 4 | 49/256 | 0/100/100 | 64/64 | 7/64 | 1.643 / 0.701 |
+| 7 | 22/256 | 200/0/0 | 0/64 | 15/64 | 1.421 / 0.748 |
+| 10 | 54/256 | 100/0/100 | 64/64 | 19/64 | 1.172 / 0.570 |
+| 11 | 97/256 | 0/0/200 | 64/64 | 41/64 | 1.159 / 0.604 |
+| 12 | 144/256 | 0/0/200 | 64/64 | 24/64 | 1.136 / 0.589 |
+| 15 | 130/256 | 100/0/100 | 64/64 | 27/64 | 1.099 / 0.552 |
+
+The run proves that the continuous-update plumbing works, including generations
+that score below 55%. It also reproduces the failure: deterministic play becomes
+repetition-dominated from generation 10 onward and does not recover by generation
+15. Lower losses do not contradict that result. Policy loss measures agreement
+with the current MCTS target, so it can improve while MCTS learns a bad cycle;
+value loss also becomes easier when more targets are the draw value zero. Top-1
+still rose from 9% during the first epoch to about 70%, while illegal policy mass
+fell from 91% to 4%, confirming that optimization itself was active.
+
+The isolated artifacts are under ignored paths
+`models/alpha-zero-from-zero/` and `data/alpha-zero-from-zero/`. Generation 15 is
+the last complete checkpoint. Generation 16 self-play completed and was saved,
+but training was interrupted before its checkpoint was created.
+
+### Historical guarded-pipeline observations
+
+The following measurements predate the switch to continuous AlphaZero updates.
+They are retained because they motivated the draw diagnostics, not because they
+describe the current publication policy.
 
 The first local training sequence produced the following self-play trend. An
 example corresponds to one played position, so examples per game also measure

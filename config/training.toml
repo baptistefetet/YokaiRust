@@ -11,18 +11,16 @@ games_per_generation = 256
 # Each worker owns one game, while each game evaluates several independent
 # MCTS leaves together to keep Metal busy without hundreds of blocked threads.
 workers = 16
-# Fallback values match the first curriculum phase. Active phases override them.
 simulations = 200
 search_batch_size = 8
 max_game_plies = 512
 inference_batch_size = 128
 inference_wait_ms = 1
 exploration_plies = 12
-# Root Dirichlet noise still explores alternative moves. Greedy action selection
-# avoids turning those noisy visit distributions into learned repetition cycles.
-exploration_temperature = 0.0
+# AlphaZero samples from MCTS visits during the opening, then becomes greedy.
+exploration_temperature = 1.0
 final_temperature = 0.0
-# Official game outcomes, replay values and promotion arenas always score draws 0.
+# Official game outcomes and replay values score draws as zero.
 repetition_contempt = 0.0
 
 [optimization]
@@ -35,69 +33,29 @@ learning_rate = 0.001
 weight_decay = 0.0001
 validation_fraction = 0.1
 mirror_augmentation = true
-# Tactical curriculum: drawn games have no forced terminal move and are
-# deliberately excluded. Increase this window as endgame predictions stabilize,
-# then remove the setting to return to the complete AlphaZero dataset.
-terminal_window_plies = 8
+# `terminal_window_plies` may be set for a focused diagnostic experiment. Its
+# absence is the regular AlphaZero dataset containing every played position.
 
 [optimization.replay_buffer]
 max_games = 20000
 generations_to_keep = 20
 
 [arena]
-# Candidate/champion colors alternate, with paired seeds and no root noise.
+# New/reference colors alternate, with paired seeds and no root noise.
 # The arena deliberately uses exact sequential PUCT; concurrency happens only
-# across games so virtual losses cannot influence the promotion decision.
+# across games so virtual losses cannot influence the measurement.
 games = 200
 workers = 128
 simulations = 400
 search_batch_size = 1
-promotion_score = 0.55
-# A candidate must also avoid repetition against an identical copy. This catches
-# models that beat the previous champion but collapse into a new mirror cycle.
+score_threshold = 0.55
+# Candidate-versus-itself and noisy self-play checks are diagnostics only. Their
+# thresholds produce warnings but never block publication of the latest network.
 mirror_games = 64
 max_mirror_draw_rate = 0.35
-# Root noise can reveal cycles absent from deterministic mirror play. This
-# second gate uses the active self-play phase settings on the candidate itself.
 candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
 models = "models"
 self_play = "data/self-play"
-
-# Automatic curriculum. A rejected candidate stays in the same phase. The
-# final phase repeats indefinitely; the mirror gate still protects champion.
-[[curriculum]]
-name = "terminal-8"
-promotions_required = 1
-simulations = 200
-repetition_contempt = 0.0
-terminal_window_plies = 8
-
-[[curriculum]]
-name = "terminal-16"
-promotions_required = 1
-simulations = 400
-repetition_contempt = 0.5
-terminal_window_plies = 16
-
-[[curriculum]]
-name = "terminal-32"
-promotions_required = 2
-simulations = 400
-repetition_contempt = 0.5
-terminal_window_plies = 32
-
-[[curriculum]]
-name = "terminal-64"
-promotions_required = 2
-simulations = 400
-repetition_contempt = 0.5
-terminal_window_plies = 64
-
-[[curriculum]]
-name = "full-dataset"
-promotions_required = 1
-simulations = 400
-repetition_contempt = 0.5

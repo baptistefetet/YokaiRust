@@ -51,7 +51,7 @@ impl TrainingReport {
     }
 }
 
-/// Optimizes a candidate initialized from the champion weights.
+/// Optimizes the next network initialized from the latest weights.
 ///
 /// # Panics
 ///

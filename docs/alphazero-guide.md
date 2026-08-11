@@ -23,48 +23,53 @@ The value target is the final game result:
 There is deliberately no policy example for a terminal position: it has no legal
 move distribution to learn.
 
-## Why midgame examples are noisy but not invalid
+## Why every played position is retained
 
 A midgame self-play position has a valid final result, but that result is a
 high-variance estimate of the position's true game-theoretic value. Weak players
 can win good positions or lose winning positions. Early networks therefore feed
 uncertain targets back into themselves.
 
-The terminal curriculum reduces that variance while bootstrapping:
+Standard AlphaZero nevertheless retains every non-terminal position. Mixing
+many games in a rolling buffer makes those noisy samples useful in aggregate and
+lets opening and midgame knowledge improve alongside tactics.
 
-1. train on the last 8 plies of decisive games;
-2. expand to 16, 32 and 64 plies after validated promotions;
-3. finally return to all buffered positions.
-
-Draw games are excluded while a finite terminal window is active, because their
-last action is the action that completed a repetition, exactly the policy we do
-not want to imitate during tactical bootstrapping.
-
-This curriculum is a training strategy, not a change to Yokai rules.
+The optional `terminal_window_plies` setting keeps only the tail of decisive
+games. It is useful for the diagnostic experiment suggested during development:
+if a network cannot learn nearly forced final moves, the policy/value pipeline
+probably contains a bug. It is not enabled in normal training.
 
 ## One generation
 
 ```text
-champion
-   |
-   +--> noisy self-play --> replay buffer --> train/validation split
-   |                                          |
-   |                                          v
-   +--------------------------------------> candidate
-                                              |
-                    +-------------------------+-----------------------+
-                    |                         |                       |
-              vs champion               mirror probe           noisy probe
-              score >= 55%             draws <= 35%           draws <= 20%
-                    |                         |                       |
-                    +-------------------------+-----------------------+
-                                              |
-                                      publish only if all pass
+latest network
+      |
+      +--> noisy self-play --> replay buffer --> train/validation split
+                                                   |
+                                                   v
+                                             next network
+                                                   |
+                                      save and publish unconditionally
+                                                   |
+                    +------------------------------+------------------+
+                    |                              |                  |
+              vs previous                    mirror probe        noisy probe
+             score diagnostic               draw warning       draw warning
 ```
 
-The candidate starts from champion weights rather than random weights. A rejected
-candidate checkpoint is retained for debugging, but the champion pointer and
-curriculum phase do not advance.
+The next network starts from the latest weights. Once training completes, it
+becomes the source of the following self-play batch. Arena and draw results are
+measurements: they never choose which network is allowed to continue learning.
+
+This is the specific distinction made by the original publications. AlphaGo
+Zero evaluated each candidate and promoted it only above 55%; AlphaZero used the
+latest parameters continuously and omitted that selection step. Many community
+projects still call the gated variant “AlphaZero”, which explains the common
+terminology overlap. YokaiRust keeps the 55% number as a readable strength
+indicator, not as a publication condition.
+
+- [AlphaZero paper](https://arxiv.org/abs/1712.01815)
+- [AlphaGo Zero paper](https://www.nature.com/articles/nature24270)
 
 ## Why draws increased
 
@@ -73,17 +78,17 @@ all non-repeating alternatives lose, deeper MCTS rationally selects the safe
 draw. Self-play then trains the policy to reproduce that branch and trains the
 value to predict zero, creating a feedback loop.
 
-Three mechanisms address different parts of the loop:
+The standard configuration deliberately leaves this feedback visible rather
+than changing its objective: all positions remain in the dataset, repetition
+contempt is zero and every generation continues. Three separate measurements
+make a collapse easy to identify:
 
-- **terminal curriculum** supplies clearer decisive targets;
-- **repetition contempt** makes the player causing a repetition dislike that
-  branch during self-play search;
-- **promotion gates** stop deterministic or noise-sensitive cycles from becoming
-  champion.
+- self-play W/L/D shows behavior with exploration;
+- the mirror probe exposes deterministic repetition cycles;
+- the paired arena tells whether the new network improved against its predecessor.
 
-Contempt is search-only. Replay outcomes and arena scores preserve the official
-draw value of zero, so the published model must still prove itself under the real
-rules.
+Terminal windows and repetition contempt remain available as explicit research
+experiments, not hidden corrections to the default algorithm.
 
 ## Reading the metrics
 
@@ -92,18 +97,30 @@ rules.
 | policy loss | Cross-entropy against MCTS visits | Training falls while validation rises: policy overfit. |
 | value loss | Squared error against final result | Persistently high: weak result prediction or noisy labels. |
 | entropy | Spread of predicted legal moves | Sudden collapse can indicate premature policy certainty. |
-| top-1 | Agreement with the largest MCTS target | Useful for tactical curriculum, not a complete strength score. |
+| top-1 | Agreement with the largest MCTS target | Useful for tactical tests, not a complete strength score. |
 | calibration | Difference between value prediction and outcome | Low validation error means values better match observed results. |
 | illegal mass | Raw probability assigned to illegal actions | High values waste network capacity even though MCTS masks them. |
 | W/L/D | Actual behavior | The primary health signal; always separate draws from wins. |
 
-Loss improvements do not prove playing-strength improvements. Promotion arenas
+Loss improvements do not prove playing-strength improvements. Diagnostic arenas
 and fixed tactical/baseline tests remain necessary.
+
+Policy loss is a moving-target metric: each network changes the MCTS visit
+distribution used to train the next network. It therefore has no fixed zero-loss
+reference across generations. Value loss has a second trap in this game: as the
+draw fraction grows, more targets equal exactly zero, which can lower mean squared
+error without making the player stronger. Always read both losses beside top-1,
+illegal mass and W/L/D.
+
+Arena progress is emitted when concurrent games finish, not by game index. Short
+wins can all appear before long losses. Only the final paired result is meaningful;
+YokaiRust also reports candidate results separately as absolute `First` and
+`Second` to expose side-dependent outcomes.
 
 ## Will continued self-play produce a perfect model?
 
 There is no such guarantee. Neural self-play can plateau, forget useful patterns,
-cycle between strategies or exploit weaknesses specific to the current champion.
+cycle between strategies or exploit weaknesses specific to recent opponents.
 More compute only produces more samples from the current process; it does not
 turn that process into a proof of optimal play.
 
@@ -112,7 +129,7 @@ A convincing **strong** model should satisfy all of these repeatedly:
 - immediate and multi-ply tactical suites;
 - stable low draw rates with and without exploration noise;
 - positive results against frozen historical baselines;
-- promotion across multiple seeds, not one lucky arena;
+- progress across multiple seeds and historical checkpoints;
 - calibrated value predictions on held-out games.
 
 A **perfect** model requires an independent oracle. For a finite 3x4 game that
@@ -127,8 +144,8 @@ Yes. The TUI depends on stable engine-side contracts (`Game`, `Action`, `Replay`
 continue independently while UI work proceeds.
 
 For reproducible UI tests, use a fixed checkpoint or `UniformEvaluator` instead
-of whatever `models/champion` happens to reference. The one-player mode can load
-the current champion at runtime, while replay and two-player modes require no
+of whatever `models/latest` happens to reference. The one-player mode can load
+the latest network at runtime, while replay and two-player modes require no
 neural model at all.
 
 The next UI milestone should avoid importing Burn types into widgets. A small

@@ -6,14 +6,13 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind,
-    CURRICULUM_STATE_FORMAT_VERSION, CpuBackend, CpuTrainingBackend, CurriculumState, DatasetSplit,
-    DrawReason, Game, Mcts, ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind,
-    Player, Position, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayConfig,
-    SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig, TrainingConfigError, TrainingDataError,
-    TrainingProgress, UniformEvaluator, bootstrap_champion, generate_self_play,
-    load_curriculum_state, load_generation, load_replay_buffer, run_arena, run_arena_with_progress,
-    run_generation_with_progress, save_curriculum_state, save_generation, train_candidate,
+    Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
+    CpuTrainingBackend, DatasetSplit, DrawReason, Game, Mcts, ModelMetadata, OptimizationConfig,
+    PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig,
+    SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TrainingConfig,
+    TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_latest,
+    generate_self_play, load_generation, load_latest, load_replay_buffer, run_arena,
+    run_arena_with_progress, run_generation_with_progress, save_generation, train_candidate,
     validate_model,
 };
 
@@ -143,7 +142,7 @@ fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
 }
 
 #[test]
-fn terminal_curriculum_keeps_only_the_tail_of_decisive_games() {
+fn terminal_window_keeps_only_the_tail_of_decisive_games() {
     let mut decisive = recorded_game(3, 100);
     let example = decisive.examples[0].clone();
     decisive.examples = (1..=5)
@@ -163,8 +162,8 @@ fn terminal_curriculum_keeps_only_the_tail_of_decisive_games() {
         validation_games: vec![decisive, drawn],
     };
 
-    let training = split.training_examples_with_curriculum(true, Some(2));
-    let validation = split.validation_examples_with_curriculum(Some(2));
+    let training = split.training_examples_with_window(true, Some(2));
+    let validation = split.validation_examples_with_window(Some(2));
 
     assert_eq!(split.selected_game_counts(Some(2)), (1, 1));
     assert_eq!(training.len(), 4, "two tail positions plus mirrors");
@@ -184,20 +183,17 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.network.residual_blocks, 4);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
-    assert!(config.self_play.exploration_temperature.abs() < f32::EPSILON);
+    assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
     assert_eq!(config.optimization.early_stopping_patience, 2);
-    assert_eq!(config.optimization.terminal_window_plies, Some(8));
+    assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(config.arena.games, 200);
     assert_eq!(config.arena.workers, 128);
     assert_eq!(config.arena.search_batch_size, 1);
-    assert!((config.arena.promotion_score - 0.55).abs() < f32::EPSILON);
+    assert!((config.arena.score_threshold - 0.55).abs() < f32::EPSILON);
     assert_eq!(config.arena.mirror_games, 64);
     assert!((config.arena.max_mirror_draw_rate - 0.35).abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(config.curriculum.len(), 5);
-    assert_eq!(config.curriculum[0].terminal_window_plies, Some(8));
-    assert_eq!(config.curriculum[4].terminal_window_plies, None);
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -212,39 +208,6 @@ fn checked_in_training_configuration_is_valid_and_strict() {
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
-}
-
-#[test]
-fn curriculum_state_round_trips_and_rejects_unknown_versions() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock after epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "yokai-curriculum-test-{}-{nonce}",
-        std::process::id()
-    ));
-    let path = root.join("state.json");
-    let state = CurriculumState {
-        format_version: CURRICULUM_STATE_FORMAT_VERSION,
-        phase_index: 2,
-        promotions_in_phase: 1,
-        champion_generation: 11,
-    };
-
-    save_curriculum_state(&path, &state).expect("curriculum save");
-    assert_eq!(
-        load_curriculum_state(&path, 0).expect("curriculum load"),
-        state
-    );
-    let unsupported = CurriculumState {
-        format_version: CURRICULUM_STATE_FORMAT_VERSION + 1,
-        ..state
-    };
-    save_curriculum_state(&path, &unsupported).expect("unsupported state save");
-    assert!(load_curriculum_state(&path, 0).is_err());
-
-    fs::remove_dir_all(root).expect("curriculum test cleanup");
 }
 
 #[test]
@@ -341,7 +304,7 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
             workers: 2,
             simulations: 16,
             search_batch_size: 1,
-            promotion_score: 0.55,
+            score_threshold: 0.55,
             mirror_games: 2,
             max_mirror_draw_rate: 1.0,
             candidate_self_play_games: 2,
@@ -354,11 +317,13 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
     .expect("paired arena must finish");
 
     assert_eq!(
-        result.candidate_wins + result.champion_wins + result.draws,
+        result.candidate_wins + result.reference_wins + result.draws,
         2
     );
+    assert_eq!(result.candidate_as_first.games(), 1);
+    assert_eq!(result.candidate_as_second.games(), 1);
     assert!((result.score - 0.5).abs() < f32::EPSILON);
-    assert!(!result.promoted);
+    assert!(!result.threshold_reached);
 }
 
 #[test]
@@ -373,7 +338,7 @@ fn arena_progress_reports_consistent_running_outcomes() {
             workers: 2,
             simulations: 4,
             search_batch_size: 1,
-            promotion_score: 0.55,
+            score_threshold: 0.55,
             mirror_games: 4,
             max_mirror_draw_rate: 1.0,
             candidate_self_play_games: 2,
@@ -396,20 +361,22 @@ fn arena_progress_reports_consistent_running_outcomes() {
     for (index, snapshot) in snapshots.iter().enumerate() {
         assert_eq!(snapshot.completed, index + 1);
         assert_eq!(
-            snapshot.candidate_wins + snapshot.champion_wins + snapshot.draws,
+            snapshot.candidate_wins + snapshot.reference_wins + snapshot.draws,
             snapshot.completed
         );
     }
     let final_snapshot = snapshots.last().expect("final arena progress");
     assert_eq!(final_snapshot.candidate_wins, result.candidate_wins);
-    assert_eq!(final_snapshot.champion_wins, result.champion_wins);
+    assert_eq!(final_snapshot.reference_wins, result.reference_wins);
     assert_eq!(final_snapshot.draws, result.draws);
+    assert_eq!(result.candidate_as_first.games(), 2);
+    assert_eq!(result.candidate_as_second.games(), 2);
     assert!((final_snapshot.score() - result.score).abs() < f32::EPSILON);
 }
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
+fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     use burn::prelude::Backend;
 
     let nonce = SystemTime::now()
@@ -461,7 +428,7 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             workers: 2,
             simulations: 1,
             search_batch_size: 1,
-            promotion_score: 0.55,
+            score_threshold: 0.55,
             mirror_games: 2,
             max_mirror_draw_rate: 1.0,
             candidate_self_play_games: 2,
@@ -471,12 +438,11 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
             models: models.to_string_lossy().into_owned(),
             self_play: self_play.to_string_lossy().into_owned(),
         },
-        curriculum: Vec::new(),
     };
     let device = burn::backend::flex::FlexDevice;
     CpuTrainingBackend::seed(&device, config.seed);
-    bootstrap_champion::<CpuBackend>(&models, config.network.clone(), &device)
-        .expect("initial champion");
+    bootstrap_latest::<CpuBackend>(&models, config.network.clone(), &device)
+        .expect("initial network");
     let mut buffer = ReplayBuffer::new(config.optimization.replay_buffer).expect("buffer");
 
     let events = Arc::new(Mutex::new(Vec::new()));
@@ -502,12 +468,12 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
 
     assert_eq!(report.generated_games, 2);
     assert_eq!(
-        report.arena.candidate_wins + report.arena.champion_wins + report.arena.draws,
+        report.arena.candidate_wins + report.arena.reference_wins + report.arena.draws,
         200
     );
     assert_eq!(
         report.candidate_mirror.candidate_wins
-            + report.candidate_mirror.champion_wins
+            + report.candidate_mirror.reference_wins
             + report.candidate_mirror.draws,
         2
     );
@@ -546,11 +512,62 @@ fn short_cpu_alphazero_generation_reaches_an_arena_decision() {
         TrainingProgress::ArenaAdvanced { progress }
             if progress.completed == 200 && progress.total == 200
     )));
-    assert!(matches!(
-        events.last(),
-        Some(
-            TrainingProgress::ChampionPromoted { .. } | TrainingProgress::CandidateRejected { .. }
-        )
-    ));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, TrainingProgress::LatestPublished { generation: 1 }))
+    );
+    let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("latest model");
+    assert_eq!(
+        latest.generation, 1,
+        "arena score cannot reject generation 1"
+    );
+    drop(events);
+
+    // Simulate Ctrl+C after generation-2 self-play was persisted but before its
+    // model was trained. Resuming must reuse those games instead of duplicating
+    // an identical deterministic batch in the replay buffer.
+    let mut persisted_games: Vec<SelfPlayGame> = serde_json::from_slice(
+        &fs::read(self_play.join("generation-000001.json")).expect("generation-1 games"),
+    )
+    .expect("persisted game JSON");
+    for game in &mut persisted_games {
+        game.generation = 1;
+        game.seed = game.seed.wrapping_add(10_000);
+    }
+    fs::write(
+        self_play.join("generation-000002.json"),
+        serde_json::to_vec(&persisted_games).expect("generation-2 serialization"),
+    )
+    .expect("generation-2 persistence");
+    let resumed_events = Arc::new(Mutex::new(Vec::new()));
+    let recorded_resumed_events = resumed_events.clone();
+    run_generation_with_progress::<CpuTrainingBackend, _>(
+        &config,
+        &mut buffer,
+        &device,
+        &move |event| {
+            recorded_resumed_events
+                .lock()
+                .expect("resumed progress event mutex")
+                .push(event);
+        },
+    )
+    .expect("resumed generation must finish");
+    assert!(
+        resumed_events
+            .lock()
+            .expect("resumed events")
+            .iter()
+            .any(|event| matches!(
+                event,
+                TrainingProgress::SelfPlayResumed {
+                    games: 2,
+                    examples: _
+                }
+            ))
+    );
+    let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("resumed latest model");
+    assert_eq!(latest.generation, 2);
     fs::remove_dir_all(root).expect("pipeline test cleanup");
 }

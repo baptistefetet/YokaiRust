@@ -1,4 +1,4 @@
-//! One recoverable `AlphaZero` generation from self-play through arena decision.
+//! One recoverable `AlphaZero` update followed by non-blocking diagnostics.
 
 use std::{
     fs, io,
@@ -15,61 +15,9 @@ use crate::{
     InferenceService, InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError,
     NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError,
     SelfPlayError, SelfPlayGame, TrainingConfig, TrainingReport, generate_self_play_with_progress,
-    load_champion, next_generation, publish_champion, run_arena_with_progress, save_generation,
-    train_candidate_with_progress,
+    load_generation, load_latest, next_generation, publish_latest, run_arena_with_progress,
+    save_generation, train_candidate_with_progress,
 };
-
-pub const CURRICULUM_STATE_FORMAT_VERSION: u32 = 1;
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CurriculumState {
-    pub format_version: u32,
-    pub phase_index: usize,
-    pub promotions_in_phase: usize,
-    pub champion_generation: u32,
-}
-
-impl CurriculumState {
-    const fn new(champion_generation: u32) -> Self {
-        Self {
-            format_version: CURRICULUM_STATE_FORMAT_VERSION,
-            phase_index: 0,
-            promotions_in_phase: 0,
-            champion_generation,
-        }
-    }
-
-    fn reconcile(&mut self, champion_generation: u32, config: &TrainingConfig) {
-        if self.champion_generation == champion_generation {
-            return;
-        }
-        if champion_generation > self.champion_generation {
-            self.record_promotion(champion_generation, config);
-        } else {
-            // A deliberate champion rollback must not pretend that a new model
-            // passed the curriculum gate.
-            self.champion_generation = champion_generation;
-        }
-    }
-
-    fn record_promotion(&mut self, generation: u32, config: &TrainingConfig) -> bool {
-        self.champion_generation = generation;
-        let Some(phase) = config.curriculum.get(self.phase_index) else {
-            return false;
-        };
-        self.promotions_in_phase = self.promotions_in_phase.saturating_add(1);
-        if self.promotions_in_phase >= phase.promotions_required
-            && self.phase_index + 1 < config.curriculum.len()
-        {
-            self.phase_index += 1;
-            self.promotions_in_phase = 0;
-            true
-        } else {
-            self.promotions_in_phase = self.promotions_in_phase.min(phase.promotions_required);
-            false
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GameOutcomeStats {
@@ -80,7 +28,7 @@ pub struct GameOutcomeStats {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GenerationReport {
-    pub champion_generation: u32,
+    pub source_generation: u32,
     pub candidate_generation: u32,
     pub generated_games: usize,
     pub buffer_games: usize,
@@ -89,36 +37,21 @@ pub struct GenerationReport {
     pub training: TrainingReport,
     pub arena: ArenaResult,
     pub candidate_mirror: ArenaResult,
-    pub candidate_self_play: Option<GameOutcomeStats>,
+    pub candidate_self_play: GameOutcomeStats,
 }
 
 impl GenerationReport {
     #[must_use]
-    pub const fn promoted(&self) -> bool {
-        self.arena.promoted
+    pub const fn arena_threshold_reached(&self) -> bool {
+        self.arena.threshold_reached
     }
 }
 
 /// Coarse-grained events emitted by a complete `AlphaZero` generation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TrainingProgress {
-    CurriculumPhaseStarted {
-        phase_index: usize,
-        phase_count: usize,
-        name: String,
-        promotions_in_phase: usize,
-        promotions_required: usize,
-        simulations: u32,
-        repetition_contempt: f32,
-        terminal_window_plies: Option<usize>,
-    },
-    CurriculumAdvanced {
-        phase_index: usize,
-        phase_count: usize,
-        name: String,
-    },
     GenerationStarted {
-        champion_generation: u32,
+        source_generation: u32,
         candidate_generation: u32,
     },
     SelfPlayStarted {
@@ -137,6 +70,10 @@ pub enum TrainingProgress {
         examples: usize,
         outcomes: GameOutcomeStats,
         inference: InferenceStats,
+    },
+    SelfPlayResumed {
+        games: usize,
+        examples: usize,
     },
     DatasetReady {
         buffer_games: usize,
@@ -173,7 +110,7 @@ pub enum TrainingProgress {
     ArenaFinished {
         result: ArenaResult,
         candidate_inference: InferenceStats,
-        champion_inference: InferenceStats,
+        reference_inference: InferenceStats,
     },
     CandidateMirrorStarted {
         games: usize,
@@ -186,8 +123,7 @@ pub enum TrainingProgress {
     CandidateMirrorFinished {
         result: ArenaResult,
         draw_rate: f32,
-        gate_passed: bool,
-        candidate_promoted: bool,
+        healthy: bool,
     },
     CandidateSelfPlayStarted {
         games: usize,
@@ -201,46 +137,41 @@ pub enum TrainingProgress {
     CandidateSelfPlayFinished {
         outcomes: GameOutcomeStats,
         draw_rate: f32,
-        gate_passed: bool,
-        candidate_promoted: bool,
+        healthy: bool,
     },
-    ChampionPromoted {
-        generation: u32,
-    },
-    CandidateRejected {
+    LatestPublished {
         generation: u32,
     },
 }
 
-/// Creates generation zero only when no champion pointer exists.
+/// Creates generation zero only when no latest-network pointer exists.
 ///
 /// # Errors
 ///
 /// Returns [`PipelineError`] for model storage or loading failures.
-pub fn bootstrap_champion<B: Backend>(
+pub fn bootstrap_latest<B: Backend>(
     root: impl AsRef<Path>,
     architecture: AlphaZeroNetworkConfig,
     device: &B::Device,
 ) -> Result<ModelMetadata, PipelineError> {
     let root = root.as_ref();
-    if root.join("champion").exists() {
-        let (_, metadata) = load_champion::<B>(root, device)?;
+    if root.join("latest").exists() || root.join("champion").exists() {
+        let (_, metadata) = load_latest::<B>(root, device)?;
         return Ok(metadata);
     }
     let generation = next_generation(root)?;
     let model = architecture.init::<B>(device);
     let metadata = ModelMetadata::new(generation, architecture);
     save_generation(root, &metadata, &model)?;
-    publish_champion(root, generation)?;
+    publish_latest(root, generation)?;
     Ok(metadata)
 }
 
-/// Runs a complete candidate generation and atomically promotes it on success.
+/// Runs a complete update and atomically publishes it as the latest network.
 ///
 /// # Errors
 ///
-/// Returns [`PipelineError`] without changing the champion pointer when any
-/// pre-arena stage fails or when the candidate is rejected.
+/// The arena and draw probes report regressions but never reject the update.
 pub fn run_generation<B>(
     config: &TrainingConfig,
     buffer: &mut ReplayBuffer,
@@ -275,96 +206,79 @@ where
     NetworkEvaluator<B::InnerBackend>: Send,
     F: Fn(TrainingProgress) + Sync,
 {
-    let base_config = config;
-    base_config
-        .validate()
-        .map_err(PipelineError::Configuration)?;
-    let models_root = Path::new(&base_config.paths.models);
-    let (_, champion_metadata) = load_champion::<B::InnerBackend>(models_root, device)?;
+    config.validate().map_err(PipelineError::Configuration)?;
+    let models_root = Path::new(&config.paths.models);
+    let (_, source_metadata) = load_latest::<B::InnerBackend>(models_root, device)?;
     let candidate_generation = next_generation(models_root)?;
     progress(TrainingProgress::GenerationStarted {
-        champion_generation: champion_metadata.generation,
+        source_generation: source_metadata.generation,
         candidate_generation,
     });
 
-    let curriculum_path = Path::new(&base_config.paths.self_play).join("curriculum-state.json");
-    let mut curriculum_state = if base_config.curriculum.is_empty() {
-        None
-    } else {
-        let mut state = load_curriculum_state(&curriculum_path, champion_metadata.generation)?;
-        if state.phase_index >= base_config.curriculum.len() {
-            state.phase_index = base_config.curriculum.len() - 1;
-            state.promotions_in_phase = 0;
-        }
-        state.reconcile(champion_metadata.generation, base_config);
-        save_curriculum_state(&curriculum_path, &state)?;
-        Some(state)
-    };
-    let mut effective_config = base_config.clone();
-    if let Some(state) = &curriculum_state {
-        let phase = &base_config.curriculum[state.phase_index];
-        effective_config.self_play.simulations = phase.simulations;
-        effective_config.self_play.repetition_contempt = phase.repetition_contempt;
-        effective_config.optimization.terminal_window_plies = phase.terminal_window_plies;
-        progress(TrainingProgress::CurriculumPhaseStarted {
-            phase_index: state.phase_index,
-            phase_count: base_config.curriculum.len(),
-            name: phase.name.clone(),
-            promotions_in_phase: state.promotions_in_phase,
-            promotions_required: phase.promotions_required,
-            simulations: phase.simulations,
-            repetition_contempt: phase.repetition_contempt,
-            terminal_window_plies: phase.terminal_window_plies,
+    let persisted_games = load_self_play_generation(
+        &config.paths.self_play,
+        candidate_generation,
+        source_metadata.generation,
+    )?;
+    let games = if let Some(games) = persisted_games {
+        let examples = games.iter().map(|game| game.examples.len()).sum();
+        progress(TrainingProgress::SelfPlayResumed {
+            games: games.len(),
+            examples,
         });
-    }
-    let config = &effective_config;
-
-    progress(TrainingProgress::SelfPlayStarted {
-        games: config.self_play.games_per_generation,
-        workers: config.self_play.workers,
-        simulations: config.self_play.simulations,
-        search_batch_size: config.self_play.search_batch_size,
-        repetition_contempt: config.self_play.repetition_contempt,
-    });
-    let (champion_for_self_play, _) = load_champion::<B::InnerBackend>(models_root, device)?;
-    let self_play_service = InferenceService::start_with_batching(
-        NetworkEvaluator::new(champion_for_self_play, device.clone()),
-        config
-            .self_play
-            .workers
-            .saturating_mul(config.self_play.search_batch_size)
-            .min(config.self_play.inference_batch_size),
-        config.self_play.inference_batch_size,
-        Duration::from_millis(config.self_play.inference_wait_ms),
-    )?;
-    let self_play_client = self_play_service.client();
-    let games = generate_self_play_with_progress(
-        &self_play_client,
-        &config.self_play,
-        champion_metadata.generation,
-        config
-            .seed
-            .wrapping_add(u64::from(candidate_generation) << 32),
-        &|completed, total| {
-            if progress_checkpoint(completed, total) {
-                progress(TrainingProgress::SelfPlayAdvanced { completed, total });
-            }
-        },
-    )?;
-    let self_play_inference = self_play_service.stats();
-    drop(self_play_service);
+        games
+    } else {
+        progress(TrainingProgress::SelfPlayStarted {
+            games: config.self_play.games_per_generation,
+            workers: config.self_play.workers,
+            simulations: config.self_play.simulations,
+            search_batch_size: config.self_play.search_batch_size,
+            repetition_contempt: config.self_play.repetition_contempt,
+        });
+        let (source_for_self_play, _) = load_latest::<B::InnerBackend>(models_root, device)?;
+        let self_play_service = InferenceService::start_with_batching(
+            NetworkEvaluator::new(source_for_self_play, device.clone()),
+            config
+                .self_play
+                .workers
+                .saturating_mul(config.self_play.search_batch_size)
+                .min(config.self_play.inference_batch_size),
+            config.self_play.inference_batch_size,
+            Duration::from_millis(config.self_play.inference_wait_ms),
+        )?;
+        let self_play_client = self_play_service.client();
+        let games = generate_self_play_with_progress(
+            &self_play_client,
+            &config.self_play,
+            source_metadata.generation,
+            config
+                .seed
+                .wrapping_add(u64::from(candidate_generation) << 32),
+            &|completed, total| {
+                if progress_checkpoint(completed, total) {
+                    progress(TrainingProgress::SelfPlayAdvanced { completed, total });
+                }
+            },
+        )?;
+        let inference = self_play_service.stats();
+        drop(self_play_service);
+        let outcomes = outcome_stats(&games);
+        let examples = games.iter().map(|game| game.examples.len()).sum();
+        progress(TrainingProgress::SelfPlayFinished {
+            games: games.len(),
+            examples,
+            outcomes,
+            inference,
+        });
+        save_self_play_generation(&config.paths.self_play, candidate_generation, &games)?;
+        save_self_play_replays(&config.paths.self_play, candidate_generation, &games)?;
+        games
+    };
     let self_play_outcomes = outcome_stats(&games);
-    let generated_examples = games.iter().map(|game| game.examples.len()).sum();
-    progress(TrainingProgress::SelfPlayFinished {
-        games: games.len(),
-        examples: generated_examples,
-        outcomes: self_play_outcomes,
-        inference: self_play_inference,
-    });
-    save_self_play_generation(&config.paths.self_play, candidate_generation, &games)?;
-    save_self_play_replays(&config.paths.self_play, candidate_generation, &games)?;
     for game in &games {
-        buffer.push(game.clone());
+        if !buffer.contains(game.generation, game.seed) {
+            buffer.push(game.clone());
+        }
     }
     save_replay_buffer(
         Path::new(&config.paths.self_play).join("buffer.json"),
@@ -374,11 +288,11 @@ where
     let split = buffer.split(config.optimization.validation_fraction, config.seed)?;
     let terminal_window_plies = config.optimization.terminal_window_plies;
     let (training_games, validation_games) = split.selected_game_counts(terminal_window_plies);
-    let training_examples = split.training_examples_with_curriculum(
+    let training_examples = split.training_examples_with_window(
         config.optimization.mirror_augmentation,
         terminal_window_plies,
     );
-    let validation_examples = split.validation_examples_with_curriculum(terminal_window_plies);
+    let validation_examples = split.validation_examples_with_window(terminal_window_plies);
     if training_examples.is_empty() {
         return Err(PipelineError::EmptyTrainingSet);
     }
@@ -394,9 +308,9 @@ where
         epochs: config.optimization.epochs,
         batch_size: config.optimization.batch_size,
     });
-    let (champion_for_training, _) = load_champion::<B>(models_root, device)?;
+    let (source_for_training, _) = load_latest::<B>(models_root, device)?;
     let (candidate, training) = train_candidate_with_progress(
-        champion_for_training,
+        source_for_training,
         &training_examples,
         &validation_examples,
         &config.optimization,
@@ -415,9 +329,15 @@ where
     });
     let candidate = candidate.valid();
     let candidate_metadata =
-        ModelMetadata::new(candidate_generation, champion_metadata.architecture.clone());
+        ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
     save_generation(models_root, &candidate_metadata, &candidate)?;
     progress(TrainingProgress::CandidateSaved {
+        generation: candidate_generation,
+    });
+    // AlphaZero always feeds the newest parameters into subsequent self-play.
+    // Diagnostics below deliberately cannot reject this network.
+    publish_latest(models_root, candidate_generation)?;
+    progress(TrainingProgress::LatestPublished {
         generation: candidate_generation,
     });
 
@@ -427,7 +347,8 @@ where
         simulations: config.arena.simulations,
         search_batch_size: config.arena.search_batch_size,
     });
-    let (champion_for_arena, _) = load_champion::<B::InnerBackend>(models_root, device)?;
+    let (source_for_arena, _) =
+        load_generation::<B::InnerBackend>(models_root, source_metadata.generation, device)?;
     let arena_minimum_batch = config
         .arena
         .workers
@@ -440,62 +361,35 @@ where
         config.self_play.inference_batch_size,
         Duration::from_millis(config.self_play.inference_wait_ms),
     )?;
-    let champion_service = InferenceService::start_with_batching(
-        NetworkEvaluator::new(champion_for_arena, device.clone()),
+    let reference_service = InferenceService::start_with_batching(
+        NetworkEvaluator::new(source_for_arena, device.clone()),
         arena_minimum_batch,
         config.self_play.inference_batch_size,
         Duration::from_millis(config.self_play.inference_wait_ms),
     )?;
     let candidate_client = candidate_service.client();
-    let champion_client = champion_service.client();
-    let mut arena = run_official_arena(
+    let reference_client = reference_service.client();
+    let arena = run_official_arena(
         &candidate_client,
-        &champion_client,
+        &reference_client,
         config,
         candidate_generation,
         progress,
     )?;
     let candidate_inference = candidate_service.stats();
-    let champion_inference = champion_service.stats();
+    let reference_inference = reference_service.stats();
     progress(TrainingProgress::ArenaFinished {
         result: arena,
         candidate_inference,
-        champion_inference,
+        reference_inference,
     });
-    let candidate_gates = run_candidate_gates(
-        &candidate_client,
-        config,
-        candidate_generation,
-        &mut arena,
-        progress,
-    )?;
+    let candidate_diagnostics =
+        run_candidate_diagnostics(&candidate_client, config, candidate_generation, progress)?;
     drop(candidate_service);
-    drop(champion_service);
-    if arena.promoted {
-        publish_champion(models_root, candidate_generation)?;
-        if let Some(state) = &mut curriculum_state {
-            let advanced = state.record_promotion(candidate_generation, base_config);
-            save_curriculum_state(&curriculum_path, state)?;
-            if advanced {
-                let phase = &base_config.curriculum[state.phase_index];
-                progress(TrainingProgress::CurriculumAdvanced {
-                    phase_index: state.phase_index,
-                    phase_count: base_config.curriculum.len(),
-                    name: phase.name.clone(),
-                });
-            }
-        }
-        progress(TrainingProgress::ChampionPromoted {
-            generation: candidate_generation,
-        });
-    } else {
-        progress(TrainingProgress::CandidateRejected {
-            generation: candidate_generation,
-        });
-    }
+    drop(reference_service);
 
     Ok(GenerationReport {
-        champion_generation: champion_metadata.generation,
+        source_generation: source_metadata.generation,
         candidate_generation,
         generated_games: games.len(),
         buffer_games: buffer.len(),
@@ -503,20 +397,20 @@ where
         self_play_outcomes,
         training,
         arena,
-        candidate_mirror: candidate_gates.mirror,
-        candidate_self_play: candidate_gates.exploratory,
+        candidate_mirror: candidate_diagnostics.mirror,
+        candidate_self_play: candidate_diagnostics.exploratory,
     })
 }
 
-struct CandidateGates {
+struct CandidateDiagnostics {
     mirror: ArenaResult,
-    exploratory: Option<GameOutcomeStats>,
+    exploratory: GameOutcomeStats,
 }
 
-/// Plays the candidate against the current champion with official rules.
+/// Plays the new network against its source network with official rules.
 fn run_official_arena<F>(
     candidate: &InferenceClient,
-    champion: &InferenceClient,
+    reference: &InferenceClient,
     config: &TrainingConfig,
     candidate_generation: u32,
     progress: &F,
@@ -526,7 +420,7 @@ where
 {
     Ok(run_arena_with_progress(
         candidate,
-        champion,
+        reference,
         &config.arena,
         config.arena.workers,
         config.self_play.max_game_plies,
@@ -543,49 +437,32 @@ where
     )?)
 }
 
-/// Applies the two anti-cycle gates after the official candidate arena.
-fn run_candidate_gates<F>(
+/// Measures deterministic and exploratory draw behavior without gating updates.
+fn run_candidate_diagnostics<F>(
     candidate: &InferenceClient,
     config: &TrainingConfig,
     candidate_generation: u32,
-    arena: &mut ArenaResult,
     progress: &F,
-) -> Result<CandidateGates, PipelineError>
+) -> Result<CandidateDiagnostics, PipelineError>
 where
     F: Fn(TrainingProgress) + Sync,
 {
-    let (mirror, mirror_passed) = run_mirror_gate(
-        candidate,
-        config,
-        candidate_generation,
-        arena.promoted,
-        progress,
-    )?;
-    arena.promoted &= mirror_passed;
-
-    let exploratory = if arena.promoted {
-        let (outcomes, exploratory_passed) =
-            run_exploratory_gate(candidate, config, candidate_generation, progress)?;
-        arena.promoted &= exploratory_passed;
-        Some(outcomes)
-    } else {
-        None
-    };
-
-    Ok(CandidateGates {
+    let mirror = run_mirror_diagnostic(candidate, config, candidate_generation, progress)?;
+    let exploratory =
+        run_exploratory_diagnostic(candidate, config, candidate_generation, progress)?;
+    Ok(CandidateDiagnostics {
         mirror,
         exploratory,
     })
 }
 
 /// Checks deterministic candidate-versus-candidate repetition behavior.
-fn run_mirror_gate<F>(
+fn run_mirror_diagnostic<F>(
     candidate: &InferenceClient,
     config: &TrainingConfig,
     candidate_generation: u32,
-    arena_passed: bool,
     progress: &F,
-) -> Result<(ArenaResult, bool), PipelineError>
+) -> Result<ArenaResult, PipelineError>
 where
     F: Fn(TrainingProgress) + Sync,
 {
@@ -596,7 +473,7 @@ where
     });
     let mirror_config = crate::ArenaConfig {
         games: config.arena.mirror_games,
-        promotion_score: 1.0,
+        score_threshold: 1.0,
         ..config.arena.clone()
     };
     let result = run_arena_with_progress(
@@ -617,23 +494,22 @@ where
         },
     )?;
     let draw_rate = ratio(result.draws, config.arena.mirror_games);
-    let gate_passed = draw_rate <= config.arena.max_mirror_draw_rate;
+    let healthy = draw_rate <= config.arena.max_mirror_draw_rate;
     progress(TrainingProgress::CandidateMirrorFinished {
         result,
         draw_rate,
-        gate_passed,
-        candidate_promoted: arena_passed && gate_passed,
+        healthy,
     });
-    Ok((result, gate_passed))
+    Ok(result)
 }
 
 /// Checks repetition behavior under the actual noisy self-play settings.
-fn run_exploratory_gate<F>(
+fn run_exploratory_diagnostic<F>(
     candidate: &InferenceClient,
     config: &TrainingConfig,
     candidate_generation: u32,
     progress: &F,
-) -> Result<(GameOutcomeStats, bool), PipelineError>
+) -> Result<GameOutcomeStats, PipelineError>
 where
     F: Fn(TrainingProgress) + Sync,
 {
@@ -660,14 +536,13 @@ where
     )?;
     let outcomes = outcome_stats(&probe_games);
     let draw_rate = ratio(outcomes.draws, probe_games.len());
-    let gate_passed = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
+    let healthy = draw_rate <= config.arena.max_candidate_self_play_draw_rate;
     progress(TrainingProgress::CandidateSelfPlayFinished {
         outcomes,
         draw_rate,
-        gate_passed,
-        candidate_promoted: gate_passed,
+        healthy,
     });
-    Ok((outcomes, gate_passed))
+    Ok(outcomes)
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -678,44 +553,6 @@ fn ratio(numerator: usize, denominator: usize) -> f32 {
 fn progress_checkpoint(completed: usize, total: usize) -> bool {
     let interval = total.div_ceil(20).max(1);
     completed == 1 || completed == total || completed.is_multiple_of(interval)
-}
-
-/// Loads the persisted automatic curriculum, creating phase zero when absent.
-///
-/// # Errors
-///
-/// Returns [`PipelineError`] for malformed or unsupported state files.
-pub fn load_curriculum_state(
-    path: impl AsRef<Path>,
-    champion_generation: u32,
-) -> Result<CurriculumState, PipelineError> {
-    match fs::read(path) {
-        Ok(bytes) => {
-            let state: CurriculumState = serde_json::from_slice(&bytes)?;
-            if state.format_version != CURRICULUM_STATE_FORMAT_VERSION {
-                return Err(PipelineError::UnsupportedCurriculumState(
-                    state.format_version,
-                ));
-            }
-            Ok(state)
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            Ok(CurriculumState::new(champion_generation))
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// Atomically persists an automatic curriculum phase.
-///
-/// # Errors
-///
-/// Returns [`PipelineError`] on serialization or I/O failures.
-pub fn save_curriculum_state(
-    path: impl AsRef<Path>,
-    state: &CurriculumState,
-) -> Result<(), PipelineError> {
-    atomic_json_write(path.as_ref(), state)
 }
 
 /// Atomically stores the replay buffer for generation-boundary resume.
@@ -759,6 +596,33 @@ fn save_self_play_generation(
             .join(format!("generation-{generation:06}.json")),
         games,
     )
+}
+
+fn load_self_play_generation(
+    root: impl AsRef<Path>,
+    file_generation: u32,
+    expected_source_generation: u32,
+) -> Result<Option<Vec<SelfPlayGame>>, PipelineError> {
+    let path = root
+        .as_ref()
+        .join(format!("generation-{file_generation:06}.json"));
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let games: Vec<SelfPlayGame> = serde_json::from_slice(&bytes)?;
+    if games.is_empty()
+        || games
+            .iter()
+            .any(|game| game.generation != expected_source_generation)
+    {
+        return Err(PipelineError::InvalidPersistedSelfPlay {
+            file_generation,
+            expected_source_generation,
+        });
+    }
+    Ok(Some(games))
 }
 
 fn save_self_play_replays(
@@ -835,8 +699,13 @@ pub enum PipelineError {
     Replay(#[from] ReplayError),
     #[error("training split produced no examples")]
     EmptyTrainingSet,
-    #[error("unsupported curriculum state version {0}")]
-    UnsupportedCurriculumState(u32),
+    #[error(
+        "persisted self-play generation {file_generation} is empty or was not produced by network {expected_source_generation}"
+    )]
+    InvalidPersistedSelfPlay {
+        file_generation: u32,
+        expected_source_generation: u32,
+    },
     #[error("training pipeline I/O error: {0}")]
     Io(#[from] io::Error),
     #[error("training pipeline JSON error: {0}")]

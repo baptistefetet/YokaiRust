@@ -1,4 +1,4 @@
-//! Atomic, versioned model generations and champion publication.
+//! Atomic, versioned model generations and latest-network publication.
 
 use std::{
     fs, io,
@@ -20,7 +20,8 @@ use crate::{
 pub const MODEL_FORMAT_VERSION: u16 = 1;
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
-const CHAMPION_FILE: &str = "champion";
+const LATEST_FILE: &str = "latest";
+const LEGACY_CHAMPION_FILE: &str = "champion";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelMetadata {
@@ -88,8 +89,8 @@ pub enum ModelStoreError {
     GenerationExists(u32),
     #[error("model generation {0} does not exist")]
     GenerationMissing(u32),
-    #[error("champion pointer is missing or invalid")]
-    InvalidChampion,
+    #[error("latest-network pointer is missing or invalid")]
+    InvalidLatest,
 }
 
 /// Writes a complete generation and atomically makes its final directory
@@ -171,44 +172,53 @@ pub fn load_generation<B: Backend>(
     Ok((model, metadata))
 }
 
-/// Atomically updates the champion pointer after verifying the generation.
+/// Atomically updates the latest-network pointer after verifying the generation.
 ///
 /// # Errors
 ///
 /// Returns [`ModelStoreError`] when the generation is absent or the pointer
 /// cannot be written.
-pub fn publish_champion(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
+pub fn publish_latest(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
     let root = root.as_ref();
     if !generation_directory(root, generation).is_dir() {
         return Err(ModelStoreError::GenerationMissing(generation));
     }
-    let temporary = root.join(format!(".{CHAMPION_FILE}-{}.tmp", std::process::id()));
+    let temporary = root.join(format!(".{LATEST_FILE}-{}.tmp", std::process::id()));
     fs::write(&temporary, format!("{generation}\n"))?;
-    fs::rename(temporary, root.join(CHAMPION_FILE))?;
+    fs::rename(temporary, root.join(LATEST_FILE))?;
     Ok(())
 }
 
-/// Loads the generation referenced by the current champion pointer.
+/// Loads the generation referenced by the latest-network pointer.
+///
+/// Repositories created before continuous updates used a `champion` file. It is
+/// accepted as a read-only fallback and replaced by `latest` on the next update.
 ///
 /// # Errors
 ///
 /// Returns [`ModelStoreError`] for an invalid pointer or checkpoint.
-pub fn load_champion<B: Backend>(
+pub fn load_latest<B: Backend>(
     root: impl AsRef<Path>,
     device: &B::Device,
 ) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
     let root = root.as_ref();
-    let generation = fs::read_to_string(root.join(CHAMPION_FILE))
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                ModelStoreError::InvalidChampion
-            } else {
-                ModelStoreError::Io(error)
-            }
-        })?
+    let pointer = match fs::read_to_string(root.join(LATEST_FILE)) {
+        Ok(pointer) => pointer,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::read_to_string(root.join(LEGACY_CHAMPION_FILE)).map_err(|legacy_error| {
+                if legacy_error.kind() == io::ErrorKind::NotFound {
+                    ModelStoreError::InvalidLatest
+                } else {
+                    ModelStoreError::Io(legacy_error)
+                }
+            })?
+        }
+        Err(error) => return Err(ModelStoreError::Io(error)),
+    };
+    let generation = pointer
         .trim()
         .parse::<u32>()
-        .map_err(|_| ModelStoreError::InvalidChampion)?;
+        .map_err(|_| ModelStoreError::InvalidLatest)?;
     load_generation(root, generation, device)
 }
 

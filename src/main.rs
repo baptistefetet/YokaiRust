@@ -13,7 +13,7 @@ use rand_chacha::ChaCha8Rng;
 use yokai::{
     BackendKind, CachedEvaluator, CpuBackend, CpuTrainingBackend, Game, Mcts, MetalBackend,
     MetalTrainingBackend, Replay, SearchConfig, TrainingConfig, TrainingProgress, UniformEvaluator,
-    bootstrap_champion, load_replay_buffer, run_generation_with_progress,
+    bootstrap_latest, load_replay_buffer, run_generation_with_progress,
 };
 
 fn main() -> ExitCode {
@@ -128,21 +128,21 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
             let device = burn::backend::flex::FlexDevice;
             CpuBackend::seed(&device, config.seed);
             CpuTrainingBackend::seed(&device, config.seed);
-            let champion = bootstrap_champion::<CpuBackend>(
+            let latest = bootstrap_latest::<CpuBackend>(
                 &config.paths.models,
                 config.network.clone(),
                 &device,
             )?;
             eprintln!(
-                "[{}] champion generation={} ready",
+                "[{}] latest network generation={} ready",
                 elapsed_text(started.elapsed()),
-                champion.generation
+                latest.generation
             );
             let mut buffer = load_replay_buffer(
                 Path::new(&config.paths.self_play).join("buffer.json"),
                 config.optimization.replay_buffer,
             )?;
-            let progress = |event| print_training_progress(started, event);
+            let progress = |event| print_training_progress(started, &event);
             for _ in 0..generations {
                 let report = run_generation_with_progress::<CpuTrainingBackend, _>(
                     &config,
@@ -157,21 +157,21 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
             let device = burn::backend::wgpu::WgpuDevice::default();
             MetalBackend::seed(&device, config.seed);
             MetalTrainingBackend::seed(&device, config.seed);
-            let champion = bootstrap_champion::<MetalBackend>(
+            let latest = bootstrap_latest::<MetalBackend>(
                 &config.paths.models,
                 config.network.clone(),
                 &device,
             )?;
             eprintln!(
-                "[{}] champion generation={} ready",
+                "[{}] latest network generation={} ready",
                 elapsed_text(started.elapsed()),
-                champion.generation
+                latest.generation
             );
             let mut buffer = load_replay_buffer(
                 Path::new(&config.paths.self_play).join("buffer.json"),
                 config.optimization.replay_buffer,
             )?;
-            let progress = |event| print_training_progress(started, event);
+            let progress = |event| print_training_progress(started, &event);
             for _ in 0..generations {
                 let report = run_generation_with_progress::<MetalTrainingBackend, _>(
                     &config,
@@ -187,43 +187,14 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn print_training_progress(started: Instant, event: TrainingProgress) {
+fn print_training_progress(started: Instant, event: &TrainingProgress) {
     let elapsed = elapsed_text(started.elapsed());
     match event {
         TrainingProgress::GenerationStarted {
-            champion_generation,
+            source_generation,
             candidate_generation,
         } => eprintln!(
-            "[{elapsed}] generation {candidate_generation} started from champion {champion_generation}"
-        ),
-        TrainingProgress::CurriculumPhaseStarted {
-            phase_index,
-            phase_count,
-            name,
-            promotions_in_phase,
-            promotions_required,
-            simulations,
-            repetition_contempt,
-            terminal_window_plies,
-        } => {
-            let window = terminal_window_plies.map_or_else(
-                || "all positions".to_owned(),
-                |plies| format!("last {plies} decisive plies"),
-            );
-            eprintln!(
-                "[{elapsed}] curriculum phase {}/{} {name}: promotions={promotions_in_phase}/{promotions_required}, {simulations} simulations, contempt={repetition_contempt:.2}, {window}",
-                phase_index + 1,
-                phase_count,
-            );
-        }
-        TrainingProgress::CurriculumAdvanced {
-            phase_index,
-            phase_count,
-            name,
-        } => eprintln!(
-            "[{elapsed}] curriculum advanced to phase {}/{} {name}",
-            phase_index + 1,
-            phase_count,
+            "[{elapsed}] generation {candidate_generation} started from network {source_generation}"
         ),
         TrainingProgress::SelfPlayStarted {
             games,
@@ -236,7 +207,7 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         ),
         TrainingProgress::SelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] self-play {completed}/{total} ({:.1}%)",
-            percentage(completed, total)
+            percentage(*completed, *total)
         ),
         TrainingProgress::SelfPlayFinished {
             games,
@@ -250,6 +221,9 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             );
             print_inference_stats(&elapsed, "self-play inference", inference);
         }
+        TrainingProgress::SelfPlayResumed { games, examples } => eprintln!(
+            "[{elapsed}] self-play resumed from {games} persisted games ({examples} examples); generation will not be duplicated"
+        ),
         TrainingProgress::DatasetReady {
             buffer_games,
             training_games,
@@ -258,12 +232,12 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             validation_examples,
             terminal_window_plies,
         } => {
-            let curriculum = terminal_window_plies.map_or_else(
+            let selection = terminal_window_plies.map_or_else(
                 || "all positions".to_owned(),
                 |plies| format!("last {plies} plies of decisive games"),
             );
             eprintln!(
-                "[{elapsed}] dataset ready: {buffer_games} buffered games; {curriculum}; train={training_games} games/{training_examples} examples, valid={validation_games} games/{validation_examples} examples"
+                "[{elapsed}] dataset ready: {buffer_games} buffered games; {selection}; train={training_games} games/{training_examples} examples, valid={validation_games} games/{validation_examples} examples"
             );
         }
         TrainingProgress::TrainingStarted { epochs, batch_size } => {
@@ -310,29 +284,30 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
             simulations,
             search_batch_size,
         } => eprintln!(
-            "[{elapsed}] arena started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaf/inference"
+            "[{elapsed}] arena started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaf/inference; progress is completion-ordered"
         ),
         TrainingProgress::ArenaAdvanced { progress } => eprintln!(
-            "[{elapsed}] arena {}/{} ({:.1}%): candidate/champion/draw={}/{}/{}, current_score={:.3}",
+            "[{elapsed}] arena {}/{} ({:.1}%): candidate/reference/draw={}/{}/{}, current_score={:.3}",
             progress.completed,
             progress.total,
             percentage(progress.completed, progress.total),
             progress.candidate_wins,
-            progress.champion_wins,
+            progress.reference_wins,
             progress.draws,
             progress.score()
         ),
         TrainingProgress::ArenaFinished {
             result,
             candidate_inference,
-            champion_inference,
+            reference_inference,
         } => {
             eprintln!(
-                "[{elapsed}] arena finished: candidate/champion/draw={}/{}/{}, score={:.3}",
-                result.candidate_wins, result.champion_wins, result.draws, result.score
+                "[{elapsed}] arena finished: candidate/reference/draw={}/{}/{}, score={:.3}",
+                result.candidate_wins, result.reference_wins, result.draws, result.score
             );
+            print_arena_seats(&elapsed, result);
             print_inference_stats(&elapsed, "candidate inference", candidate_inference);
-            print_inference_stats(&elapsed, "champion inference", champion_inference);
+            print_inference_stats(&elapsed, "reference inference", reference_inference);
         }
         TrainingProgress::CandidateMirrorStarted {
             games,
@@ -352,12 +327,11 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         TrainingProgress::CandidateMirrorFinished {
             result,
             draw_rate,
-            gate_passed,
-            candidate_promoted,
+            healthy,
         } => eprintln!(
-            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), gate_passed={gate_passed}, promotion_eligible={candidate_promoted}",
+            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), healthy={healthy} (diagnostic only)",
             result.draws,
-            result.candidate_wins + result.champion_wins + result.draws,
+            result.candidate_wins + result.reference_wins + result.draws,
             draw_rate * 100.0,
         ),
         TrainingProgress::CandidateSelfPlayStarted {
@@ -370,30 +344,26 @@ fn print_training_progress(started: Instant, event: TrainingProgress) {
         ),
         TrainingProgress::CandidateSelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] candidate exploratory probe {completed}/{total} ({:.1}%)",
-            percentage(completed, total),
+            percentage(*completed, *total),
         ),
         TrainingProgress::CandidateSelfPlayFinished {
             outcomes,
             draw_rate,
-            gate_passed,
-            candidate_promoted,
+            healthy,
         } => eprintln!(
-            "[{elapsed}] candidate exploratory probe finished: first/second/draw={}/{}/{}, draw_rate={:.1}%, gate_passed={gate_passed}, promotion_eligible={candidate_promoted}",
+            "[{elapsed}] candidate exploratory probe finished: first/second/draw={}/{}/{}, draw_rate={:.1}%, healthy={healthy} (diagnostic only)",
             outcomes.first_wins,
             outcomes.second_wins,
             outcomes.draws,
             draw_rate * 100.0,
         ),
-        TrainingProgress::ChampionPromoted { generation } => {
-            eprintln!("[{elapsed}] generation {generation} promoted to champion");
-        }
-        TrainingProgress::CandidateRejected { generation } => {
-            eprintln!("[{elapsed}] generation {generation} rejected; champion unchanged");
+        TrainingProgress::LatestPublished { generation } => {
+            eprintln!("[{elapsed}] generation {generation} published as latest network");
         }
     }
 }
 
-fn print_inference_stats(elapsed: &str, label: &str, stats: yokai::InferenceStats) {
+fn print_inference_stats(elapsed: &str, label: &str, stats: &yokai::InferenceStats) {
     eprintln!(
         "[{elapsed}] {label}: positions={} batches={} avg_batch={:.1} max_batch={} backend={:.1}s throughput={:.0} pos/s avg_wait={:.2}ms",
         stats.positions,
@@ -423,9 +393,9 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} champion={} games={} buffer_examples={}",
+        "generation={} source={} games={} buffer_examples={}",
         report.candidate_generation,
-        report.champion_generation,
+        report.source_generation,
         report.generated_games,
         report.buffer_examples
     );
@@ -453,15 +423,16 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         }
     }
     println!(
-        "arena candidate={} champion={} draws={} score={:.3} promoted={}",
+        "arena candidate={} previous={} draws={} score={:.3} threshold_reached={}",
         report.arena.candidate_wins,
-        report.arena.champion_wins,
+        report.arena.reference_wins,
         report.arena.draws,
         report.arena.score,
-        report.promoted()
+        report.arena_threshold_reached()
     );
+    print_arena_seats("summary", &report.arena);
     let mirror_games = report.candidate_mirror.candidate_wins
-        + report.candidate_mirror.champion_wins
+        + report.candidate_mirror.reference_wins
         + report.candidate_mirror.draws;
     println!(
         "candidate mirror draws={}/{} ({:.1}%)",
@@ -469,15 +440,30 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         mirror_games,
         percentage(report.candidate_mirror.draws, mirror_games),
     );
-    if let Some(outcomes) = report.candidate_self_play {
-        let games = outcomes.first_wins + outcomes.second_wins + outcomes.draws;
-        println!(
-            "candidate exploratory draws={}/{} ({:.1}%)",
-            outcomes.draws,
-            games,
-            percentage(outcomes.draws, games),
-        );
-    }
+    let outcomes = report.candidate_self_play;
+    let games = outcomes.first_wins + outcomes.second_wins + outcomes.draws;
+    println!(
+        "candidate exploratory draws={}/{} ({:.1}%)",
+        outcomes.draws,
+        games,
+        percentage(outcomes.draws, games),
+    );
+}
+
+fn print_arena_seats(elapsed: &str, result: &yokai::ArenaResult) {
+    let first = result.candidate_as_first;
+    let second = result.candidate_as_second;
+    eprintln!(
+        "[{elapsed}] arena by seat: candidate as First W/L/D={}/{}/{} score={:.3}; as Second W/L/D={}/{}/{} score={:.3}",
+        first.wins,
+        first.losses,
+        first.draws,
+        first.score(),
+        second.wins,
+        second.losses,
+        second.draws,
+        second.score(),
+    );
 }
 
 fn analyze_initial_position(simulations: u32, seed: u64) -> Result<(), Box<dyn Error>> {

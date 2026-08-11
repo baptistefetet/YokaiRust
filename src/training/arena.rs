@@ -1,4 +1,4 @@
-//! Paired, noise-free candidate versus champion evaluation.
+//! Paired, noise-free new-network versus reference-network evaluation.
 
 use std::sync::Mutex;
 
@@ -16,10 +16,32 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArenaResult {
     pub candidate_wins: usize,
-    pub champion_wins: usize,
+    pub reference_wins: usize,
     pub draws: usize,
     pub score: f32,
-    pub promoted: bool,
+    pub threshold_reached: bool,
+    pub candidate_as_first: ArenaSeatResult,
+    pub candidate_as_second: ArenaSeatResult,
+}
+
+/// Candidate results for one absolute player assignment.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ArenaSeatResult {
+    pub wins: usize,
+    pub losses: usize,
+    pub draws: usize,
+}
+
+impl ArenaSeatResult {
+    #[must_use]
+    pub const fn games(self) -> usize {
+        self.wins + self.losses + self.draws
+    }
+
+    #[must_use]
+    pub fn score(self) -> f32 {
+        score(self.wins, self.draws, self.games())
+    }
 }
 
 /// Consistent snapshot emitted as arena games finish concurrently.
@@ -28,7 +50,7 @@ pub struct ArenaProgress {
     pub completed: usize,
     pub total: usize,
     pub candidate_wins: usize,
-    pub champion_wins: usize,
+    pub reference_wins: usize,
     pub draws: usize,
 }
 
@@ -47,7 +69,7 @@ impl ArenaProgress {
 /// Returns [`ArenaError`] if a worker, search, move, or safety limit fails.
 pub fn run_arena<C, H>(
     candidate: &C,
-    champion: &H,
+    reference: &H,
     config: &ArenaConfig,
     workers: usize,
     max_game_plies: usize,
@@ -59,7 +81,7 @@ where
 {
     run_arena_with_progress(
         candidate,
-        champion,
+        reference,
         config,
         workers,
         max_game_plies,
@@ -78,7 +100,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn run_arena_with_progress<C, H, F>(
     candidate: &C,
-    champion: &H,
+    reference: &H,
     config: &ArenaConfig,
     workers: usize,
     max_game_plies: usize,
@@ -113,7 +135,7 @@ where
                 };
                 let outcome = play_arena_game(
                     (*candidate).clone(),
-                    (*champion).clone(),
+                    (*reference).clone(),
                     candidate_player,
                     config.simulations,
                     config.search_batch_size,
@@ -126,38 +148,55 @@ where
                 running.completed += 1;
                 match outcome {
                     ArenaGameOutcome::CandidateWin => running.candidate_wins += 1,
-                    ArenaGameOutcome::ChampionWin => running.champion_wins += 1,
+                    ArenaGameOutcome::ReferenceWin => running.reference_wins += 1,
                     ArenaGameOutcome::Draw => running.draws += 1,
                 }
                 progress(*running);
-                Ok(outcome)
+                Ok((candidate_player, outcome))
             })
             .collect::<Result<Vec<_>, ArenaError>>()
     })?;
 
     let mut candidate_wins = 0;
-    let mut champion_wins = 0;
+    let mut reference_wins = 0;
     let mut draws = 0;
-    for outcome in outcomes {
+    let mut candidate_as_first = ArenaSeatResult::default();
+    let mut candidate_as_second = ArenaSeatResult::default();
+    for (candidate_player, outcome) in outcomes {
+        let seat = match candidate_player {
+            Player::First => &mut candidate_as_first,
+            Player::Second => &mut candidate_as_second,
+        };
         match outcome {
-            ArenaGameOutcome::CandidateWin => candidate_wins += 1,
-            ArenaGameOutcome::ChampionWin => champion_wins += 1,
-            ArenaGameOutcome::Draw => draws += 1,
+            ArenaGameOutcome::CandidateWin => {
+                candidate_wins += 1;
+                seat.wins += 1;
+            }
+            ArenaGameOutcome::ReferenceWin => {
+                reference_wins += 1;
+                seat.losses += 1;
+            }
+            ArenaGameOutcome::Draw => {
+                draws += 1;
+                seat.draws += 1;
+            }
         }
     }
     let score = score(candidate_wins, draws, config.games);
     Ok(ArenaResult {
         candidate_wins,
-        champion_wins,
+        reference_wins,
         draws,
         score,
-        promoted: score >= config.promotion_score,
+        threshold_reached: score >= config.score_threshold,
+        candidate_as_first,
+        candidate_as_second,
     })
 }
 
 fn play_arena_game<C: Evaluator, H: Evaluator>(
     candidate: C,
-    champion: H,
+    reference: H,
     candidate_player: Player,
     simulations: u32,
     search_batch_size: usize,
@@ -172,8 +211,8 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
         ..SearchConfig::default()
     };
     let mut candidate_search = Mcts::new(candidate, search_config, seed.wrapping_mul(2))?;
-    let mut champion_search = Mcts::new(
-        champion,
+    let mut reference_search = Mcts::new(
+        reference,
         search_config,
         seed.wrapping_mul(2).wrapping_add(1),
     )?;
@@ -185,19 +224,19 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
         let result = if game.position().side_to_move() == candidate_player {
             candidate_search.search(&game, 0.0)?
         } else {
-            champion_search.search(&game, 0.0)?
+            reference_search.search(&game, 0.0)?
         };
         game.apply(result.best_action)?;
         // Both players keep a tree: the active search reuses its chosen child,
         // while the opponent can reuse the reply when it was already explored.
         let _candidate_reused = candidate_search.advance_root(result.best_action, &game);
-        let _champion_reused = champion_search.advance_root(result.best_action, &game);
+        let _reference_reused = reference_search.advance_root(result.best_action, &game);
     }
 
     Ok(match game.outcome() {
         Outcome::Draw { .. } => ArenaGameOutcome::Draw,
         Outcome::Win { player, .. } if player == candidate_player => ArenaGameOutcome::CandidateWin,
-        Outcome::Win { .. } => ArenaGameOutcome::ChampionWin,
+        Outcome::Win { .. } => ArenaGameOutcome::ReferenceWin,
         Outcome::Ongoing => unreachable!("arena loop ends only on a terminal game"),
     })
 }
@@ -205,11 +244,14 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
 #[derive(Clone, Copy)]
 enum ArenaGameOutcome {
     CandidateWin,
-    ChampionWin,
+    ReferenceWin,
     Draw,
 }
 
 fn score(wins: usize, draws: usize, games: usize) -> f32 {
+    if games == 0 {
+        return 0.0;
+    }
     (count_as_f32(wins) + 0.5 * count_as_f32(draws)) / count_as_f32(games)
 }
 

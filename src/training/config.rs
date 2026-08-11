@@ -50,8 +50,8 @@ pub struct ArenaConfig {
     pub workers: usize,
     pub simulations: u32,
     pub search_batch_size: usize,
-    pub promotion_score: f32,
-    /// Noise-free candidate-versus-itself games used as an anti-cycle gate.
+    pub score_threshold: f32,
+    /// Noise-free candidate-versus-itself games used as a cycle diagnostic.
     pub mirror_games: usize,
     pub max_mirror_draw_rate: f32,
     /// Noisy candidate self-play games used to catch exploration-only cycles.
@@ -66,17 +66,6 @@ pub struct PathsConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CurriculumPhaseConfig {
-    pub name: String,
-    pub promotions_required: usize,
-    pub simulations: u32,
-    pub repetition_contempt: f32,
-    /// Missing means that this phase uses every buffered position, including
-    /// draws. A finite window selects only the tail of decisive games.
-    pub terminal_window_plies: Option<usize>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingConfig {
     pub seed: u64,
     pub backend: BackendKind,
@@ -85,8 +74,6 @@ pub struct TrainingConfig {
     pub optimization: OptimizationConfig,
     pub arena: ArenaConfig,
     pub paths: PathsConfig,
-    #[serde(default)]
-    pub curriculum: Vec<CurriculumPhaseConfig>,
 }
 
 impl Default for TrainingConfig {
@@ -98,16 +85,13 @@ impl Default for TrainingConfig {
             self_play: SelfPlayConfig {
                 games_per_generation: 256,
                 workers: 16,
-                // A smaller self-play budget is intentional while the network is
-                // learning: deeper searches currently converge on its repetition
-                // cycle, whereas 200 simulations generate far more decisive games.
                 simulations: 200,
                 search_batch_size: 8,
                 max_game_plies: 512,
                 inference_batch_size: 128,
                 inference_wait_ms: 1,
                 exploration_plies: 12,
-                exploration_temperature: 0.0,
+                exploration_temperature: 1.0,
                 final_temperature: 0.0,
                 repetition_contempt: 0.0,
             },
@@ -119,7 +103,7 @@ impl Default for TrainingConfig {
                 weight_decay: 1.0e-4,
                 validation_fraction: 0.1,
                 mirror_augmentation: true,
-                terminal_window_plies: Some(8),
+                terminal_window_plies: None,
                 replay_buffer: ReplayBufferConfig::default(),
             },
             arena: ArenaConfig {
@@ -127,7 +111,7 @@ impl Default for TrainingConfig {
                 workers: 128,
                 simulations: 400,
                 search_batch_size: 1,
-                promotion_score: 0.55,
+                score_threshold: 0.55,
                 mirror_games: 64,
                 max_mirror_draw_rate: 0.35,
                 candidate_self_play_games: 64,
@@ -137,7 +121,6 @@ impl Default for TrainingConfig {
                 models: "models".to_owned(),
                 self_play: "data/self-play".to_owned(),
             },
-            curriculum: default_curriculum(),
         }
     }
 }
@@ -235,15 +218,15 @@ impl TrainingConfig {
             || self.arena.mirror_games == 0
             || !self.arena.mirror_games.is_multiple_of(2)
             || self.arena.candidate_self_play_games == 0
-            || !self.arena.promotion_score.is_finite()
-            || !(0.5..=1.0).contains(&self.arena.promotion_score)
+            || !self.arena.score_threshold.is_finite()
+            || !(0.5..=1.0).contains(&self.arena.score_threshold)
             || !self.arena.max_mirror_draw_rate.is_finite()
             || !(0.0..=1.0).contains(&self.arena.max_mirror_draw_rate)
             || !self.arena.max_candidate_self_play_draw_rate.is_finite()
             || !(0.0..=1.0).contains(&self.arena.max_candidate_self_play_draw_rate)
         {
             return Err(TrainingConfigError::Invalid(
-                "arena requires at least 200 games, a positive even mirror sample, simulations, and valid score/draw thresholds",
+                "arena requires at least 200 games, a positive even mirror sample, simulations, and valid diagnostic thresholds",
             ));
         }
         if self.paths.models.trim().is_empty() || self.paths.self_play.trim().is_empty() {
@@ -251,66 +234,8 @@ impl TrainingConfig {
                 "model and self-play paths cannot be empty",
             ));
         }
-        validate_curriculum(&self.curriculum)?;
         Ok(())
     }
-}
-
-fn validate_curriculum(phases: &[CurriculumPhaseConfig]) -> Result<(), TrainingConfigError> {
-    for phase in phases {
-        if phase.name.trim().is_empty()
-            || phase.promotions_required == 0
-            || phase.simulations == 0
-            || !phase.repetition_contempt.is_finite()
-            || !(0.0..=1.0).contains(&phase.repetition_contempt)
-            || phase.terminal_window_plies == Some(0)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "curriculum phases require a name, positive counts, and valid contempt/window values",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn default_curriculum() -> Vec<CurriculumPhaseConfig> {
-    vec![
-        CurriculumPhaseConfig {
-            name: "terminal-8".to_owned(),
-            promotions_required: 1,
-            simulations: 200,
-            repetition_contempt: 0.0,
-            terminal_window_plies: Some(8),
-        },
-        CurriculumPhaseConfig {
-            name: "terminal-16".to_owned(),
-            promotions_required: 1,
-            simulations: 400,
-            repetition_contempt: 0.5,
-            terminal_window_plies: Some(16),
-        },
-        CurriculumPhaseConfig {
-            name: "terminal-32".to_owned(),
-            promotions_required: 2,
-            simulations: 400,
-            repetition_contempt: 0.5,
-            terminal_window_plies: Some(32),
-        },
-        CurriculumPhaseConfig {
-            name: "terminal-64".to_owned(),
-            promotions_required: 2,
-            simulations: 400,
-            repetition_contempt: 0.5,
-            terminal_window_plies: Some(64),
-        },
-        CurriculumPhaseConfig {
-            name: "full-dataset".to_owned(),
-            promotions_required: 1,
-            simulations: 400,
-            repetition_contempt: 0.5,
-            terminal_window_plies: None,
-        },
-    ]
 }
 
 #[derive(Debug, Error)]

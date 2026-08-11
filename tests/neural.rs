@@ -12,8 +12,8 @@ use yokai::{
     AlphaZeroNetworkConfig, BOARD_SQUARES, CpuBackend, EncodedPosition, Evaluation,
     EvaluationError, EvaluationRequest, Evaluator, Game, HandPiece, INPUT_PLANES, InferenceService,
     MetalBackend, ModelMetadata, ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece,
-    PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_champion,
-    load_generation, publish_champion, save_generation,
+    PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_generation,
+    load_latest, publish_latest, save_generation,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -280,7 +280,7 @@ fn inference_service_never_exceeds_the_configured_backend_batch() {
 }
 
 #[test]
-fn checkpoint_round_trip_is_exact_and_champion_is_atomic() {
+fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
     use burn::prelude::Backend;
 
     let root = unique_test_directory();
@@ -301,9 +301,8 @@ fn checkpoint_round_trip_is_exact_and_champion_is_atomic() {
         .expect("policy values");
 
     save_generation(&root, &metadata, &model).expect("generation save");
-    publish_champion(&root, 3).expect("champion publication");
-    let (loaded, loaded_metadata) =
-        load_champion::<CpuBackend>(&root, &device).expect("champion load");
+    publish_latest(&root, 3).expect("latest publication");
+    let (loaded, loaded_metadata) = load_latest::<CpuBackend>(&root, &device).expect("latest load");
     let after = loaded
         .forward(encoded_batch_tensor(&encoded, &device))
         .policy_logits

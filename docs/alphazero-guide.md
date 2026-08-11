@@ -61,6 +61,13 @@ The next network starts from the latest weights. Once training completes, it
 becomes the source of the following self-play batch. Arena and draw results are
 measurements: they never choose which network is allowed to continue learning.
 
+Optimization is continuous too. Each generation performs a fixed number of
+uniformly sampled mini-batch updates instead of full passes over an ever-growing
+buffer. The checkpoint stores both the trainable model and Adam's first/second
+moments, so restarting the command does not silently reset the optimizer.
+Validation checkpoints are measurements; they no longer roll the model back to
+an earlier point with optimizer moments belonging to a different model.
+
 This is the specific distinction made by the original publications. AlphaGo
 Zero evaluated each candidate and promoted it only above 55%; AlphaZero used the
 latest parameters continuously and omitted that selection step. Many community

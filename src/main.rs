@@ -240,17 +240,22 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
                 "[{elapsed}] dataset ready: {buffer_games} buffered games; {selection}; train={training_games} games/{training_examples} examples, valid={validation_games} games/{validation_examples} examples"
             );
         }
-        TrainingProgress::TrainingStarted { epochs, batch_size } => {
-            eprintln!("[{elapsed}] training started: {epochs} epochs, batch size {batch_size}");
-        }
-        TrainingProgress::EpochFinished {
-            total_epochs,
+        TrainingProgress::TrainingStarted {
+            steps,
+            batch_size,
+            validation_interval_steps,
+            optimizer_resumed,
+        } => eprintln!(
+            "[{elapsed}] training started: {steps} optimizer steps, batch size {batch_size}, metrics every {validation_interval_steps} steps, Adam resumed={optimizer_resumed}"
+        ),
+        TrainingProgress::TrainingAdvanced {
+            total_steps,
             report,
         } => {
             eprintln!(
-                "[{elapsed}] epoch {}/{}: train policy={:.4} value={:.4} entropy={:.4} illegal={:.4} top1={:.3}",
-                report.epoch,
-                total_epochs,
+                "[{elapsed}] step {}/{}: train policy={:.4} value={:.4} entropy={:.4} illegal={:.4} top1={:.3}",
+                report.step,
+                total_steps,
                 report.training.policy_loss,
                 report.training.value_loss,
                 report.training.policy_entropy,
@@ -259,9 +264,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             );
             if let Some(validation) = report.validation {
                 eprintln!(
-                    "[{elapsed}] epoch {}/{}: valid policy={:.4} value={:.4} calibration={:.4} top1={:.3}",
-                    report.epoch,
-                    total_epochs,
+                    "[{elapsed}] step {}/{}: valid policy={:.4} value={:.4} calibration={:.4} top1={:.3}",
+                    report.step,
+                    total_steps,
                     validation.policy_loss,
                     validation.value_loss,
                     validation.value_calibration_error,
@@ -269,12 +274,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
                 );
             }
         }
-        TrainingProgress::TrainingFinished {
-            completed_epochs,
-            selected_epoch,
-        } => eprintln!(
-            "[{elapsed}] training finished after {completed_epochs} epochs; restored best validation epoch {selected_epoch}"
-        ),
+        TrainingProgress::TrainingFinished { completed_steps } => {
+            eprintln!("[{elapsed}] training finished after {completed_steps} optimizer steps");
+        }
         TrainingProgress::CandidateSaved { generation } => {
             eprintln!("[{elapsed}] candidate generation {generation} saved");
         }
@@ -399,18 +401,18 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         report.generated_games,
         report.buffer_examples
     );
-    if let Some(epoch) = report.training.selected() {
-        println!("selected training epoch={}", epoch.epoch);
+    if let Some(checkpoint) = report.training.selected() {
+        println!("training metrics at step={}", checkpoint.step);
         println!(
             "train policy_loss={:.4} value_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} top1={:.3}",
-            epoch.training.policy_loss,
-            epoch.training.value_loss,
-            epoch.training.policy_entropy,
-            epoch.training.value_calibration_error,
-            epoch.training.illegal_policy_mass,
-            epoch.training.policy_top1_accuracy
+            checkpoint.training.policy_loss,
+            checkpoint.training.value_loss,
+            checkpoint.training.policy_entropy,
+            checkpoint.training.value_calibration_error,
+            checkpoint.training.illegal_policy_mass,
+            checkpoint.training.policy_top1_accuracy
         );
-        if let Some(validation) = epoch.validation {
+        if let Some(validation) = checkpoint.validation {
             println!(
                 "valid policy_loss={:.4} value_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} top1={:.3}",
                 validation.policy_loss,

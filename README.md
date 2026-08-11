@@ -100,7 +100,7 @@ and temperature-based action sampling.
 ## AlphaZero training
 
 The checked-in configuration targets Metal and is intentionally substantial:
-256 self-play games, 10 training epochs, a 200-game paired arena, a 64-game
+256 self-play games, 1,000 optimizer steps, a 200-game paired arena, a 64-game
 mirror diagnostic and a 64-game exploratory probe. Self-play runs 16 concurrent
 games and selects 8 distinct MCTS leaves per game before each inference, which
 feeds Metal efficiently without requiring hundreds of blocked game threads. The
@@ -133,12 +133,12 @@ cargo run --release -- train --resume latest --generations 5 --headless
 
 `--headless` disables the future TUI, not textual diagnostics. Progress is
 written immediately to standard error: roughly twenty updates during self-play,
-one metrics line per epoch, roughly twenty updates per arena, and every checkpoint
-publication. Arena updates include the running candidate/previous/draw counts and
-provisional score. All lines include elapsed wall-clock time. Phase summaries
-also report average/maximum inference batch, backend throughput and client wait.
-One generation is run by default; use `--generations N` to request an explicit
-sequence.
+one metrics line per 100 optimizer steps, roughly twenty updates per arena, and
+every checkpoint publication. Arena updates include the running
+candidate/previous/draw counts and provisional score. All lines include elapsed
+wall-clock time. Phase summaries also report average/maximum inference batch,
+backend throughput and client wait. One generation is run by default; use
+`--generations N` to request an explicit sequence.
 
 Arena progress is completion-ordered because games run concurrently. Fast wins
 can therefore appear as a block before slower losses even though paired game
@@ -170,13 +170,17 @@ Metal. The command bootstraps generation zero when no model exists, then:
 4. evaluates it against the previous generation with paired seeds and colors;
 5. measures its noise-free mirror and noisy self-play draw rates.
 
-Training keeps the epoch with the lowest combined validation loss. It stops
-early after `early_stopping_patience` consecutive epochs without improvement,
-then sends that restored best epoch—not merely the last epoch—to the arena.
+Training performs a fixed `steps_per_generation` number of uniformly sampled
+mini-batch updates. Its work therefore does not silently grow with the replay
+buffer. Adam moments are stored with every generation and restored before the
+next one; the log reports `Adam resumed=true` when continuity was recovered.
+Validation is diagnostic and runs every `validation_interval_steps` updates.
 
 Each invocation completes the requested number of generations. Checkpoints are
 written under `models/generation-N/`; `models/latest` points to the latest
-network. Existing `models/champion` pointers are still accepted during migration.
+network. Each new checkpoint also contains `training-model.bin` and
+`optimizer.bin`; these make optimizer resume exact but use additional disk space.
+Existing `models/champion` pointers are still accepted during migration.
 The replay buffer is stored in
 `data/self-play/buffer.json`. Writes use
 temporary paths followed by atomic renames so an interrupted write cannot replace
@@ -188,7 +192,9 @@ from the last published network.
 A clean run from random generation 0 was stopped after generation 15 once the
 same draw regime had repeated for several generations. It used the standard
 configuration: all positions, opening temperature 1, official draw value 0 and
-no repetition contempt or promotion gate.
+no repetition contempt or promotion gate. This run is the baseline from before
+the fixed-step correction: Adam was reset at every generation and full-buffer
+epochs made the number of optimizer updates grow with the buffer.
 
 | Generation | Self-play draws | Previous-generation arena | Mirror draws | Exploratory draws | Validation policy/value |
 | ---: | ---: | ---: | ---: | ---: | ---: |

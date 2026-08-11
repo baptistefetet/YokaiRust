@@ -11,12 +11,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    AlphaZeroNetworkConfig, ArenaError, ArenaProgress, ArenaResult, EpochReport, InferenceClient,
-    InferenceService, InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError,
-    NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError,
-    SelfPlayError, SelfPlayGame, TrainingConfig, TrainingReport, generate_self_play_with_progress,
-    load_generation, load_latest, next_generation, publish_latest, run_arena_with_progress,
-    save_generation, train_candidate_with_progress,
+    AlphaZeroNetworkConfig, AlphaZeroTrainingState, ArenaError, ArenaProgress, ArenaResult,
+    InferenceClient, InferenceService, InferenceServiceError, InferenceStats, ModelMetadata,
+    ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig,
+    ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingReport, TrainingStepReport,
+    generate_self_play_with_progress, load_generation, load_latest, load_training_generation,
+    next_generation, publish_latest, run_arena_with_progress, save_generation,
+    save_training_generation, train_state_with_progress,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -84,16 +85,17 @@ pub enum TrainingProgress {
         terminal_window_plies: Option<usize>,
     },
     TrainingStarted {
-        epochs: usize,
+        steps: usize,
         batch_size: usize,
+        validation_interval_steps: usize,
+        optimizer_resumed: bool,
     },
-    EpochFinished {
-        total_epochs: usize,
-        report: EpochReport,
+    TrainingAdvanced {
+        total_steps: usize,
+        report: TrainingStepReport,
     },
     TrainingFinished {
-        completed_epochs: usize,
-        selected_epoch: usize,
+        completed_steps: usize,
     },
     CandidateSaved {
         generation: u32,
@@ -304,33 +306,47 @@ where
         validation_examples: validation_examples.len(),
         terminal_window_plies,
     });
+    let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
+        models_root,
+        source_metadata.generation,
+        &config.optimization,
+        device,
+    )? {
+        (state, true)
+    } else {
+        let (source_for_training, _) = load_latest::<B>(models_root, device)?;
+        (
+            AlphaZeroTrainingState::new(source_for_training, &config.optimization),
+            false,
+        )
+    };
     progress(TrainingProgress::TrainingStarted {
-        epochs: config.optimization.epochs,
+        steps: config.optimization.steps_per_generation,
         batch_size: config.optimization.batch_size,
+        validation_interval_steps: config.optimization.validation_interval_steps,
+        optimizer_resumed,
     });
-    let (source_for_training, _) = load_latest::<B>(models_root, device)?;
-    let (candidate, training) = train_candidate_with_progress(
-        source_for_training,
+    let (training_state, training) = train_state_with_progress(
+        training_state,
         &training_examples,
         &validation_examples,
         &config.optimization,
         config.seed.wrapping_add(u64::from(candidate_generation)),
         device,
         &|report| {
-            progress(TrainingProgress::EpochFinished {
-                total_epochs: config.optimization.epochs,
+            progress(TrainingProgress::TrainingAdvanced {
+                total_steps: config.optimization.steps_per_generation,
                 report,
             });
         },
     );
     progress(TrainingProgress::TrainingFinished {
-        completed_epochs: training.epochs.len(),
-        selected_epoch: training.selected_epoch,
+        completed_steps: training.steps_completed,
     });
-    let candidate = candidate.valid();
     let candidate_metadata =
         ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
-    save_generation(models_root, &candidate_metadata, &candidate)?;
+    save_training_generation(models_root, &candidate_metadata, &training_state)?;
+    let candidate = training_state.model.valid();
     progress(TrainingProgress::CandidateSaved {
         generation: candidate_generation,
     });

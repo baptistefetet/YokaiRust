@@ -2,14 +2,17 @@
 
 use burn::{
     module::AutodiffModule,
-    optim::{AdamConfig, GradientsParams, Optimizer, decay::WeightDecayConfig},
+    optim::{
+        Adam, AdamConfig, GradientsParams, Optimizer, adaptor::OptimizerAdaptor,
+        decay::WeightDecayConfig,
+    },
     prelude::{Backend, Tensor, TensorData},
     tensor::{
         activation::{log_softmax, softmax},
         backend::AutodiffBackend,
     },
 };
-use rand::{SeedableRng, seq::SliceRandom};
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
@@ -30,25 +33,59 @@ pub struct LossMetrics {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct EpochReport {
-    pub epoch: usize,
+pub struct TrainingStepReport {
+    pub step: usize,
     pub training: LossMetrics,
     pub validation: Option<LossMetrics>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingReport {
-    pub epochs: Vec<EpochReport>,
-    pub selected_epoch: usize,
+    pub checkpoints: Vec<TrainingStepReport>,
+    pub steps_completed: usize,
 }
 
 impl TrainingReport {
     #[must_use]
-    pub fn selected(&self) -> Option<&EpochReport> {
-        self.epochs
-            .iter()
-            .find(|report| report.epoch == self.selected_epoch)
+    pub fn selected(&self) -> Option<&TrainingStepReport> {
+        self.checkpoints.last()
     }
+}
+
+/// Adam specialized for the Yokai policy/value network.
+pub type AlphaZeroOptimizer<B> = OptimizerAdaptor<Adam, AlphaZeroNetwork<B>, B>;
+
+/// Model and optimizer moments that must advance together across generations.
+#[derive(Clone)]
+pub struct AlphaZeroTrainingState<B>
+where
+    B: AutodiffBackend<FloatElem = f32>,
+{
+    pub model: AlphaZeroNetwork<B>,
+    pub optimizer: AlphaZeroOptimizer<B>,
+}
+
+impl<B> AlphaZeroTrainingState<B>
+where
+    B: AutodiffBackend<FloatElem = f32>,
+{
+    #[must_use]
+    pub fn new(model: AlphaZeroNetwork<B>, config: &OptimizationConfig) -> Self {
+        Self {
+            model,
+            optimizer: new_optimizer(config),
+        }
+    }
+}
+
+#[must_use]
+pub fn new_optimizer<B>(config: &OptimizationConfig) -> AlphaZeroOptimizer<B>
+where
+    B: AutodiffBackend<FloatElem = f32>,
+{
+    AdamConfig::new()
+        .with_weight_decay(Some(WeightDecayConfig::new(config.weight_decay)))
+        .init()
 }
 
 /// Optimizes the next network initialized from the latest weights.
@@ -80,7 +117,11 @@ where
     )
 }
 
-/// Optimizes a candidate and reports metrics after every complete epoch.
+/// Optimizes a candidate with a fresh Adam state.
+///
+/// The complete pipeline uses [`train_state_with_progress`] instead so Adam's
+/// moments survive generation boundaries. This convenience API is useful for
+/// isolated corpus tests.
 ///
 /// # Panics
 ///
@@ -88,7 +129,7 @@ where
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn train_candidate_with_progress<B, F>(
-    mut model: AlphaZeroNetwork<B>,
+    model: AlphaZeroNetwork<B>,
     training_examples: &[TrainingExample],
     validation_examples: &[TrainingExample],
     config: &OptimizationConfig,
@@ -99,74 +140,97 @@ pub fn train_candidate_with_progress<B, F>(
 where
     B: AutodiffBackend<FloatElem = f32>,
     B::InnerBackend: Backend<FloatElem = f32>,
-    F: Fn(EpochReport),
+    F: Fn(TrainingStepReport),
+{
+    let state = AlphaZeroTrainingState::new(model, config);
+    let (state, report) = train_state_with_progress(
+        state,
+        training_examples,
+        validation_examples,
+        config,
+        seed,
+        device,
+        progress,
+    );
+    (state.model, report)
+}
+
+/// Applies a fixed number of uniformly sampled mini-batch updates.
+///
+/// A fixed budget keeps the optimization pressure constant while the replay
+/// buffer grows. The returned optimizer contains the moments required by the
+/// next generation.
+///
+/// # Panics
+///
+/// Panics when the training dataset is empty.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn train_state_with_progress<B, F>(
+    mut state: AlphaZeroTrainingState<B>,
+    training_examples: &[TrainingExample],
+    validation_examples: &[TrainingExample],
+    config: &OptimizationConfig,
+    seed: u64,
+    device: &B::Device,
+    progress: &F,
+) -> (AlphaZeroTrainingState<B>, TrainingReport)
+where
+    B: AutodiffBackend<FloatElem = f32>,
+    B::InnerBackend: Backend<FloatElem = f32>,
+    F: Fn(TrainingStepReport),
 {
     assert!(!training_examples.is_empty(), "training dataset is empty");
-    let mut optimizer = AdamConfig::new()
-        .with_weight_decay(Some(WeightDecayConfig::new(config.weight_decay)))
-        .init();
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut examples = training_examples.to_vec();
-    let mut epochs = Vec::with_capacity(config.epochs);
-    let mut best_model = None;
-    let mut best_validation_loss = f32::INFINITY;
-    let mut selected_epoch = 0;
-    let mut epochs_without_improvement = 0;
+    let report_capacity = config
+        .steps_per_generation
+        .div_ceil(config.validation_interval_steps);
+    let mut checkpoints = Vec::with_capacity(report_capacity);
+    let mut accumulator = MetricAccumulator::default();
 
-    for epoch in 0..config.epochs {
-        examples.shuffle(&mut rng);
-        let mut accumulator = MetricAccumulator::default();
-        for batch in examples.chunks(config.batch_size) {
-            let tensors = BatchTensors::<B>::new(batch, device);
-            let losses = forward_losses(&model, tensors);
-            accumulator.add(read_metrics(&losses), batch.len());
-            let gradients = GradientsParams::from_grads(losses.total.backward(), &model);
-            model = optimizer.step(config.learning_rate, model, gradients);
-        }
+    for step in 1..=config.steps_per_generation {
+        let batch = (0..config.batch_size)
+            .map(|_| {
+                let index = rng.random_range(0..training_examples.len());
+                training_examples[index].clone()
+            })
+            .collect::<Vec<_>>();
+        let tensors = BatchTensors::<B>::new(&batch, device);
+        let losses = forward_losses(&state.model, tensors);
+        accumulator.add(read_metrics(&losses), batch.len());
+        let gradients = GradientsParams::from_grads(losses.total.backward(), &state.model);
+        state.model = state
+            .optimizer
+            .step(config.learning_rate, state.model, gradients);
 
-        let validation = if validation_examples.is_empty() {
-            None
-        } else {
-            Some(validate_model(
-                &model.valid(),
-                validation_examples,
-                config.batch_size,
-                device,
-            ))
-        };
-        let report = EpochReport {
-            epoch: epoch + 1,
-            training: accumulator.finish(),
-            validation,
-        };
-        progress(report);
-        epochs.push(report);
-
-        if let Some(validation) = validation {
-            if validation.total_loss < best_validation_loss {
-                best_validation_loss = validation.total_loss;
-                best_model = Some(model.clone());
-                selected_epoch = epoch + 1;
-                epochs_without_improvement = 0;
+        if step.is_multiple_of(config.validation_interval_steps)
+            || step == config.steps_per_generation
+        {
+            let validation = if validation_examples.is_empty() {
+                None
             } else {
-                epochs_without_improvement += 1;
-                if epochs_without_improvement >= config.early_stopping_patience {
-                    break;
-                }
-            }
+                Some(validate_model(
+                    &state.model.valid(),
+                    validation_examples,
+                    config.batch_size,
+                    device,
+                ))
+            };
+            let report = TrainingStepReport {
+                step,
+                training: std::mem::take(&mut accumulator).finish(),
+                validation,
+            };
+            progress(report);
+            checkpoints.push(report);
         }
     }
 
-    if let Some(best_model) = best_model {
-        model = best_model;
-    } else {
-        selected_epoch = epochs.len();
-    }
     (
-        model,
+        state,
         TrainingReport {
-            epochs,
-            selected_epoch,
+            checkpoints,
+            steps_completed: config.steps_per_generation,
         },
     )
 }

@@ -117,7 +117,8 @@ steps:
 1. load the latest network;
 2. generate self-play and persist replays;
 3. select whole-game train/validation splits;
-4. train the next network from the latest weights;
+4. restore the trainable weights and Adam moments, then apply a fixed number of
+   sampled mini-batch updates;
 5. save and publish it unconditionally;
 6. `run_official_arena` against the previous network;
 7. `run_candidate_diagnostics` with mirror and exploratory draw probes.

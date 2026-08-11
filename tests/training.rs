@@ -184,7 +184,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
-    assert_eq!(config.optimization.early_stopping_patience, 2);
+    assert_eq!(config.optimization.steps_per_generation, 1_000);
+    assert_eq!(config.optimization.validation_interval_steps, 100);
     assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(config.arena.games, 200);
     assert_eq!(config.arena.workers, 128);
@@ -224,8 +225,8 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
     let model = network_config.init::<CpuTrainingBackend>(&device);
     let initial = validate_model(&model.valid(), &examples, 2, &device);
     let optimization = OptimizationConfig {
-        epochs: 80,
-        early_stopping_patience: 80,
+        steps_per_generation: 80,
+        validation_interval_steps: 1,
         batch_size: 2,
         learning_rate: 0.02,
         weight_decay: 0.0,
@@ -241,10 +242,10 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
     let final_metrics = validate_model(&trained, &examples, 2, &device);
     let selected_validation = report
         .selected()
-        .and_then(|epoch| epoch.validation)
-        .expect("selected validation epoch");
+        .and_then(|checkpoint| checkpoint.validation)
+        .expect("final validation checkpoint");
 
-    assert_eq!(report.epochs.len(), optimization.epochs);
+    assert_eq!(report.checkpoints.len(), optimization.steps_per_generation);
     assert!((final_metrics.total_loss - selected_validation.total_loss).abs() < 1.0e-5);
     assert!(final_metrics.policy_top1_accuracy >= 0.95);
     assert!(final_metrics.policy_loss < initial.policy_loss);
@@ -401,7 +402,7 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
             workers: 4,
             simulations: 2,
             search_batch_size: 1,
-            max_game_plies: 128,
+            max_game_plies: 512,
             inference_batch_size: 16,
             inference_wait_ms: 0,
             exploration_plies: 4,
@@ -410,8 +411,8 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
             repetition_contempt: 0.0,
         },
         optimization: OptimizationConfig {
-            epochs: 1,
-            early_stopping_patience: 1,
+            steps_per_generation: 1,
+            validation_interval_steps: 1,
             batch_size: 16,
             learning_rate: 0.001,
             weight_decay: 0.0,
@@ -502,10 +503,7 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
     )));
     assert!(events.iter().any(|event| matches!(
         event,
-        TrainingProgress::EpochFinished {
-            total_epochs: 1,
-            ..
-        }
+        TrainingProgress::TrainingAdvanced { total_steps: 1, .. }
     )));
     assert!(events.iter().any(|event| matches!(
         event,
@@ -517,6 +515,19 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
             .iter()
             .any(|event| matches!(event, TrainingProgress::LatestPublished { generation: 1 }))
     );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        TrainingProgress::TrainingStarted {
+            optimizer_resumed: false,
+            ..
+        }
+    )));
+    assert!(
+        models
+            .join("generation-000001/training-model.bin")
+            .is_file()
+    );
+    assert!(models.join("generation-000001/optimizer.bin").is_file());
     let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("latest model");
     assert_eq!(
         latest.generation, 1,
@@ -564,6 +575,19 @@ fn short_cpu_alphazero_generation_publishes_before_diagnostics() {
                 TrainingProgress::SelfPlayResumed {
                     games: 2,
                     examples: _
+                }
+            ))
+    );
+    assert!(
+        resumed_events
+            .lock()
+            .expect("resumed events")
+            .iter()
+            .any(|event| matches!(
+                event,
+                TrainingProgress::TrainingStarted {
+                    optimizer_resumed: true,
+                    ..
                 }
             ))
     );

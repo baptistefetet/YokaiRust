@@ -21,7 +21,8 @@ pub use neural::{
     ENCODER_VERSION, EncodedPosition, INPUT_PLANES,
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_generation, load_latest,
-        next_generation, publish_latest, save_generation,
+        load_training_generation, next_generation, publish_latest, save_generation,
+        save_training_generation,
     },
     encode_game, encode_position, encoded_batch_tensor,
     evaluator::{
@@ -55,6 +56,7 @@ pub use training::self_play::{
     SelfPlayError, generate_self_play, generate_self_play_with_progress, play_self_play_game,
 };
 pub use training::trainer::{
-    EpochReport, LossMetrics, TrainingReport, train_candidate, train_candidate_with_progress,
+    AlphaZeroOptimizer, AlphaZeroTrainingState, LossMetrics, TrainingReport, TrainingStepReport,
+    new_optimizer, train_candidate, train_candidate_with_progress, train_state_with_progress,
     validate_model,
 };

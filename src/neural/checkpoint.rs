@@ -6,8 +6,12 @@ use std::{
 };
 
 use burn::{
+    module::{AutodiffModule, Module},
+    optim::Optimizer,
     prelude::Backend,
+    record::{BinFileRecorder, FullPrecisionSettings, Recorder},
     store::{ModuleSnapshot, SafetensorsStore},
+    tensor::backend::AutodiffBackend,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -15,6 +19,10 @@ use thiserror::Error;
 use crate::{
     ENCODER_VERSION, POLICY_ACTIONS, RULES_VERSION,
     neural::model::{AlphaZeroNetwork, AlphaZeroNetworkConfig},
+    training::{
+        config::OptimizationConfig,
+        trainer::{AlphaZeroTrainingState, new_optimizer},
+    },
 };
 
 pub const MODEL_FORMAT_VERSION: u16 = 1;
@@ -22,6 +30,8 @@ const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";
 const LEGACY_CHAMPION_FILE: &str = "champion";
+const TRAINING_MODEL_FILE: &str = "training-model";
+const OPTIMIZER_FILE: &str = "optimizer";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelMetadata {
@@ -104,6 +114,51 @@ pub fn save_generation<B: Backend>(
     metadata: &ModelMetadata,
     model: &AlphaZeroNetwork<B>,
 ) -> Result<PathBuf, ModelStoreError> {
+    save_generation_with_extra(root, metadata, model, |_| Ok(()))
+}
+
+/// Atomically stores inference weights together with resumable training state.
+///
+/// # Errors
+///
+/// Returns [`ModelStoreError`] on model, optimizer, serialization, or I/O
+/// failures. The generation directory is made visible only after all files are
+/// complete.
+pub fn save_training_generation<B>(
+    root: impl AsRef<Path>,
+    metadata: &ModelMetadata,
+    state: &AlphaZeroTrainingState<B>,
+) -> Result<PathBuf, ModelStoreError>
+where
+    B: AutodiffBackend<FloatElem = f32>,
+    B::InnerBackend: Backend<FloatElem = f32>,
+{
+    let inference_model = state.model.clone().valid();
+    save_generation_with_extra(root, metadata, &inference_model, |directory| {
+        let recorder = BinFileRecorder::<FullPrecisionSettings>::default();
+        recorder
+            .record(
+                state.model.clone().into_record(),
+                directory.join(TRAINING_MODEL_FILE),
+            )
+            .map_err(|error| ModelStoreError::Burn(error.to_string()))?;
+        recorder
+            .record(state.optimizer.to_record(), directory.join(OPTIMIZER_FILE))
+            .map_err(|error| ModelStoreError::Burn(error.to_string()))?;
+        Ok(())
+    })
+}
+
+fn save_generation_with_extra<B, F>(
+    root: impl AsRef<Path>,
+    metadata: &ModelMetadata,
+    model: &AlphaZeroNetwork<B>,
+    save_extra: F,
+) -> Result<PathBuf, ModelStoreError>
+where
+    B: Backend,
+    F: FnOnce(&Path) -> Result<(), ModelStoreError>,
+{
     metadata.validate()?;
     let root = root.as_ref();
     fs::create_dir_all(root)?;
@@ -132,8 +187,72 @@ pub fn save_generation<B: Backend>(
         temporary_directory.join(METADATA_FILE),
         serde_json::to_vec_pretty(metadata)?,
     )?;
+    save_extra(&temporary_directory)?;
     fs::rename(&temporary_directory, &final_directory)?;
     Ok(final_directory)
+}
+
+/// Restores the trainable model and Adam moments for one generation.
+///
+/// Old inference-only checkpoints return `Ok(None)` so they remain usable; the
+/// caller can then start a fresh optimizer explicitly.
+///
+/// # Errors
+///
+/// Returns [`ModelStoreError`] when metadata or either training-state file is
+/// malformed, incompatible, or only partially present.
+pub fn load_training_generation<B>(
+    root: impl AsRef<Path>,
+    generation: u32,
+    optimization: &OptimizationConfig,
+    device: &B::Device,
+) -> Result<Option<(AlphaZeroTrainingState<B>, ModelMetadata)>, ModelStoreError>
+where
+    B: AutodiffBackend<FloatElem = f32>,
+    B::InnerBackend: Backend<FloatElem = f32>,
+{
+    let directory = generation_directory(root.as_ref(), generation);
+    if !directory.is_dir() {
+        return Err(ModelStoreError::GenerationMissing(generation));
+    }
+    let metadata: ModelMetadata =
+        serde_json::from_slice(&fs::read(directory.join(METADATA_FILE))?)?;
+    metadata.validate()?;
+    if metadata.generation != generation {
+        return Err(ModelStoreError::Incompatible(format!(
+            "directory generation {generation} contains generation {}",
+            metadata.generation
+        )));
+    }
+
+    let model_path = directory.join(format!("{TRAINING_MODEL_FILE}.bin"));
+    let optimizer_path = directory.join(format!("{OPTIMIZER_FILE}.bin"));
+    match (model_path.exists(), optimizer_path.exists()) {
+        (false, false) => return Ok(None),
+        (true, true) => {}
+        _ => {
+            return Err(ModelStoreError::Incompatible(
+                "checkpoint contains only part of its training state".to_owned(),
+            ));
+        }
+    }
+
+    let recorder = BinFileRecorder::<FullPrecisionSettings>::default();
+    let model_record = recorder
+        .load(directory.join(TRAINING_MODEL_FILE), device)
+        .map_err(|error| ModelStoreError::Burn(error.to_string()))?;
+    let model = metadata
+        .architecture
+        .init::<B>(device)
+        .load_record(model_record);
+    let optimizer_record = recorder
+        .load(directory.join(OPTIMIZER_FILE), device)
+        .map_err(|error| ModelStoreError::Burn(error.to_string()))?;
+    let optimizer = new_optimizer(optimization).load_record(optimizer_record);
+    Ok(Some((
+        AlphaZeroTrainingState { model, optimizer },
+        metadata,
+    )))
 }
 
 /// Loads and validates one generation on the requested backend.

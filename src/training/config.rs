@@ -31,8 +31,10 @@ pub struct SelfPlayConfig {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OptimizationConfig {
-    pub epochs: usize,
-    pub early_stopping_patience: usize,
+    /// Number of optimizer updates performed after each self-play batch.
+    pub steps_per_generation: usize,
+    /// Emit training/validation metrics after this many optimizer updates.
+    pub validation_interval_steps: usize,
     pub batch_size: usize,
     pub learning_rate: f64,
     pub weight_decay: f32,
@@ -96,8 +98,8 @@ impl Default for TrainingConfig {
                 repetition_contempt: 0.0,
             },
             optimization: OptimizationConfig {
-                epochs: 10,
-                early_stopping_patience: 2,
+                steps_per_generation: 1_000,
+                validation_interval_steps: 100,
                 batch_size: 256,
                 learning_rate: 0.001,
                 weight_decay: 1.0e-4,
@@ -180,8 +182,9 @@ impl TrainingConfig {
             ));
         }
         let optimization = &self.optimization;
-        if optimization.epochs == 0
-            || optimization.early_stopping_patience == 0
+        if optimization.steps_per_generation == 0
+            || optimization.validation_interval_steps == 0
+            || optimization.validation_interval_steps > optimization.steps_per_generation
             || optimization.batch_size == 0
             || !optimization.learning_rate.is_finite()
             || optimization.learning_rate <= 0.0
@@ -189,7 +192,7 @@ impl TrainingConfig {
             || optimization.weight_decay < 0.0
         {
             return Err(TrainingConfigError::Invalid(
-                "optimization counts, learning rate and decay are invalid",
+                "optimization steps, validation interval, learning rate and decay are invalid",
             ));
         }
         if !optimization.validation_fraction.is_finite()

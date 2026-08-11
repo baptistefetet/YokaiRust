@@ -24,10 +24,10 @@ final_temperature = 0.0
 repetition_contempt = 0.0
 
 [optimization]
-epochs = 10
-# Restore the epoch with the lowest validation loss and stop after this many
-# consecutive epochs without improvement.
-early_stopping_patience = 2
+# A fixed update budget prevents later generations from receiving more gradient
+# steps merely because their replay buffer has grown.
+steps_per_generation = 1000
+validation_interval_steps = 100
 batch_size = 256
 learning_rate = 0.001
 weight_decay = 0.0001

@@ -239,10 +239,35 @@ positions still lack successful conversion trajectories. The mirror gate is
 what prevents this superficially strong but cyclic network from becoming the
 new self-play teacher.
 
-The next experiment lets targeted restarts begin one ply before a known draw,
-instead of two to eight plies before it. At that exact decision, the deeper
-800-simulation search can explore the alternatives that the corrected target
-now preserves. This remains ordinary self-play from an observed game prefix.
+The active v20 experiment lets targeted restarts begin one ply before a known
+draw, instead of two to eight plies before it. At that exact decision, the
+deeper 800-simulation search can explore the alternatives that the corrected
+target now preserves. This remains ordinary self-play from an observed game
+prefix. Complete this run through generation 15 before changing another
+variable.
+
+## First experiment after v20
+
+The next controlled run must test the JavaScript bootstrap before any network
+redesign. Its only intentional change from v20 is generation-zero self-play:
+
+- until the first candidate is promoted, MCTS uses uniform priors and random
+  rule-valid rollouts instead of the randomly initialized network;
+- after the first promotion, every later generation uses neural policy and WDL
+  exactly as v20 does;
+- network size, encoder, replay sampling, optimizer, restarts, arena and random
+  seed remain unchanged.
+
+Run this bootstrap variant through generation 15 and compare policy/WDL losses,
+top-1 metrics, self-play draws, accepted champion sequence, arena W/D/L and both
+draw gates against v20. In particular, check whether rules-grounded rollout
+targets improve the first generations and delay or prevent the late cyclic
+plateau.
+
+Do not combine this test with the proposed scalar hand input, smaller network,
+explicit recent-move planes, auxiliary scalar value loss or stronger endgame
+curriculum. Those remain later ablations: changing them now would make it
+impossible to attribute a result to the bootstrap.
 
 ## Rules source
 

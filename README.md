@@ -252,6 +252,24 @@ This section is the authoritative starting point for the next development
 conversation. Preserve one changed variable per run: the objective is to learn
 which JavaScript idea helps, not merely to produce one incomparable mixture.
 
+Keep this README current throughout the research, not only at the end of the
+whole program. After every completed 15-generation run, and before starting the
+next one:
+
+- replace the latest-results table with the new generation 1–15 measurements;
+- record the single changed variable, accepted champion sequence, losses,
+  top-1 metrics, arena results and draw-gate results;
+- state what the experiment demonstrated, including negative or inconclusive
+  outcomes;
+- update the next experiment and its unchanged baseline explicitly;
+- record the runtime data/model paths that must be retained for comparison;
+- remove obsolete plans and stale provisional conclusions rather than growing
+  an ambiguous chronological log.
+
+Commit and push each implementation separately from its completed experimental
+report. A new conversation must be able to recover the current state and next
+action from this README plus the structured JSON reports alone.
+
 ### 0. Finish and freeze the v20 baseline
 
 The active v20 run is the one-ply-restart experiment described above. Its

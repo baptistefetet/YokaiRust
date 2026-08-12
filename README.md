@@ -154,14 +154,13 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v17 through generation 15
+## Latest completed research run: v18 through generation 15
 
-This deterministic run started from random weights and kept the conservative
-rollback from v16. Its one experimental change was to raise MCTS from 200 to
-800 simulations only in the 25% cycle-adjacent restart trajectories. `source`
-is the accepted champion; `arena` is candidate/champion/draw over 200 games;
-`probe` is exploratory draws out of 64. Promotion requires arena ≥55%, mirror
-0/4 and probe ≤12/64.
+This deterministic run started from random weights. Compared with v17, its only
+change was a learning rate reduced from `0.001` to `0.00025` once the accepted
+champion reached generation 7. `source` is that champion; `arena` is
+candidate/champion/draw over 200 games; `probe` is exploratory draws out of 64.
+Promotion requires arena ≥55%, mirror 0/4 and probe ≤12/64.
 
 | Gen | Source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
@@ -172,33 +171,35 @@ is the accepted champion; `arena` is candidate/champion/draw over 200 games;
 | 5 | 3 | 45/256 | 1.766 | 1.924 / 0.951 | 44.9% | 161/34/5 | 4/4 | 4/64 | draw rejection |
 | 6 | 3 | 52/256 | 1.764 | 1.888 / 0.846 | 46.6% | 170/24/6 | 0/4 | 4/64 | promoted |
 | 7 | 6 | 37/256 | 1.692 | 1.821 / 0.813 | 49.5% | 130/51/19 | 0/4 | 5/64 | promoted |
-| 8 | 7 | 43/256 | 1.663 | 1.762 / 0.804 | 50.4% | 60/128/12 | 0/4 | 6/64 | strength rejection |
-| 9 | 7 | 58/256 | 1.653 | 1.748 / 0.773 | 52.4% | 109/65/26 | 4/4 | 9/64 | draw rejection |
-| 10 | 7 | 53/256 | 1.652 | 1.747 / 0.738 | 51.6% | 126/32/42 | 4/4 | 4/64 | draw rejection |
-| 11 | 7 | 53/256 | 1.646 | 1.719 / 0.718 | 52.3% | 121/61/18 | 0/4 | 10/64 | promoted |
-| 12 | 11 | 63/256 | 1.618 | 1.695 / 0.732 | 53.3% | 65/63/72 | 4/4 | 11/64 | strength + draw rejection |
-| 13 | 11 | 66/256 | 1.619 | 1.687 / 0.715 | 53.5% | 75/69/56 | 0/4 | 8/64 | strength rejection |
-| 14 | 11 | 70/256 | 1.616 | 1.663 / 0.729 | 54.6% | 82/71/47 | 4/4 | 9/64 | strength + draw rejection |
-| 15 | 11 | 65/256 | 1.597 | 1.655 / 0.734 | 55.0% | 119/23/58 | 4/4 | 9/64 | draw rejection |
+| 8 | 7 | 43/256 | 1.618 | 1.733 / 0.836 | 52.5% | 62/114/24 | 4/4 | 5/64 | strength + draw rejection |
+| 9 | 7 | 58/256 | 1.613 | 1.720 / 0.781 | 53.5% | 137/51/12 | 4/4 | 7/64 | draw rejection |
+| 10 | 7 | 53/256 | 1.619 | 1.708 / 0.755 | 54.0% | 128/62/10 | 0/4 | 8/64 | promoted |
+| 11 | 10 | 54/256 | 1.589 | 1.680 / 0.764 | 54.6% | 106/75/19 | 4/4 | 13/64 | draw rejection |
+| 12 | 10 | 55/256 | 1.599 | 1.671 / 0.722 | 54.9% | 80/70/50 | 0/4 | 8/64 | strength rejection |
+| 13 | 10 | 65/256 | 1.590 | 1.654 / 0.720 | 55.7% | 101/44/55 | 4/4 | 5/64 | draw rejection |
+| 14 | 10 | 56/256 | 1.592 | 1.653 / 0.726 | 55.6% | 92/71/37 | 4/4 | 18/64 | draw rejection |
+| 15 | 10 | 53/256 | 1.594 | 1.639 / 0.729 | 56.7% | 156/40/4 | 4/4 | 8/64 | draw rejection |
 
-Across 3,840 games and 114,563 positions, validation policy loss fell 36.2%,
-top-1 rose from 32.6% to 55.0%, and illegal probability mass fell from 45.9%
-to 10.2%. Six candidates were promoted. Unlike v16, learning crossed the old
-generation-7 cycle and reached champion 11: focused search therefore moved the
-playing plateau, not just the losses.
+Across 3,840 games and 110,539 positions, validation policy loss fell 36.8%,
+top-1 rose from 32.6% to 56.7%, and illegal probability mass fell from 45.9%
+to 10.7%. Six candidates were promoted. The reduced rate produced champion 10
+one attempt earlier than v17's champion 11 and kept late candidate strength
+high: generation 15 scored 79.0% with only four arena draws, compared with
+74.0% and 58 draws in v17.
 
-It did not eliminate the failure. Generation 15 beat champion 11 by 119–23 with
-58 draws, yet its greedy initial-position mirror repeated in all four games.
-This is a useful distinction: the candidate improved broadly across random
-openings while one exact opening policy collapsed into a cycle. The repeated
-strength regressions immediately after promotions also suggest that 400 Adam
-updates at the fixed `0.001` rate perturb a mature policy too abruptly.
+The exact initial-position cycle nevertheless remained: generation 15 drew all
+four deterministic mirrors. The failure is now local rather than global. Among
+buffered drawn non-starter positions where a move can immediately cause the
+third repetition, MCTS still assigns that move 63.8% probability on average.
+Those policy examples are currently omitted entirely, which avoids copying a
+failed conversion but also discards the known fact that this particular action
+ends the game in the unwanted result.
 
-The next run keeps deeper restarts and reduces the learning rate to `0.00025`
-once the accepted source reaches generation 7. The schedule follows the champion
-rather than the attempt number, so rejected candidates cannot advance it. It
-remains pure from-scratch learning with no solver, oracle, external label or
-board-size-specific knowledge.
+The next experiment retains MCTS targets for such positions after removing the
+immediate-draw actions and renormalizing the remaining visits. It uses only the
+generic threefold rule, the current network's search and the observed draw. It
+does not claim which alternative wins, and introduces no solver, oracle,
+external label or board-size-specific knowledge.
 
 ## Rules source
 

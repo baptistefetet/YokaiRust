@@ -266,10 +266,11 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         TrainingProgress::TrainingStarted {
             steps,
             batch_size,
+            learning_rate,
             validation_interval_steps,
             optimizer_resumed,
         } => eprintln!(
-            "[{elapsed}] training started: {steps} optimizer steps, batch size {batch_size}, metrics every {validation_interval_steps} steps, Adam resumed={optimizer_resumed}"
+            "[{elapsed}] training started: {steps} optimizer steps, batch size {batch_size}, learning rate {learning_rate:.6}, metrics every {validation_interval_steps} steps, Adam resumed={optimizer_resumed}"
         ),
         TrainingProgress::TrainingAdvanced {
             total_steps,
@@ -456,7 +457,10 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         report.terminal_oversampling,
     );
     if let Some(checkpoint) = report.training.selected() {
-        println!("training metrics at step={}", checkpoint.step);
+        println!(
+            "training metrics at step={} learning_rate={:.6}",
+            checkpoint.step, report.training.learning_rate
+        );
         println!(
             "train policy_loss={:.4} WDL_loss={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
             checkpoint.training.policy_loss,

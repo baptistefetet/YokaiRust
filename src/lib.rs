@@ -43,7 +43,7 @@ pub use training::arena::{
     ArenaError, ArenaProgress, ArenaResult, ArenaSeatResult, run_arena, run_arena_with_progress,
 };
 pub use training::config::{
-    ArenaConfig, BackendKind, OptimizationConfig, PathsConfig, SelfPlayConfig,
+    ArenaConfig, BackendKind, LearningRateStage, OptimizationConfig, PathsConfig, SelfPlayConfig,
     TerminalWindowSchedule, TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{

@@ -54,6 +54,9 @@ pub struct TrainingStepReport {
 pub struct TrainingReport {
     pub checkpoints: Vec<TrainingStepReport>,
     pub steps_completed: usize,
+    /// Effective rate used for every update in this report.
+    #[serde(default)]
+    pub learning_rate: f64,
 }
 
 impl TrainingReport {
@@ -243,6 +246,7 @@ where
         TrainingReport {
             checkpoints,
             steps_completed: config.steps_per_generation,
+            learning_rate: config.learning_rate,
         },
     )
 }

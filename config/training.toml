@@ -48,6 +48,13 @@ non_starter_draw_policy_weight = 0.0
 # Every position remains in the dataset. During bootstrap, decisive tails are
 # temporarily oversampled; the extra sampling stops automatically at attempt 11.
 
+# Once an accepted champion reaches generation 7, take smaller Adam steps. This
+# preserves the early bootstrap speed while reducing abrupt policy changes near
+# the observed plateau. Rejected attempt numbers never advance this schedule.
+[[optimization.learning_rate_schedule]]
+source_generation = 7
+learning_rate = 0.00025
+
 [optimization.terminal_window_schedule]
 initial_plies = 1
 growth_factor = 2
@@ -83,5 +90,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v17"
-self_play = "data/alpha-zero-draw-aware-v17"
+models = "models/alpha-zero-draw-aware-v18"
+self_play = "data/alpha-zero-draw-aware-v18"

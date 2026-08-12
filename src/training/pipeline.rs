@@ -147,6 +147,7 @@ pub enum TrainingProgress {
     TrainingStarted {
         steps: usize,
         batch_size: usize,
+        learning_rate: f64,
         validation_interval_steps: usize,
         optimizer_resumed: bool,
     },
@@ -442,10 +443,14 @@ where
         terminal_extra_examples,
         terminal_oversampling,
     });
+    let mut effective_optimization = config.optimization.clone();
+    effective_optimization.learning_rate = config
+        .optimization
+        .learning_rate_for_source_generation(source_metadata.generation);
     let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
         models_root,
         source_metadata.generation,
-        &config.optimization,
+        &effective_optimization,
         device,
     )? {
         (state, true)
@@ -453,13 +458,14 @@ where
         let (source_for_training, _) =
             load_generation::<B>(models_root, source_metadata.generation, device)?;
         (
-            AlphaZeroTrainingState::new(source_for_training, &config.optimization),
+            AlphaZeroTrainingState::new(source_for_training, &effective_optimization),
             false,
         )
     };
     progress(TrainingProgress::TrainingStarted {
         steps: config.optimization.steps_per_generation,
         batch_size: config.optimization.batch_size,
+        learning_rate: effective_optimization.learning_rate,
         validation_interval_steps: config.optimization.validation_interval_steps,
         optimizer_resumed,
     });
@@ -467,7 +473,7 @@ where
         training_state,
         &training_examples,
         &validation_examples,
-        &config.optimization,
+        &effective_optimization,
         config.seed.wrapping_add(u64::from(candidate_generation)),
         device,
         &|report| {

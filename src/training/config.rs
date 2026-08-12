@@ -45,7 +45,11 @@ pub struct OptimizationConfig {
     /// Emit training/validation metrics after this many optimizer updates.
     pub validation_interval_steps: usize,
     pub batch_size: usize,
+    /// Initial learning rate, used until a configured champion milestone.
     pub learning_rate: f64,
+    /// Optional lower rates selected from the accepted champion generation.
+    #[serde(default)]
+    pub learning_rate_schedule: Vec<LearningRateStage>,
     pub weight_decay: f32,
     pub validation_fraction: f32,
     pub mirror_augmentation: bool,
@@ -73,7 +77,23 @@ pub struct TerminalWindowSchedule {
     pub full_dataset_generation: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LearningRateStage {
+    /// Use this rate when the optimization source is at least this generation.
+    pub source_generation: u32,
+    pub learning_rate: f64,
+}
+
 impl OptimizationConfig {
+    #[must_use]
+    pub fn learning_rate_for_source_generation(&self, source_generation: u32) -> f64 {
+        self.learning_rate_schedule
+            .iter()
+            .filter(|stage| stage.source_generation <= source_generation)
+            .max_by_key(|stage| stage.source_generation)
+            .map_or(self.learning_rate, |stage| stage.learning_rate)
+    }
+
     #[must_use]
     pub fn terminal_window_for_generation(&self, generation: u32) -> Option<usize> {
         let Some(schedule) = self.terminal_window_schedule else {
@@ -154,6 +174,7 @@ impl Default for TrainingConfig {
                 validation_interval_steps: 100,
                 batch_size: 256,
                 learning_rate: 0.001,
+                learning_rate_schedule: Vec::new(),
                 weight_decay: 1.0e-4,
                 validation_fraction: 0.1,
                 mirror_augmentation: true,
@@ -294,6 +315,21 @@ impl TrainingConfig {
             return Err(TrainingConfigError::Invalid(
                 "optimization steps, validation interval, learning rate and decay are invalid",
             ));
+        }
+        let mut previous_generation = 0;
+        let mut previous_learning_rate = optimization.learning_rate;
+        for stage in &optimization.learning_rate_schedule {
+            if stage.source_generation <= previous_generation
+                || !stage.learning_rate.is_finite()
+                || stage.learning_rate <= 0.0
+                || stage.learning_rate >= previous_learning_rate
+            {
+                return Err(TrainingConfigError::Invalid(
+                    "learning-rate stages require strictly increasing source generations and strictly decreasing positive rates",
+                ));
+            }
+            previous_generation = stage.source_generation;
+            previous_learning_rate = stage.learning_rate;
         }
         if !optimization.validation_fraction.is_finite()
             || !(0.0..1.0).contains(&optimization.validation_fraction)

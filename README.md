@@ -154,45 +154,51 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v16 through generation 15
+## Latest completed research run: v17 through generation 15
 
-This deterministic run started from random weights. Its only selection change
-from v15 was conservative rollback: a rejected candidate can no longer become
-the source of later training or self-play. `source` is the accepted champion;
-`arena` is candidate/champion/draw over 200 games; `probe` is exploratory draws
-out of 64. Promotion requires arena ≥55%, mirror 0/4 and probe ≤12/64.
+This deterministic run started from random weights and kept the conservative
+rollback from v16. Its one experimental change was to raise MCTS from 200 to
+800 simulations only in the 25% cycle-adjacent restart trajectories. `source`
+is the accepted champion; `arena` is candidate/champion/draw over 200 games;
+`probe` is exploratory draws out of 64. Promotion requires arena ≥55%, mirror
+0/4 and probe ≤12/64.
 
 | Gen | Source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
 | 1 | 0 | 7/256 | 2.232 | 2.594 / 1.036 | 32.6% | 172/27/1 | 0/4 | 0/64 | promoted |
-| 2 | 1 | 15/256 | 1.865 | 2.213 / 1.164 | 39.3% | 163/37/0 | 0/4 | 5/64 | promoted |
-| 3 | 2 | 32/256 | 1.801 | 1.998 / 1.111 | 43.5% | 105/77/18 | 0/4 | 4/64 | promoted |
-| 4 | 3 | 45/256 | 1.730 | 1.864 / 1.105 | 47.8% | 137/51/12 | 0/4 | 4/64 | promoted |
-| 5 | 4 | 39/256 | 1.683 | 1.821 / 0.971 | 47.5% | 129/58/13 | 0/4 | 9/64 | promoted |
-| 6 | 5 | 61/256 | 1.631 | 1.760 / 1.100 | 50.5% | 148/34/18 | 0/4 | 11/64 | promoted |
-| 7 | 6 | 55/256 | 1.605 | 1.713 / 1.001 | 52.4% | 104/28/68 | 4/4 | 7/64 | draw rejection |
-| 8 | 6 | 62/256 | 1.592 | 1.687 / 0.984 | 52.2% | 67/29/104 | 4/4 | 20/64 | draw rejection |
-| 9 | 6 | 75/256 | 1.576 | 1.650 / 0.950 | 54.3% | 101/18/81 | 4/4 | 14/64 | draw rejection |
-| 10 | 6 | 58/256 | 1.581 | 1.635 / 0.950 | 55.7% | 117/21/62 | 4/4 | 12/64 | draw rejection |
-| 11 | 6 | 69/256 | 1.556 | 1.613 / 0.941 | 55.4% | 148/20/32 | 4/4 | 21/64 | draw rejection |
-| 12 | 6 | 77/256 | 1.550 | 1.602 / 0.909 | 56.6% | 102/14/84 | 4/4 | 11/64 | draw rejection |
-| 13 | 6 | 52/256 | 1.535 | 1.574 / 0.899 | 58.0% | 147/16/37 | 4/4 | 20/64 | draw rejection |
-| 14 | 6 | 59/256 | 1.534 | 1.551 / 0.890 | 58.5% | 81/50/69 | 4/4 | 15/64 | draw rejection |
-| 15 | 6 | 52/256 | 1.532 | 1.541 / 0.860 | 59.6% | 54/63/83 | 4/4 | 22/64 | strength + draw rejection |
+| 2 | 1 | 27/256 | 1.861 | 2.233 / 1.244 | 36.9% | 118/78/4 | 0/4 | 1/64 | promoted |
+| 3 | 2 | 36/256 | 1.799 | 2.071 / 1.106 | 41.1% | 152/47/1 | 0/4 | 4/64 | promoted |
+| 4 | 3 | 34/256 | 1.751 | 2.004 / 1.112 | 41.1% | 103/91/6 | 0/4 | 2/64 | strength rejection |
+| 5 | 3 | 45/256 | 1.766 | 1.924 / 0.951 | 44.9% | 161/34/5 | 4/4 | 4/64 | draw rejection |
+| 6 | 3 | 52/256 | 1.764 | 1.888 / 0.846 | 46.6% | 170/24/6 | 0/4 | 4/64 | promoted |
+| 7 | 6 | 37/256 | 1.692 | 1.821 / 0.813 | 49.5% | 130/51/19 | 0/4 | 5/64 | promoted |
+| 8 | 7 | 43/256 | 1.663 | 1.762 / 0.804 | 50.4% | 60/128/12 | 0/4 | 6/64 | strength rejection |
+| 9 | 7 | 58/256 | 1.653 | 1.748 / 0.773 | 52.4% | 109/65/26 | 4/4 | 9/64 | draw rejection |
+| 10 | 7 | 53/256 | 1.652 | 1.747 / 0.738 | 51.6% | 126/32/42 | 4/4 | 4/64 | draw rejection |
+| 11 | 7 | 53/256 | 1.646 | 1.719 / 0.718 | 52.3% | 121/61/18 | 0/4 | 10/64 | promoted |
+| 12 | 11 | 63/256 | 1.618 | 1.695 / 0.732 | 53.3% | 65/63/72 | 4/4 | 11/64 | strength + draw rejection |
+| 13 | 11 | 66/256 | 1.619 | 1.687 / 0.715 | 53.5% | 75/69/56 | 0/4 | 8/64 | strength rejection |
+| 14 | 11 | 70/256 | 1.616 | 1.663 / 0.729 | 54.6% | 82/71/47 | 4/4 | 9/64 | strength + draw rejection |
+| 15 | 11 | 65/256 | 1.597 | 1.655 / 0.734 | 55.0% | 119/23/58 | 4/4 | 9/64 | draw rejection |
 
-Across 3,840 games and 115,204 positions, validation policy loss fell 40.6%,
-top-1 rose from 32.6% to 59.6%, and illegal probability mass fell from 45.9%
-to 9.2%. Those are genuine learning signals, and six successive candidates were
-promoted. They are not proof of continued playing progress: generations 7–14
-all learned deterministic cycles, and generation 15 also regressed below 50%
-against champion 6 despite having the best loss.
+Across 3,840 games and 114,563 positions, validation policy loss fell 36.2%,
+top-1 rose from 32.6% to 55.0%, and illegal probability mass fell from 45.9%
+to 10.2%. Six candidates were promoted. Unlike v16, learning crossed the old
+generation-7 cycle and reached champion 11: focused search therefore moved the
+playing plateau, not just the losses.
 
-The rollback successfully prevents rejected weights from poisoning later data,
-but retries from champion 6 do not reliably discover a conversion. Omitting the
-failed non-starter policy avoids teaching the known failure; it supplies no
-better action. The next experiment therefore gives cycle-adjacent restart games
-a larger MCTS budget. This remains pure AlphaZero-style internal search: no
-solver, oracle, external label or board-size-specific knowledge is involved.
+It did not eliminate the failure. Generation 15 beat champion 11 by 119–23 with
+58 draws, yet its greedy initial-position mirror repeated in all four games.
+This is a useful distinction: the candidate improved broadly across random
+openings while one exact opening policy collapsed into a cycle. The repeated
+strength regressions immediately after promotions also suggest that 400 Adam
+updates at the fixed `0.001` rate perturb a mature policy too abruptly.
+
+The next run keeps deeper restarts and reduces the learning rate to `0.00025`
+once the accepted source reaches generation 7. The schedule follows the champion
+rather than the attempt number, so rejected candidates cannot advance it. It
+remains pure from-scratch learning with no solver, oracle, external label or
+board-size-specific knowledge.
 
 ## Rules source
 

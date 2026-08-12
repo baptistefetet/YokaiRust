@@ -7,14 +7,14 @@ use std::{
 
 use yokai::{
     Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
-    CpuTrainingBackend, DatasetSplit, DrawReason, Game, Mcts, ModelMetadata, OptimizationConfig,
-    PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig,
-    SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule,
-    TrainingConfig, TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator,
-    bootstrap_latest, dataset_diagnostics, generate_self_play, generate_self_play_with_restarts,
-    load_generation, load_latest, load_replay_buffer, planned_restart_count, run_arena,
-    run_arena_with_progress, run_generation_with_progress, save_generation, train_candidate,
-    validate_model,
+    CpuTrainingBackend, DatasetSplit, DrawReason, Game, LearningRateStage, Mcts, ModelMetadata,
+    OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer,
+    ReplayBufferConfig, SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square,
+    TerminalWindowSchedule, TrainingConfig, TrainingConfigError, TrainingDataError,
+    TrainingProgress, UniformEvaluator, bootstrap_latest, dataset_diagnostics, generate_self_play,
+    generate_self_play_with_restarts, load_generation, load_latest, load_replay_buffer,
+    planned_restart_count, run_arena, run_arena_with_progress, run_generation_with_progress,
+    save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -359,6 +359,13 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.optimization.non_starter_draw_policy_weight.abs() < f32::EPSILON);
     assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(
+        config.optimization.learning_rate_schedule,
+        vec![LearningRateStage {
+            source_generation: 7,
+            learning_rate: 0.00025,
+        }]
+    );
+    assert_eq!(
         config.optimization.terminal_window_schedule,
         Some(TerminalWindowSchedule {
             initial_plies: 1,
@@ -418,6 +425,33 @@ fn terminal_window_schedule_expands_then_restores_full_alphazero_data() {
 }
 
 #[test]
+fn learning_rate_schedule_follows_the_accepted_source_generation() {
+    let mut optimization = TrainingConfig::default().optimization;
+    optimization.learning_rate_schedule = vec![
+        LearningRateStage {
+            source_generation: 3,
+            learning_rate: 0.0005,
+        },
+        LearningRateStage {
+            source_generation: 8,
+            learning_rate: 0.0001,
+        },
+    ];
+
+    for (source, expected) in [
+        (0, 0.001),
+        (2, 0.001),
+        (3, 0.0005),
+        (7, 0.0005),
+        (8, 0.0001),
+        (20, 0.0001),
+    ] {
+        let actual = optimization.learning_rate_for_source_generation(source);
+        assert!((actual - expected).abs() < f64::EPSILON);
+    }
+}
+
+#[test]
 fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
     use burn::{module::AutodiffModule, prelude::Backend};
 
@@ -435,6 +469,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         validation_interval_steps: 1,
         batch_size: 2,
         learning_rate: 0.02,
+        learning_rate_schedule: Vec::new(),
         weight_decay: 0.0,
         validation_fraction: 0.5,
         mirror_augmentation: true,
@@ -633,6 +668,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             validation_interval_steps: 1,
             batch_size: 16,
             learning_rate: 0.001,
+            learning_rate_schedule: Vec::new(),
             weight_decay: 0.0,
             validation_fraction: 0.5,
             mirror_augmentation: true,

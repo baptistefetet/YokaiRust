@@ -249,7 +249,15 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
 
 fn random_opening_game(seed: u64, opening_plies: usize) -> Result<Game, MoveError> {
     let mut starting_rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut game = Game::new_random(&mut starting_rng);
+    // Consecutive pair seeds alternate the absolute initial player. Candidate
+    // colors still swap inside every pair, so this additionally covers both
+    // board orientations without relying on a lucky random sample.
+    let starting_player = if seed.is_multiple_of(2) {
+        Player::First
+    } else {
+        Player::Second
+    };
+    let mut game = Game::new(starting_player);
     let opening_length = starting_rng.random_range(0..=opening_plies);
     for _ in 0..opening_length {
         let non_terminal_actions = game
@@ -309,6 +317,8 @@ pub enum ArenaError {
 mod tests {
     use std::collections::HashSet;
 
+    use crate::Player;
+
     use super::random_opening_game;
 
     #[test]
@@ -317,6 +327,14 @@ mod tests {
         let right = random_opening_game(123, 4).expect("paired opening");
         assert_eq!(left.position_history(), right.position_history());
         assert_eq!(left.actions(), right.actions());
+        assert_eq!(
+            random_opening_game(2, 0).unwrap().initial_player(),
+            Player::First
+        );
+        assert_eq!(
+            random_opening_game(3, 0).unwrap().initial_player(),
+            Player::Second
+        );
 
         let openings = (0..100)
             .map(|seed| {

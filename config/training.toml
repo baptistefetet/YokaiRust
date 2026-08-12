@@ -63,8 +63,12 @@ score_threshold = 0.55
 # The candidate must pass both draw gates as well as the official 55% arena.
 # A rejected checkpoint remains available for diagnosis but can never generate
 # the next self-play batch.
-mirror_games = 64
-max_mirror_draw_rate = 0.35
+# Four games cover two color-swapped pairs and both absolute starting players.
+# More games would repeat identical temperature-zero trajectories.
+mirror_games = 4
+# A solved game is decisive, so either absolute starting orientation cycling is
+# enough to reject the candidate.
+max_mirror_draw_rate = 0.0
 candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 

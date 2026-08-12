@@ -112,9 +112,10 @@ the same number of CPU cores busy.
 
 The default loop now protects self-play with an accepted champion. A trained
 candidate is promoted only when it scores at least 55% in the paired arena,
-stays below 35% draws in deterministic mirror games and below 20% draws in its
-noisy self-play probe. Rejected checkpoints remain available for diagnosis, but
-never generate later training data. Self-play adds Dirichlet noise at every
+has no deterministic mirror draw from either absolute starting orientation and
+stays below 20% draws in its noisy self-play probe. Rejected checkpoints remain
+available for diagnosis, but never generate later training data. Self-play adds
+Dirichlet noise at every
 root, samples from MCTS visits for the first 12 plies, then becomes greedy. All
 non-terminal positions produced by the champion enter the rolling buffer and
 official draws always have value zero. The checked-in bootstrap additionally
@@ -147,18 +148,21 @@ indices alternate the candidate between `First` and `Second`. The final report
 separates both assignments; intermediate counters must not be read as a
 chronological winning streak.
 
-This was verified by replaying the generation-8 arena exactly. The first 100
-completed games were candidate wins and the final 100 were losses, but the
-seat-aware result was candidate `First`: 60 wins/40 losses, candidate `Second`:
-40 wins/60 losses. Completion time, not game index or player assignment, caused
-the apparent two-block result.
+This was first noticed by replaying the old generation-8 arena exactly. The
+first 100 completed games were candidate wins and the final 100 were losses.
+Completion order explained the visible blocks, but a later audit found the more
+important issue: without randomized openings, those 200 games represented only
+a few deterministic trajectories. The current log reports `distinct_openings`
+so this cannot remain hidden.
 
 On the development M4 Max, the terminal-8 experiment took about 2 minutes 40
 seconds. A measured full-depth terminal-32 generation including the new mirror
 gate took about 6 minutes 45 seconds: 3 minutes 20 for self-play, 17 seconds for
 training, 2 minutes 15 for the paired arena and 53 seconds for the mirror gate.
-This excludes a one-time 30-second incremental release relink. The original
-one-leaf implementation projected roughly 16 minutes for self-play alone. These
+This excludes a one-time 30-second incremental release relink. The mirror probe
+now covers both absolute starters in four games because running 64 deterministic
+copies was redundant. The original one-leaf implementation projected roughly
+16 minutes for self-play alone. These
 figures are measurements, not guarantees; game length and model behavior change
 between generations.
 
@@ -352,6 +356,38 @@ optimal and the search shaping still matters. Its official noise-free 400-search
 mirror was nevertheless 0/64 draws, which is directly relevant to future
 one-player play from the initial position. Move-order results remain mixed, so
 the known forced win for the second mover has not yet been learned reliably.
+
+### Diversified-arena 15-generation validation (August 2026)
+
+The third clean campaign (`diverse-arena-v10`) reran the shaped bootstrap from
+random weights with the corrected arena. Its 100 paired openings yielded 55 to
+73 distinct legal histories per candidate, and intermediate scores no longer
+appeared as artificial 100-game blocks. Candidates 1, 2, 3, 10, 11, 12 and 14
+were promoted. Candidates 4–9 were rejected for an initial-position cycle,
+candidate 13 for scoring only 52.7%, and candidate 15 for both mirror and
+exploratory cycles. The published pointer consequently remained on champion 14.
+
+Self-play draw counts across the 15 attempts were `1, 8, 7, 18, 14, 16, 12,
+23, 11, 12, 24, 20, 35, 37, 36` out of 256. The full buffer contained 274/3,840
+drawn games (7.1%) and 11,208/143,383 positions from draws (7.8%). There is a
+late plateau near 14%, but not the former runaway to a majority-draw dataset.
+Most importantly, candidate 15 could not become the next data source despite
+winning its arena 129/35/36, because it drew 64/64 mirror games and 18/64 noisy
+probe games.
+
+The learning metrics also moved materially rather than remaining flat. From
+candidate 1 to 15, validation policy loss fell from 2.785 to 1.550, top-1 rose
+from 32.0% to 58.3%, illegal policy mass fell from 51.0% to 8.4%, and value loss
+fell from 1.326 to 0.674. Value learning still plateaus around 0.67 and the
+starter/non-starter split remains mixed, so this is a stable bootstrap rather
+than evidence of perfect play.
+
+A controlled champion-14 probe separates network behavior from search shaping:
+neutral noisy self-play drew 25/64, shaped noisy self-play 11/64, and neutral
+temperature-zero play 4/64 at 200 simulations. Its official 400-simulation
+mirror was 0/64. The current conclusion is therefore precise: training-data
+poisoning is contained and competitive play is mostly decisive, but exploration
+still relies on repetition contempt and the network has not solved the game.
 
 ### Historical guarded-pipeline observations
 

@@ -106,12 +106,31 @@ candidate's absolute color. This cancels much of the opening and move-order
 bias. Using different seeds without different openings is not sufficient in a
 noise-free, temperature-zero search: it merely repeats the same deterministic
 trajectory and makes a nominal 200-game score look more informative than it is.
+The separate mirror remains on the official initial position. Four games cover
+both absolute starting orientations and their color-swapped pairs; more
+temperature-zero copies would repeat the same trajectories. Since the game is
+known to be decisive, any mirrored repetition now rejects the candidate.
 
 The fixed-step generation-12 run demonstrates why no single draw threshold can
 diagnose strength: it drew 141/256 self-play games, yet beat generations 1, 4
 and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
 Setting `repetition_contempt = 0.0` restores the neutral experiment. The shaped
 default is explicit because neutral runs repeatedly poisoned later candidates.
+
+The clean diversified-arena run through candidate 15 demonstrates the intended
+interaction. Candidate 4 developed a 64/64 initial mirror cycle and was rejected
+despite a 74% arena score. Attempts 5–9 remained anchored to champion 3; attempt
+10 eventually removed the cycle and passed all three gates. Champions then
+advanced through 11, 12 and 14. Candidate 15 again cycled and was rejected, so
+the buffer stayed sourced from champion 14. Across all attempts only 7.1% of
+games and 7.8% of positions in the buffer came from draws.
+
+This does not mean the raw network is draw-proof. A 64-game champion-14 probe
+gave 25 neutral noisy draws, 11 shaped noisy draws, and 4 neutral
+temperature-zero draws. Repetition contempt is therefore still an exploration
+aid. It changes leaf preferences inside self-play MCTS, not official outcomes
+or replay values. The arena strength score and deterministic mirror are always
+measured with unshaped search.
 
 The August v7 diagnostic showed why a search-only contempt is not sufficient:
 it reduced the first two self-play batches to 1/256 and 6/256 draws, but the

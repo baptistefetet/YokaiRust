@@ -152,8 +152,8 @@ impl Default for TrainingConfig {
                 search_batch_size: 1,
                 opening_plies: 4,
                 score_threshold: 0.55,
-                mirror_games: 64,
-                max_mirror_draw_rate: 0.35,
+                mirror_games: 4,
+                max_mirror_draw_rate: 0.0,
                 candidate_self_play_games: 64,
                 max_candidate_self_play_draw_rate: 0.20,
             },
@@ -253,6 +253,7 @@ impl TrainingConfig {
             ));
         }
         if self.arena.games < 200
+            || !self.arena.games.is_multiple_of(2)
             || self.arena.workers == 0
             || self.arena.simulations == 0
             || self.arena.search_batch_size == 0
@@ -268,7 +269,7 @@ impl TrainingConfig {
             || !(0.0..=1.0).contains(&self.arena.max_candidate_self_play_draw_rate)
         {
             return Err(TrainingConfigError::Invalid(
-                "arena requires at least 200 games, a bounded opening, a positive even mirror sample, simulations, and valid diagnostic thresholds",
+                "arena requires at least 200 paired games, a bounded opening, a positive even mirror sample, simulations, and valid diagnostic thresholds",
             ));
         }
         if self.paths.models.trim().is_empty() || self.paths.self_play.trim().is_empty() {

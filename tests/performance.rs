@@ -115,7 +115,7 @@ fn benchmark_metal_default_arena() {
             search_batch_size: 1,
             opening_plies: 4,
             score_threshold: 0.55,
-            mirror_games: 64,
+            mirror_games: 4,
             max_mirror_draw_rate: 0.35,
             candidate_self_play_games: 64,
             max_candidate_self_play_draw_rate: 0.20,

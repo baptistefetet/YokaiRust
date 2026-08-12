@@ -205,8 +205,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.arena.search_batch_size, 1);
     assert_eq!(config.arena.opening_plies, 4);
     assert!((config.arena.score_threshold - 0.55).abs() < f32::EPSILON);
-    assert_eq!(config.arena.mirror_games, 64);
-    assert!((config.arena.max_mirror_draw_rate - 0.35).abs() < f32::EPSILON);
+    assert_eq!(config.arena.mirror_games, 4);
+    assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
 

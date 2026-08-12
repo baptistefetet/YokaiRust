@@ -70,6 +70,27 @@ Official search converts WDL to `P(win) - P(loss)`. A certain draw is therefore
 different from an uncertain 50/50 win/loss mixture. Terminal states have no
 policy example because they have no legal move distribution.
 
+### How generation zero is bootstrapped
+
+The current Rust pipeline saves a randomly initialized network as champion
+generation zero. Generation one's MCTS therefore already uses its random policy
+priors and random WDL estimates. Training can overcome those initial biases,
+but the first policy targets partly reflect them.
+
+The earlier JavaScript implementation used a different bootstrap. It disabled
+the network until the first promotion: legal actions began with uniform priors,
+and a random rollout from each leaf supplied the search value. After this
+rules-only search produced the first dataset and an accepted network, later
+generations switched to neural policy and value evaluation. If the first model
+was rejected, rollout self-play remained active until one was accepted.
+
+These are two distinct from-scratch strategies. The Rust approach is closer to
+[AlphaGo Zero](https://deepmind.google/blog/alphago-zero-starting-from-scratch/),
+whose search used a randomly initialized network and deliberately omitted
+rollouts. The JavaScript approach provides a less arbitrary but noisier
+bootstrap target. Comparing them while holding every later generation constant
+is a useful experiment.
+
 ## Why the network has one trunk and two heads
 
 [`src/neural/model.rs`](../src/neural/model.rs) has three conceptual parts:

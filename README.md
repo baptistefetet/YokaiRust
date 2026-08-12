@@ -44,6 +44,13 @@ policy head. Early experiments with datasets restricted to endgame positions
 gave particularly convincing predictions: both the preferred moves and the
 position evaluations were often close to what a human player would expect.
 
+The JavaScript bootstrap also differed in an important way. Until the first
+network was promoted, self-play did not query the randomly initialized model:
+MCTS started with uniform action priors and evaluated leaves with random
+rollouts governed only by the game rules. Neural policy and value predictions
+were enabled only after that initial dataset had trained a first accepted
+model.
+
 That result is an important baseline, but it answers an easier and more local
 question than the current project. Endgame-only data teaches the network on a
 short horizon with a dense, reliable terminal signal. YokaiRust is trying to

@@ -153,49 +153,45 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v13 through generation 15
+## Latest completed research run: v16 through generation 15
 
-This clean run started from random weights with the stable validation split,
-WDL head, role-aware draw utility and targeted restarts. It was the first run
-where the private learner, rather than the last accepted champion, generated
-the next self-play batch after a draw-only rejection.
+This deterministic run started from random weights. Its only selection change
+from v15 was conservative rollback: a rejected candidate can no longer become
+the source of later training or self-play. `source` is the accepted champion;
+`arena` is candidate/champion/draw over 200 games; `probe` is exploratory draws
+out of 64. Promotion requires arena ≥55%, mirror 0/4 and probe ≤12/64.
 
-`arena` is candidate/reference/draw over 200 games. `probe` is exploratory draws
-out of 64. A candidate is promoted only when arena ≥55%, mirror is 0/4 and probe
-is at most 12/64 (20%).
-
-| Gen | Champion/learner source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
+| Gen | Source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| 1 | 0/0 | 3/256 | 2.203 | 2.582 / 1.858 | 33.8% | 154/46/0 | 0/4 | 3/64 | promoted |
-| 2 | 1/1 | 33/256 | 1.821 | 2.124 / 1.263 | 39.3% | 160/38/2 | 0/4 | 4/64 | promoted |
-| 3 | 2/2 | 44/256 | 1.757 | 2.031 / 1.006 | 41.9% | 108/38/54 | 4/4 | 4/64 | draw rejection |
-| 4 | 2/3 | 52/256 | 1.706 | 1.905 / 0.930 | 45.8% | 150/49/1 | 0/4 | 15/64 | draw rejection |
-| 5 | 2/4 | 81/256 | 1.663 | 1.858 / 0.996 | 47.1% | 141/48/11 | 4/4 | 11/64 | draw rejection |
-| 6 | 2/5 | 75/256 | 1.631 | 1.819 / 0.949 | 47.7% | 167/21/12 | 4/4 | 14/64 | draw rejection |
-| 7 | 2/6 | 80/256 | 1.592 | 1.774 / 0.936 | 48.9% | 185/13/2 | 4/4 | 12/64 | draw rejection |
-| 8 | 2/7 | 78/256 | 1.570 | 1.726 / 0.956 | 51.2% | 182/15/3 | 0/4 | 19/64 | draw rejection |
-| 9 | 2/8 | 88/256 | 1.553 | 1.714 / 0.933 | 52.0% | 182/16/2 | 4/4 | 22/64 | draw rejection |
-| 10 | 2/9 | 105/256 | 1.537 | 1.679 / 0.934 | 53.4% | 186/13/1 | 4/4 | 25/64 | draw rejection |
-| 11 | 2/10 | 130/256 | 1.513 | 1.670 / 0.943 | 53.9% | 189/8/3 | 4/4 | 25/64 | draw rejection |
-| 12 | 2/11 | 97/256 | 1.503 | 1.649 / 0.921 | 54.1% | 192/6/2 | 4/4 | 40/64 | draw rejection |
-| 13 | 2/12 | 145/256 | 1.481 | 1.627 / 0.902 | 55.8% | 185/13/2 | 0/4 | 21/64 | draw rejection |
-| 14 | 2/13 | 106/256 | 1.459 | 1.609 / 0.904 | 56.6% | 180/18/2 | 0/4 | 27/64 | draw rejection |
-| 15 | 2/14 | 117/256 | 1.455 | 1.597 / 0.949 | 56.7% | 188/11/1 | 4/4 | 35/64 | draw rejection |
+| 1 | 0 | 7/256 | 2.232 | 2.594 / 1.036 | 32.6% | 172/27/1 | 0/4 | 0/64 | promoted |
+| 2 | 1 | 15/256 | 1.865 | 2.213 / 1.164 | 39.3% | 163/37/0 | 0/4 | 5/64 | promoted |
+| 3 | 2 | 32/256 | 1.801 | 1.998 / 1.111 | 43.5% | 105/77/18 | 0/4 | 4/64 | promoted |
+| 4 | 3 | 45/256 | 1.730 | 1.864 / 1.105 | 47.8% | 137/51/12 | 0/4 | 4/64 | promoted |
+| 5 | 4 | 39/256 | 1.683 | 1.821 / 0.971 | 47.5% | 129/58/13 | 0/4 | 9/64 | promoted |
+| 6 | 5 | 61/256 | 1.631 | 1.760 / 1.100 | 50.5% | 148/34/18 | 0/4 | 11/64 | promoted |
+| 7 | 6 | 55/256 | 1.605 | 1.713 / 1.001 | 52.4% | 104/28/68 | 4/4 | 7/64 | draw rejection |
+| 8 | 6 | 62/256 | 1.592 | 1.687 / 0.984 | 52.2% | 67/29/104 | 4/4 | 20/64 | draw rejection |
+| 9 | 6 | 75/256 | 1.576 | 1.650 / 0.950 | 54.3% | 101/18/81 | 4/4 | 14/64 | draw rejection |
+| 10 | 6 | 58/256 | 1.581 | 1.635 / 0.950 | 55.7% | 117/21/62 | 4/4 | 12/64 | draw rejection |
+| 11 | 6 | 69/256 | 1.556 | 1.613 / 0.941 | 55.4% | 148/20/32 | 4/4 | 21/64 | draw rejection |
+| 12 | 6 | 77/256 | 1.550 | 1.602 / 0.909 | 56.6% | 102/14/84 | 4/4 | 11/64 | draw rejection |
+| 13 | 6 | 52/256 | 1.535 | 1.574 / 0.899 | 58.0% | 147/16/37 | 4/4 | 20/64 | draw rejection |
+| 14 | 6 | 59/256 | 1.534 | 1.551 / 0.890 | 58.5% | 81/50/69 | 4/4 | 15/64 | draw rejection |
+| 15 | 6 | 52/256 | 1.532 | 1.541 / 0.860 | 59.6% | 54/63/83 | 4/4 | 22/64 | strength + draw rejection |
 
-The run produced 3,840 games and 99,293 positions. From generation 1 to 15,
-validation policy loss fell 38.1%, policy top-1 rose from 33.8% to 56.7%, and
-illegal mass fell from 45.1% to 6.6%. The private lineage also became vastly
-stronger than champion 2. These are real improvements, but not a solved training
-loop: self-play draws rose to 117/256 at generation 15 and drawn games supplied
-14,758 positions (14.9%) of the final buffer.
+Across 3,840 games and 115,204 positions, validation policy loss fell 40.6%,
+top-1 rose from 32.6% to 59.6%, and illegal probability mass fell from 45.9%
+to 9.2%. Those are genuine learning signals, and six successive candidates were
+promoted. They are not proof of continued playing progress: generations 7–14
+all learned deterministic cycles, and generation 15 also regressed below 50%
+against champion 6 despite having the best loss.
 
-The experiment found why the previous weighting was insufficient. It only
-discounted policy in non-starter draw positions in proportion to visit mass on
-an already repeated state. Even at generation 15 the mean policy weight was
-0.977, so 97.7% of the original imitation signal remained. The checked-in next
-experiment uses the simpler trajectory-level rule described above: a drawn
-non-starter position trains WDL but has policy weight zero. No external
-evaluator or generated label is involved.
+The rollback successfully prevents rejected weights from poisoning later data,
+but retries from champion 6 do not reliably discover a conversion. Omitting the
+failed non-starter policy avoids teaching the known failure; it supplies no
+better action. The next experiment therefore gives cycle-adjacent restart games
+a larger MCTS budget. This remains pure AlphaZero-style internal search: no
+solver, oracle, external label or board-size-specific knowledge is involved.
 
 ## Rules source
 

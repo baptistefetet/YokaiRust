@@ -35,12 +35,14 @@ drops and promotions, plus overlays that expose the network's policy and value
 predictions.
 
 It is also an architectural reference for the learning work. Its TensorFlow.js
-network encodes the position from the player-to-move perspective, processes the
-board with two small convolutional layers, joins the result with the pieces in
-hand, then branches into a scalar value head and a policy head. Early
-experiments with datasets restricted to endgame positions gave particularly
-convincing predictions: both the preferred moves and the position evaluations
-were often close to what a human player would expect.
+network encodes the position from the player-to-move perspective and processes
+the board with two small convolutional layers. Captured pieces have neither an
+order nor a position on the board, so each hand is represented separately by
+one scalar count per piece type. The spatial features and these global scalars
+then join a shared dense trunk, which branches into a scalar value head and a
+policy head. Early experiments with datasets restricted to endgame positions
+gave particularly convincing predictions: both the preferred moves and the
+position evaluations were often close to what a human player would expect.
 
 That result is an important baseline, but it answers an easier and more local
 question than the current project. Endgame-only data teaches the network on a
@@ -48,7 +50,7 @@ short horizon with a dense, reliable terminal signal. YokaiRust is trying to
 learn the complete game from random weights and self-play, including the long
 credit-assignment problem that precedes those endgames. The old project is
 therefore a source of UI assets, implementation ideas and experimental
-comparisons—not an oracle or a source of labels for the Rust learner.
+comparisons.
 
 ## Guides
 
@@ -189,7 +191,8 @@ loss has weight zero: copying every decision from a failed conversion would
 teach the failure. When the rules prove that one available action immediately
 causes the third repetition, v19 instead removes that action from the recorded
 MCTS distribution, renormalizes the alternatives and trains on the corrected
-target. This uses neither a solver nor a handcrafted preferred move.
+target. The relative preference among the remaining moves still comes from
+MCTS.
 
 `source` is the last accepted champion; `arena` is candidate/champion/draw over
 200 games; `probe` is exploratory draws out of 64. Promotion requires arena
@@ -232,8 +235,7 @@ new self-play teacher.
 The next experiment lets targeted restarts begin one ply before a known draw,
 instead of two to eight plies before it. At that exact decision, the deeper
 800-simulation search can explore the alternatives that the corrected target
-now preserves. This remains ordinary self-play from an observed game prefix;
-it adds no oracle, external label or board-size-specific move.
+now preserves. This remains ordinary self-play from an observed game prefix.
 
 ## Rules source
 

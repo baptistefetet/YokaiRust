@@ -102,6 +102,20 @@ learns one concept of “my piece moves forward” instead of duplicating it for
 First and Second. `Position` stays absolute so rules, replay and UI do not
 inherit neural conventions.
 
+### Hands are unordered counts
+
+A captured piece in hand has no board coordinate, and the order in which pieces
+were captured carries no information. The encoder therefore keeps only one
+count per droppable piece type for each player. The current implementation
+copies each normalized count across a constant input plane; this does not encode
+an order or a location, but it does route a global scalar through the
+convolutional trunk.
+
+The earlier JavaScript network used a more literal representation: it kept
+these counts in a separate scalar vector and concatenated that vector with the
+spatial board features after the convolutions. Comparing the two representations
+is a useful future architecture experiment.
+
 ### History and repetition context
 
 The board alone cannot tell how often it occurred. Eight frames provide recent
@@ -228,9 +242,9 @@ starter role and encoder history remain valid. These targeted trajectories use
 800 MCTS simulations per move instead of the regular 200. The local temperature
 schedule restarts at ply zero to explore alternatives near the cycle.
 
-This is extra computation, not external knowledge. The same current network,
-rules and PUCT search produce the target; search simply gets more opportunities
-to test a longer conversion before falling back to the known repetition.
+The same current network, rules and PUCT search produce the target; the larger
+budget simply gives search more opportunities to test a longer conversion
+before falling back to the known repetition.
 
 ### 4. Policy supervision rejects a known repeating action
 

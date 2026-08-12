@@ -389,6 +389,85 @@ mirror was 0/64. The current conclusion is therefore precise: training-data
 poisoning is contained and competitive play is mostly decisive, but exploration
 still relies on repetition contempt and the network has not solved the game.
 
+### Research findings and next experiments
+
+The draw problem is not unique to this project. A 2026 two-player reinforcement
+learning study evaluates Animal Shogi on a 4×3 board with the same 132-action
+space as YokaiRust. Under its protocol, standard AlphaZero reached only
+`31 ± 2%` against the anchored baseline, while Gumbel AlphaZero reached
+`67 ± 5%`. Its entropy ablation also showed the familiar failure mode: playing
+strength first increased and then declined as policy entropy collapsed almost
+to zero. The experiment used roughly 800 million simulator evaluations, so the
+small board alone does not imply that a few generations must solve the game.
+See [Revisiting Regularized Policy Optimization for Stable and Efficient
+Reinforcement Learning in Two-Player Games](https://arxiv.org/html/2602.10894v2).
+
+This external result and the `diverse-arena-v10` measurements suggest the
+following hypotheses, in priority order:
+
+1. Standard PUCT may produce a poor policy-improvement target when relevant root
+   actions receive few or no visits. Gumbel AlphaZero combines sampling without
+   replacement with sequential halving specifically to make policy improvement
+   reliable at limited search budgets. It is the strongest next controlled
+   search experiment because it was substantially better on Animal Shogi. See
+   [Policy Improvement by Planning with Gumbel](https://openreview.net/pdf?id=bERaNdoegnO).
+2. The scalar value `P(win) - P(loss)` cannot distinguish a certain draw from an
+   even mixture of wins and losses: both equal zero. A three-logit Win/Draw/Loss
+   head would retain this information while still deriving the scalar search
+   value as `W - L`. Lc0 has used an explicit WDL head for this reason. See
+   [Lc0 WDL rescaling and contempt](https://lczero.org/blog/2023/07/the-lc0-v0.30.0-wdl-rescale/contempt-implementation/).
+3. Dirichlet or forced exploration may be copied too literally into the stored
+   policy target. KataGo keeps forced exploratory playouts but prunes visits that
+   existed only for exploration before creating the policy target. That is
+   relevant because champion 14 has many more neutral noisy draws than
+   temperature-zero draws. See [KataGo's self-play training
+   methods](https://github.com/lightvector/KataGo/blob/master/docs/KataGoMethods.md).
+4. Predecessor-only promotion does not measure absolute progress or detect every
+   non-transitive regression. Evaluation should include a fixed ladder: random
+   generation 0, selected historical champions, pure MCTS and eventually an
+   exact solver. OpenSpiel's AlphaZero implementation likewise evaluates
+   continually against fixed MCTS-plus-solver strengths. See [OpenSpiel
+   AlphaZero](https://openspiel.readthedocs.io/en/stable/alpha_zero.html).
+5. If the fixed ladder confirms catastrophic forgetting, a minority of
+   self-play games can use randomly sampled historical champions. A recent
+   Tablut replication reports this failure and uses a historical opponent pool,
+   fixed anchors and draw-aware ratings. This is a fallback, not the first
+   change, because it changes the data-generating process and costs additional
+   games. See [Mastering Tablut through Self-Play](https://arxiv.org/abs/2604.05476).
+
+The next session should avoid changing several of these variables at once. The
+recommended sequence is:
+
+1. Add per-root diagnostics without changing behavior: number and fraction of
+   legal actions visited, prior mass on unvisited actions, policy-target entropy,
+   prior/target divergence and separate metrics for decisive and drawn games.
+2. Add fixed historical evaluation opponents so every experiment has an
+   absolute comparison in addition to the candidate/champion arena.
+3. Implement Gumbel root search and compare it from random generation 0 against
+   the current PUCT baseline with the same seeds, network, simulation budget and
+   15-candidate protocol. This requires no new crate or system dependency.
+4. Independently replace the scalar value head with WDL cross-entropy training,
+   then derive `Q = P(win) - P(loss)` for official search. This also requires no
+   new dependency, but changes the checkpoint architecture and therefore needs
+   a fresh run from generation 0.
+5. Try KataGo-style policy-target pruning only if the new diagnostics show that
+   exploration-only visits materially distort the target.
+
+Monte Carlo graph search is lower priority. Sharing transpositions could make
+search faster in a game with drops, but repetition is history-dependent: graph
+nodes cannot safely be merged using the board position alone. Any future DAG
+must include an equivalent repetition context. Likewise, KL-regularized
+model-free training is an interesting external benchmark but would be a larger
+departure from the intended AlphaZero implementation than Gumbel search or a
+WDL value head.
+
+The reference baseline for these experiments is `diverse-arena-v10`, champion
+14, with the figures recorded in the preceding section. Success must mean more
+than lower neural losses: the candidate must improve against the fixed ladder,
+retain the paired 55% promotion gate and avoid a rising fraction of drawn games
+and draw-origin replay positions. No additional Rust or system dependency has
+been approved or installed for these proposed experiments.
+
 ### Historical guarded-pipeline observations
 
 The following measurements predate the switch to continuous AlphaZero updates.

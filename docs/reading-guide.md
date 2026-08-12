@@ -22,6 +22,9 @@ is to explain the language features that this project actually uses.
 
 The integration tests are often the shortest executable specification. Start
 with [`tests/engine.rs`](../tests/engine.rs), then `search.rs` and `training.rs`.
+For machine-learning vocabulary, read the glossary at the start of
+[`alphazero-guide.md`](alphazero-guide.md); the code-reading guide assumes those
+terms but does not assume prior neural-network experience.
 
 ## A C++ to Rust translation table
 
@@ -126,6 +129,35 @@ steps:
 
 Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
 `main.rs` decides how to print it. Ratatui can later consume the same events.
+
+## Why the training code is split into modules
+
+The module boundaries are dependency boundaries, not arbitrary file sizes:
+
+- `data.rs` knows examples, replays and buffers, but no GPU or optimizer;
+- `trainer.rs` knows tensors, losses and Adam, but no self-play or promotion;
+- `self_play.rs` knows how to produce games with an `Evaluator`, but not whether
+  that evaluator is a neural network, a test double or another backend;
+- `arena.rs` compares two `Evaluator` implementations without training either;
+- `pipeline.rs` owns sequencing, persistence and promotion, not math details;
+- `main.rs` owns command-line input and textual output, not training policy.
+
+This resembles C++ code where domain objects, algorithms, persistence and UI
+are separate libraries behind small interfaces. The important Rust difference
+is that `Evaluator` is usually a generic type parameter. Calls are statically
+dispatched and monomorphized, like templates constrained by a concept; there is
+no virtual-call requirement.
+
+The batching service uses one owning `InferenceService` and many cloneable
+`InferenceClient` handles. Think of the service as an RAII object containing a
+worker `std::jthread`, and the clients as small producers holding channel
+senders. Dropping the service sends shutdown and joins the worker, so thread
+lifetime is expressed by ownership rather than a separate global manager.
+
+`TrainingProgress` is an enum carrying different payloads. It plays the role of
+a closed `std::variant` event protocol. `pipeline.rs` produces events and
+`main.rs` exhaustively matches them; adding a new variant makes the compiler
+identify every consumer that must handle it.
 
 ## Safe modification workflow
 

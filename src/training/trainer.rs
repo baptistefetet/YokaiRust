@@ -368,6 +368,10 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
     batch: BatchTensors<B>,
 ) -> BatchLosses<B> {
     let output = model.forward(batch.input, batch.policy_context);
+
+    // Cross-entropy for a target distribution p and predicted logits z is
+    // -sum(p * log_softmax(z)). Keep one value per position first because
+    // cyclic non-starter draw targets receive a smaller imitation weight.
     let log_probabilities = log_softmax(output.policy_logits.clone(), 1);
     let probabilities = softmax(output.policy_logits.clone(), 1);
     let policy_loss_per_position = (log_probabilities.clone() * batch.policy.clone())
@@ -375,6 +379,8 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
         .neg();
     let policy_loss = (policy_loss_per_position * batch.policy_weight.clone()).sum()
         / batch.policy_weight.clone().sum();
+    // WDL means Win / Draw / Loss. Unlike policy loss, every official outcome
+    // remains fully weighted, including draws.
     let wdl_log_probabilities = log_softmax(output.wdl_logits.clone(), 1);
     let value_loss = (wdl_log_probabilities * batch.wdl.clone())
         .sum_dim(1)
@@ -447,6 +453,9 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
 }
 
 fn policy_loss_weight(example: &TrainingExample, discount: f32) -> f32 {
+    // Decisive positions and the starter's drawing defence remain ordinary
+    // AlphaZero examples. Only a non-starter that failed to convert can have
+    // its repetition-heavy policy target discounted.
     if example.value != 0.0 || example.current_player_is_starter || discount == 0.0 {
         return 1.0;
     }

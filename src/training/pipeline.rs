@@ -40,10 +40,14 @@ pub struct GameOutcomeStats {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GenerationReport {
+    /// Accepted checkpoint used as the official arena reference.
     pub source_generation: u32,
     /// Checkpoint whose weights and optimizer initialized this candidate.
     #[serde(default)]
     pub learner_source_generation: u32,
+    /// Checkpoint that generated this generation's self-play games.
+    #[serde(default)]
+    pub self_play_source_generation: u32,
     pub candidate_generation: u32,
     pub generated_games: usize,
     #[serde(default)]
@@ -85,7 +89,7 @@ impl GenerationReport {
     }
 }
 
-/// Every independent condition that protects the next self-play source.
+/// Every independent condition that protects the published champion.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PromotionDecision {
     pub arena_passed: bool,
@@ -254,6 +258,8 @@ pub fn bootstrap_latest<B: Backend>(
 /// # Errors
 ///
 /// Official strength and both draw gates must pass before the champion changes.
+/// The private learner may still advance after a draw-only rejection, so its
+/// next batch of self-play can explore beyond that temporary plateau.
 pub fn run_generation<B>(
     config: &TrainingConfig,
     buffer: &mut ReplayBuffer,
@@ -302,7 +308,7 @@ where
     let persisted_games = load_self_play_generation(
         &config.paths.self_play,
         candidate_generation,
-        source_metadata.generation,
+        learner_metadata.generation,
     )?;
     let games = if let Some(games) = persisted_games {
         let examples = games.iter().map(|game| game.examples.len()).sum();
@@ -326,7 +332,8 @@ where
             restart_archive: restart_archive.len(),
             planned_restarts,
         });
-        let (source_for_self_play, _) = load_champion::<B::InnerBackend>(models_root, device)?;
+        let (source_for_self_play, _) =
+            load_generation::<B::InnerBackend>(models_root, learner_metadata.generation, device)?;
         let self_play_service = InferenceService::start_with_batching(
             NetworkEvaluator::new(source_for_self_play, device.clone()),
             config
@@ -341,7 +348,7 @@ where
         let games = generate_self_play_with_restarts_and_progress(
             &self_play_client,
             &config.self_play,
-            source_metadata.generation,
+            learner_metadata.generation,
             config
                 .seed
                 .wrapping_add(u64::from(candidate_generation) << 32),
@@ -554,6 +561,7 @@ where
     let report = GenerationReport {
         source_generation: source_metadata.generation,
         learner_source_generation: learner_metadata.generation,
+        self_play_source_generation: learner_metadata.generation,
         candidate_generation,
         generated_games: games.len(),
         restarted_games,

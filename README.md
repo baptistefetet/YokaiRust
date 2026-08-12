@@ -14,7 +14,7 @@ The repository contains:
 - a canonical 132-action policy encoding and versioned JSON replays;
 - deterministic PUCT/MCTS with subtree reuse and batched inference;
 - a 130-plane history-and-role encoder plus action-aligned repetition context;
-- a Burn residual network with policy and Win/Draw/Loss heads;
+- a Burn residual network with policy and Win/Draw/Loss (WDL) heads;
 - CPU tests and WGPU/Metal training on Apple Silicon;
 - parallel self-play, a rolling replay buffer and stable whole-game validation;
 - draw-aware search, cycle-adjacent restarts and guarded model promotion;
@@ -29,6 +29,9 @@ and analysis contracts.
 
 - [Reading YokaiRust as a C++ developer learning Rust](docs/reading-guide.md)
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md)
+
+The AlphaZero guide starts with a glossary—WDL, policy, value, logits, MCTS,
+PUCT, loss, batches and checkpoints—before describing the architecture.
 
 ## Board coordinates
 
@@ -91,8 +94,8 @@ path. Generation-boundary writes are atomic.
 
 ### One generation
 
-1. Generate 75% of trajectories from fresh initial states and restart 25% two
-   to eight plies before previously observed repetition cycles.
+1. Let the private learner generate 75% of trajectories from fresh initial
+   states and restart 25% two to eight plies before observed repetition cycles.
 2. Add every resulting position and its official W/D/L result to the rolling
    replay buffer.
 3. Resume the learner's weights and Adam moments for a fixed 400 updates.
@@ -100,8 +103,10 @@ path. Generation-boundary writes are atomic.
 5. Measure deterministic initial-position cycles and noisy self-play draws.
 6. Promote only when strength and both draw gates pass.
 
-The champion is always the self-play source. A candidate that is strong but
-cycles remains a private learner so later updates can cross that plateau. A
+The two checkpoint pointers have distinct jobs. `champion` is the conservative,
+published reference. `learner` is the model that trains **and generates the next
+self-play batch**. A strong candidate that cycles remains private but advances
+the learner, so later generations can discover a way out of that plateau. A
 candidate that loses the strength arena rolls the learner back to the champion.
 
 ### Draw-aware learning

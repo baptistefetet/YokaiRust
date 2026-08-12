@@ -444,10 +444,11 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source_champion={} source_learner={} promoted={} games={} restarted_games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
+        "generation={} source_champion={} source_learner={} self_play_source={} promoted={} games={} restarted_games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
         report.learner_source_generation,
+        report.self_play_source_generation,
         report.promoted(),
         report.generated_games,
         report.restarted_games,

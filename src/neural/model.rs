@@ -1,4 +1,10 @@
 //! Small residual policy/value network for the 3×4 board.
+//!
+//! One convolutional trunk extracts shared board features. Two heads then ask
+//! different questions: the policy head returns one logit per encoded action,
+//! while the WDL (Win / Draw / Loss) head returns three outcome logits. Burn's
+//! `Tensor<B, 4>` is a rank-four tensor on backend `B`, analogous to a C++
+//! template parameter constrained by the [`Backend`] trait.
 
 use burn::{
     nn::{
@@ -117,6 +123,12 @@ pub struct NetworkOutput<B: Backend> {
 }
 
 impl<B: Backend> AlphaZeroNetwork<B> {
+    /// Runs the shared residual trunk followed by policy and WDL heads.
+    ///
+    /// `input` has shape `[batch, planes, rows, columns]`. `policy_context`
+    /// stores two repetition features for each fixed action slot. Returned
+    /// values are logits: callers apply softmax before interpreting them as
+    /// probabilities.
     #[must_use]
     pub fn forward(&self, input: Tensor<B, 4>, policy_context: Tensor<B, 2>) -> NetworkOutput<B> {
         let mut trunk = relu(self.input_norm.forward(self.input_conv.forward(input)));

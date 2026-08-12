@@ -68,9 +68,9 @@ search_batch_size = 1
 # colors. This provides diverse, reproducible games without search noise.
 opening_plies = 4
 score_threshold = 0.55
-# The candidate must pass both draw gates as well as the official 55% arena.
-# A rejected checkpoint remains available for diagnosis but can never generate
-# the next self-play batch.
+# The candidate must pass both draw gates as well as the official 55% arena to
+# become champion. A strong draw-gate rejection remains the private learner and
+# generates the next batch; a strength rejection rolls back to the champion.
 # Four games cover two color-swapped pairs and both absolute starting players.
 # More games would repeat identical temperature-zero trajectories.
 mirror_games = 4
@@ -81,5 +81,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v12"
-self_play = "data/alpha-zero-draw-aware-v12"
+models = "models/alpha-zero-draw-aware-v13"
+self_play = "data/alpha-zero-draw-aware-v13"

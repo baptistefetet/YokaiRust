@@ -5,6 +5,43 @@ repetition draws need special handling. The implementation is self-contained:
 it learns from game rules, MCTS and self-play, and the same design is intended
 for the future 5×6 game.
 
+## Vocabulary used in this project
+
+These terms occur in logs, configuration and source names:
+
+| Term | Plain meaning |
+| --- | --- |
+| **WDL** | **Win / Draw / Loss**: victory, draw or defeat. |
+| **policy** | The network's preference over actions: “what should I try?” |
+| **value** | Its estimate of the eventual result: “how good is this position?” |
+| **logit** | An unrestricted raw network output. `softmax` turns several logits into probabilities summing to one. |
+| **softmax** | Conversion from arbitrary logits to positive probabilities whose sum is one. |
+| **target / label** | The answer used for training: MCTS visits for policy, final WDL result for value. |
+| **loss** | A numeric error to minimize. Lower means closer to targets, not automatically stronger play. |
+| **cross-entropy** | The loss comparing a predicted probability distribution with a target distribution. |
+| **MCTS** | Monte Carlo Tree Search: explore a tree, evaluate leaves and propagate values upward. |
+| **PUCT** | The MCTS selection formula combining value, visit count and policy prior. |
+| **prior** | Policy probability attached to an action before deep search. |
+| **ply** | One action by one player. |
+| **self-play** | Games where both sides use the private learner and MCTS. |
+| **checkpoint** | Saved network parameters, metadata and Adam optimizer state. |
+| **champion** | Accepted checkpoint used as the published player and arena reference. |
+| **learner** | Private checkpoint being optimized and used for self-play; it may temporarily cycle. |
+| **arena** | Noise-free match measuring a candidate against the champion. |
+| **epoch** | One complete dataset pass. YokaiRust uses a fixed count of sampled mini-batches instead. |
+| **batch** | Several positions processed together to use the GPU efficiently. |
+| **encoder** | Deterministic conversion from a `Game` into numeric planes understood by the network. |
+| **convolution** | A small learned filter reused over every board location to detect local patterns. |
+| **residual block** | Two convolutions plus a shortcut adding the input back, which helps optimization. |
+| **Adam** | The optimizer updating parameters from gradients while remembering moving averages of past gradients. |
+| **Dirichlet noise** | Random probability mass mixed into root priors during self-play so different actions are explored. |
+| **training set** | Examples used to update parameters. |
+| **validation set** | Held-out examples used only to measure generalization, never to update parameters. |
+
+In formulas and field names, `W`, `D` and `L` are the WDL probabilities. The
+neutral value `W - L` approaches `+1` for a win, `-1` for a loss and `0` for a
+draw.
+
 ## Network targets
 
 For every non-terminal position, the network predicts:
@@ -33,13 +70,57 @@ Official search converts WDL to `P(win) - P(loss)`. A certain draw is therefore
 different from an uncertain 50/50 win/loss mixture. Terminal states have no
 policy example because they have no legal move distribution.
 
+## Why the network has one trunk and two heads
+
+[`src/neural/model.rs`](../src/neural/model.rs) has three conceptual parts:
+
+```text
+encoded game [batch, 130, 4, 3]
+                 |
+       shared residual trunk
+          /              \
+ policy head          WDL head
+ 132 logits            3 logits
+```
+
+The shared convolutional trunk learns board patterns useful to both questions.
+The policy head maps those patterns plus per-action repetition context to 132
+action slots. The WDL head maps the same patterns to three outcome logits.
+Separate heads keep “which move?” and “who wins?” distinct while sharing most
+of the computation.
+
+The default model is deliberately small: 64 feature channels and four residual
+blocks. A 3×4 board does not justify a large image model, and small generations
+remain affordable on one workstation. These sizes are configuration, not game
+rules, so the future 5×6 version can scale them.
+
+### Canonical orientation
+
+The engine stores one absolute board orientation, but the encoder rotates the
+view so the current player's forward direction is always the same. The network
+learns one concept of “my piece moves forward” instead of duplicating it for
+First and Second. `Position` stays absolute so rules, replay and UI do not
+inherit neural conventions.
+
+### History and repetition context
+
+The board alone cannot tell how often it occurred. Eight frames provide recent
+motion; the current repetition plane and per-action occurrence counts expose
+the immediate rule consequence. `Game` still owns the complete history and is
+the sole authority for declaring a draw. Neural input guides search; it never
+replaces the rules engine.
+
+### Fixed 132-action output
+
+A fixed output shape lets one dense layer and checkpoint format cover every
+position. Illegal actions are masked and legal probabilities renormalized
+before MCTS uses them. This batches more simply than a variable-length vector,
+while `PolicyIndex` keeps the action mapping typed and tested.
+
 ## One generation
 
 ```text
-accepted champion
-       |
-       v
-noisy self-play + cycle restarts
+private learner --noisy self-play + cycle restarts
        |
        v
 rolling replay buffer --stable game split--> validation
@@ -48,16 +129,19 @@ rolling replay buffer --stable game split--> validation
 resume private learner + Adam, then optimize
        |
        v
-candidate --arena + draw gates--> publish champion
+candidate --versus champion + draw gates--> publish champion
        |
        +-- strong but cycling: keep private learner
        +-- strength regression: roll learner back to champion
 ```
 
-The champion remains the safe self-play source. The learner is an optimization
-lineage: a strong candidate may receive more updates after a draw-only rejection
-without becoming the published player. A genuine strength regression abandons
-that branch.
+The learner is both the optimization lineage and the self-play source. This is
+essential: if self-play stayed attached to an old champion, later candidates
+would only get better at imitating old searches. A strong but cycling candidate
+therefore generates the next batch without becoming the published player. The
+draw-aware targets and cycle restarts are responsible for helping it escape. A
+genuine strength regression abandons that branch and resets the learner to the
+champion.
 
 Each generation uses a fixed optimizer-step budget. Buffer growth therefore
 does not silently increase training work. Checkpoints preserve both model
@@ -66,6 +150,43 @@ parameters and Adam moments.
 Whole games, rather than individual positions, are assigned to validation. A
 stable hash of `(generation, seed)` keeps old games on the same side when the
 buffer grows. This prevents leakage and makes losses more comparable over time.
+
+### Follow one generation in the source
+
+| Step | Main code | Read first |
+| --- | --- | --- |
+| Encode a position | [`neural.rs`](../src/neural.rs) | `encode_game`, then `encode_position_with_history` |
+| Run the network | [`neural/model.rs`](../src/neural/model.rs) | `AlphaZeroNetworkConfig::init`, then `forward` |
+| Get predictions | [`neural/evaluator.rs`](../src/neural/evaluator.rs) | `Evaluator for NetworkEvaluator` |
+| Batch requests | [`neural/service.rs`](../src/neural/service.rs) | `InferenceClient`, then `InferenceService` |
+| Search a move | [`search.rs`](../src/search.rs) | `Mcts::search_internal` and `Node` |
+| Record targets | [`training/data.rs`](../src/training/data.rs) | `SelfPlayRecorder::record`, then `finish_from_game` |
+| Compute losses | [`training/trainer.rs`](../src/training/trainer.rs) | `BatchTensors::new`, `forward_losses`, `policy_loss_weight` |
+| Orchestrate | [`training/pipeline.rs`](../src/training/pipeline.rs) | `run_generation_with_progress` |
+
+Burn's `Tensor<B, 4>` means a rank-four tensor on backend `B`, close to a C++
+template such as `Tensor<Backend, 4>`. `B: Backend` is a compile-time capability
+constraint. `Autodiff<B>` adds gradient tracking for training; its inner backend
+performs cheaper inference during self-play and arenas.
+
+## Architecture decisions at a glance
+
+| Choice | Why it exists | Cost or limitation |
+| --- | --- | --- |
+| Burn backend generic | The same model code runs on CPU tests and Metal training. | Generic tensor errors are initially more verbose than concrete C++ types. |
+| One GPU inference service | Many games share large batches instead of each owning a model. | Workers wait briefly for batching and communicate through channels. |
+| Contiguous MCTS node `Vec` | Indices are stable, allocation is cheap and traversal is cache-friendly. | Removing arbitrary nodes is less convenient than pointer-owned trees. |
+| Rolling replay buffer | Mixes recent generations so one noisy batch does not replace all knowledge. | Targets are generated by networks of different ages. |
+| Fixed optimizer steps | Per-generation training cost stays constant as the buffer grows. | Not every example is visited in every generation. |
+| Separate champion and learner | Learning and self-play can advance across a temporary cycle without publishing that model. | The private data generator may be imperfect, so draw-aware training is necessary. |
+| Whole-game validation | Positions from one outcome never leak across train and validation. | Game lengths make the exact position fraction vary slightly. |
+| Structured progress enum | CLI today and Ratatui later consume the same typed events. | Adding an event requires updating every exhaustive `match`. |
+| Atomic files at boundaries | Interruption leaves the previous complete state resumable. | Temporary files briefly require additional disk space. |
+
+These choices favor explicit ownership and testable boundaries over framework
+magic. `pipeline.rs` is intentionally orchestration code: neural math belongs in
+`trainer.rs`, game generation in `self_play.rs`, comparison in `arena.rs`, and
+persistence close to the data it protects.
 
 ## Why repetitions form a feedback loop
 

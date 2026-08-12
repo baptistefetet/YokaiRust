@@ -156,52 +156,59 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v18 through generation 15
+## Latest completed research run: v19 through generation 15
 
-This deterministic run started from random weights. Compared with v17, its only
-change was a learning rate reduced from `0.001` to `0.00025` once the accepted
-champion reached generation 7. `source` is that champion; `arena` is
-candidate/champion/draw over 200 games; `probe` is exploratory draws out of 64.
-Promotion requires arena ≥55%, mirror 0/4 and probe ≤12/64.
+This deterministic run started from random weights. Compared with v18, its only
+change was how a drawn non-starter example is supervised. Normally its policy
+loss has weight zero: copying every decision from a failed conversion would
+teach the failure. When the rules prove that one available action immediately
+causes the third repetition, v19 instead removes that action from the recorded
+MCTS distribution, renormalizes the alternatives and trains on the corrected
+target. This uses neither a solver nor a handcrafted preferred move.
+
+`source` is the last accepted champion; `arena` is candidate/champion/draw over
+200 games; `probe` is exploratory draws out of 64. Promotion requires arena
+≥55%, mirror 0/4 and probe ≤12/64.
 
 | Gen | Source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| 1 | 0 | 7/256 | 2.232 | 2.594 / 1.036 | 32.6% | 172/27/1 | 0/4 | 0/64 | promoted |
-| 2 | 1 | 27/256 | 1.861 | 2.233 / 1.244 | 36.9% | 118/78/4 | 0/4 | 1/64 | promoted |
-| 3 | 2 | 36/256 | 1.799 | 2.071 / 1.106 | 41.1% | 152/47/1 | 0/4 | 4/64 | promoted |
-| 4 | 3 | 34/256 | 1.751 | 2.004 / 1.112 | 41.1% | 103/91/6 | 0/4 | 2/64 | strength rejection |
-| 5 | 3 | 45/256 | 1.766 | 1.924 / 0.951 | 44.9% | 161/34/5 | 4/4 | 4/64 | draw rejection |
-| 6 | 3 | 52/256 | 1.764 | 1.888 / 0.846 | 46.6% | 170/24/6 | 0/4 | 4/64 | promoted |
-| 7 | 6 | 37/256 | 1.692 | 1.821 / 0.813 | 49.5% | 130/51/19 | 0/4 | 5/64 | promoted |
-| 8 | 7 | 43/256 | 1.618 | 1.733 / 0.836 | 52.5% | 62/114/24 | 4/4 | 5/64 | strength + draw rejection |
-| 9 | 7 | 58/256 | 1.613 | 1.720 / 0.781 | 53.5% | 137/51/12 | 4/4 | 7/64 | draw rejection |
-| 10 | 7 | 53/256 | 1.619 | 1.708 / 0.755 | 54.0% | 128/62/10 | 0/4 | 8/64 | promoted |
-| 11 | 10 | 54/256 | 1.589 | 1.680 / 0.764 | 54.6% | 106/75/19 | 4/4 | 13/64 | draw rejection |
-| 12 | 10 | 55/256 | 1.599 | 1.671 / 0.722 | 54.9% | 80/70/50 | 0/4 | 8/64 | strength rejection |
-| 13 | 10 | 65/256 | 1.590 | 1.654 / 0.720 | 55.7% | 101/44/55 | 4/4 | 5/64 | draw rejection |
-| 14 | 10 | 56/256 | 1.592 | 1.653 / 0.726 | 55.6% | 92/71/37 | 4/4 | 18/64 | draw rejection |
-| 15 | 10 | 53/256 | 1.594 | 1.639 / 0.729 | 56.7% | 156/40/4 | 4/4 | 8/64 | draw rejection |
+| 1 | 0 | 7/256 | 2.253 | 2.565 / 1.065 | 31.9% | 168/32/0 | 0/4 | 1/64 | promoted |
+| 2 | 1 | 25/256 | 1.870 | 2.277 / 1.241 | 37.4% | 152/48/0 | 0/4 | 3/64 | promoted |
+| 3 | 2 | 39/256 | 1.795 | 2.089 / 0.970 | 41.9% | 75/113/12 | 0/4 | 2/64 | strength rejection |
+| 4 | 2 | 47/256 | 1.826 | 2.023 / 0.891 | 44.9% | 136/62/2 | 0/4 | 4/64 | promoted |
+| 5 | 4 | 40/256 | 1.753 | 1.932 / 0.847 | 48.6% | 147/49/4 | 0/4 | 3/64 | promoted |
+| 6 | 5 | 53/256 | 1.685 | 1.864 / 0.880 | 48.6% | 120/42/38 | 4/4 | 9/64 | draw rejection |
+| 7 | 5 | 51/256 | 1.688 | 1.837 / 0.768 | 49.5% | 160/25/15 | 0/4 | 2/64 | promoted |
+| 8 | 7 | 56/256 | 1.609 | 1.746 / 0.809 | 53.2% | 82/69/49 | 4/4 | 8/64 | strength + draw rejection |
+| 9 | 7 | 54/256 | 1.621 | 1.733 / 0.765 | 53.1% | 65/42/93 | 0/4 | 4/64 | promoted |
+| 10 | 9 | 63/256 | 1.588 | 1.710 / 0.774 | 54.3% | 56/60/84 | 4/4 | 6/64 | strength + draw rejection |
+| 11 | 9 | 66/256 | 1.581 | 1.696 / 0.755 | 55.2% | 92/17/91 | 0/4 | 9/64 | promoted |
+| 12 | 11 | 56/256 | 1.568 | 1.670 / 0.760 | 56.1% | 132/32/36 | 4/4 | 17/64 | draw rejection |
+| 13 | 11 | 68/256 | 1.573 | 1.661 / 0.752 | 55.9% | 66/40/94 | 4/4 | 13/64 | draw rejection |
+| 14 | 11 | 80/256 | 1.569 | 1.647 / 0.753 | 56.5% | 61/72/67 | 0/4 | 7/64 | strength rejection |
+| 15 | 11 | 65/256 | 1.573 | 1.637 / 0.746 | 57.5% | 90/23/87 | 4/4 | 9/64 | draw rejection |
 
-Across 3,840 games and 110,539 positions, validation policy loss fell 36.8%,
-top-1 rose from 32.6% to 56.7%, and illegal probability mass fell from 45.9%
-to 10.7%. Six candidates were promoted. The reduced rate produced champion 10
-one attempt earlier than v17's champion 11 and kept late candidate strength
-high: generation 15 scored 79.0% with only four arena draws, compared with
-74.0% and 58 draws in v17.
+Across 3,840 games and 125,670 positions, validation policy loss fell 36.2%,
+top-1 rose from 31.9% to 57.5%, and illegal probability mass fell from 46.9%
+to 10.3%. Seven candidates were promoted, reaching champion 11. That is one
+more promotion than v18, and the raw immediate-draw mass of drawn non-starter
+positions fell from v18's 63.8% to 53.8% in the final buffer. The correction
+therefore has the intended local effect.
 
-The exact initial-position cycle nevertheless remained: generation 15 drew all
-four deterministic mirrors. The failure is now local rather than global. Among
-buffered drawn non-starter positions where a move can immediately cause the
-third repetition, MCTS still assigns that move 63.8% probability on average.
-Those policy examples are currently omitted entirely, which avoids copying a
-failed conversion but also discards the known fact that this particular action
-ends the game in the unwanted result.
+It does not solve the complete problem. Generation 15 predicts the accumulated
+dataset better than every earlier candidate and beats champion 11 by 90 wins to
+23, yet 87 arena games are draws and all four deterministic mirrors cycle. This
+is a concrete counterexample to "the loss goes down, therefore the player gets
+better": the network can increasingly imitate a replay buffer whose difficult
+positions still lack successful conversion trajectories. The mirror gate is
+what prevents this superficially strong but cyclic network from becoming the
+new self-play teacher.
 
-The next experiment retains MCTS targets for such positions after removing the
-immediate-draw actions and renormalizing the remaining visits. It uses only the
-generic threefold rule, the current network's search and the observed draw. It
-does not claim which alternative wins, and introduces no solver, oracle,
-external label or board-size-specific knowledge.
+The next experiment lets targeted restarts begin one ply before a known draw,
+instead of two to eight plies before it. At that exact decision, the deeper
+800-simulation search can explore the alternatives that the corrected target
+now preserves. This remains ordinary self-play from an observed game prefix;
+it adds no oracle, external label or board-size-specific move.
 
 ## Rules source
 

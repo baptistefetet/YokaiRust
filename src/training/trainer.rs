@@ -316,13 +316,17 @@ impl<B: Backend> BatchTensors<B> {
             .iter()
             .map(|example| example.action_repetition_counts)
             .collect::<Vec<_>>();
-        let policy = examples
+        let policy_supervision = examples
             .iter()
-            .flat_map(|example| example.policy.iter().copied())
+            .map(|example| policy_supervision(example, non_starter_draw_policy_weight))
             .collect::<Vec<_>>();
-        let policy_weight = examples
+        let policy = policy_supervision
             .iter()
-            .map(|example| policy_loss_weight(example, non_starter_draw_policy_weight))
+            .flat_map(|(target, _)| target.iter().copied())
+            .collect::<Vec<_>>();
+        let policy_weight = policy_supervision
+            .iter()
+            .map(|(_, weight)| *weight)
             .collect::<Vec<_>>();
         let value = examples
             .iter()
@@ -458,14 +462,33 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
     }
 }
 
-fn policy_loss_weight(example: &TrainingExample, non_starter_draw_weight: f32) -> f32 {
+fn policy_supervision(
+    example: &TrainingExample,
+    non_starter_draw_weight: f32,
+) -> ([f32; POLICY_ACTIONS], f32) {
     // A draw proves that the non-starter's complete policy trajectory failed to
-    // convert, not merely that its final repeating action was poor. We still
-    // learn the official WDL result, but do not imitate that failed path.
+    // convert, so the ordinary target is omitted. If an action would cause the
+    // third repetition, however, the rules identify that exact failure. Remove
+    // it and retain only MCTS's relative preference among the alternatives.
     if example.value != 0.0 || example.current_player_is_starter {
-        return 1.0;
+        return (example.policy, 1.0);
     }
-    non_starter_draw_weight
+    let mut target = example.policy;
+    let mut found_immediate_draw = false;
+    for (probability, repetition_count) in target.iter_mut().zip(example.action_repetition_counts) {
+        if repetition_count >= 3 {
+            *probability = 0.0;
+            found_immediate_draw = true;
+        }
+    }
+    let remaining_mass = target.iter().sum::<f32>();
+    if found_immediate_draw && remaining_mass > f32::EPSILON {
+        for probability in &mut target {
+            *probability /= remaining_mass;
+        }
+        return (target, 1.0);
+    }
+    (example.policy, non_starter_draw_weight)
 }
 
 fn illegal_policy_mask(example: &TrainingExample) -> [f32; POLICY_ACTIONS] {
@@ -527,7 +550,7 @@ fn sample_count_as_f32(count: usize) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::policy_loss_weight;
+    use super::policy_supervision;
     use crate::{HISTORY_POSITIONS, POLICY_ACTIONS, Player, Position, TrainingExample};
 
     fn example(value: f32, starter: bool, repetition_mass: f32) -> TrainingExample {
@@ -548,15 +571,29 @@ mod tests {
     }
 
     #[test]
-    fn only_drawn_non_starter_policy_gets_configured_weight() {
+    fn failed_draw_policy_is_omitted_until_the_rules_identify_the_exact_action() {
         let weight = 0.0;
-        let drawn_non_starter = policy_loss_weight(&example(0.0, false, 0.75), weight);
+        let ordinary_draw = example(0.0, false, 0.75);
+        let (ordinary_target, ordinary_weight) = policy_supervision(&ordinary_draw, weight);
 
-        assert!(drawn_non_starter.abs() < f32::EPSILON);
-        assert!((policy_loss_weight(&example(0.0, true, 0.75), weight) - 1.0).abs() < f32::EPSILON);
         assert!(
-            (policy_loss_weight(&example(1.0, false, 0.75), weight) - 1.0).abs() < f32::EPSILON
+            ordinary_target
+                .iter()
+                .zip(ordinary_draw.policy)
+                .all(|(actual, expected)| (*actual - expected).abs() < f32::EPSILON)
         );
-        assert!((policy_loss_weight(&example(0.0, false, 0.75), 0.25) - 0.25).abs() < f32::EPSILON);
+        assert!(ordinary_weight.abs() < f32::EPSILON);
+
+        let (starter_target, starter_weight) =
+            policy_supervision(&example(0.0, true, 0.75), weight);
+        assert!((starter_target[0] - 0.75).abs() < f32::EPSILON);
+        assert!((starter_weight - 1.0).abs() < f32::EPSILON);
+
+        let mut immediate_draw = ordinary_draw;
+        immediate_draw.action_repetition_counts[0] = 3;
+        let (corrected_target, corrected_weight) = policy_supervision(&immediate_draw, weight);
+        assert!(corrected_target[0].abs() < f32::EPSILON);
+        assert!((corrected_target[1] - 1.0).abs() < f32::EPSILON);
+        assert!((corrected_weight - 1.0).abs() < f32::EPSILON);
     }
 }

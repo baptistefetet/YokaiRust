@@ -42,8 +42,9 @@ weight_decay = 0.0001
 validation_fraction = 0.1
 mirror_augmentation = true
 # A draw still trains the official WDL target. The starter's defence is also
-# imitated, but the non-starter's policy is not: its complete trajectory failed
-# to convert, even before the final repetition became visible.
+# imitated. The non-starter's failed trajectory is normally omitted; when the
+# rules identify an immediate third repetition, training removes that action
+# and renormalizes MCTS's remaining alternatives instead.
 non_starter_draw_policy_weight = 0.0
 # Every position remains in the dataset. During bootstrap, decisive tails are
 # temporarily oversampled; the extra sampling stops automatically at attempt 11.
@@ -90,5 +91,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v18"
-self_play = "data/alpha-zero-draw-aware-v18"
+models = "models/alpha-zero-draw-aware-v19"
+self_play = "data/alpha-zero-draw-aware-v19"

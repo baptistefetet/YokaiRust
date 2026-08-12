@@ -232,18 +232,23 @@ This is extra computation, not external knowledge. The same current network,
 rules and PUCT search produce the target; search simply gets more opportunities
 to test a longer conversion before falling back to the known repetition.
 
-### 4. Policy weighting stops rewarding failed conversion
+### 4. Policy supervision rejects a known repeating action
 
 Every example still trains WDL at full weight. The starter's moves in a draw
 also remain normal policy examples because they describe a successful defence.
 For the non-starter, however, the final draw proves that the complete conversion
-attempt failed. Its policy weight is therefore zero for every position in that
-drawn trajectory, including the earlier choices that led toward the cycle.
+attempt failed. Its ordinary policy weight is therefore zero for positions in
+that drawn trajectory. There is one useful exception: if the generic rules say
+that an available action would immediately create the third repetition, that
+action is removed from the recorded MCTS distribution and the remaining visit
+probabilities are renormalized to sum to one.
 
-This does not invent a result or a better action. It separates two statements
-already present in self-play: “this game ended in a draw” remains a full WDL
-target, while “imitate the failed converter's search distribution” is omitted.
-Policy for the non-starter is still learned from every decisive game.
+This does not claim that one remaining action wins. It makes only the observation
+provided by the rules and the completed game: this exact action draws, which is
+an unwanted result for the converter. MCTS still decides the relative preference
+among every alternative. If it visited none, policy supervision stays omitted.
+The official draw remains a full WDL target in all cases, and policy for the
+non-starter is still learned normally from every decisive game.
 
 ## Promotion measurements
 
@@ -265,7 +270,7 @@ The gates protect publication; they are not training labels.
 | Metric | What it measures | Warning sign |
 | --- | --- | --- |
 | policy loss | Weighted cross-entropy against MCTS visits | Training falls while stable validation rises. |
-| policy weight | Mean policy-loss multiplier after drawn non-starter examples are omitted | A drop means draws occupy more of the buffer. |
+| policy weight | Mean multiplier after unresolved drawn non-starter examples are omitted | A drop means unsolved draws occupy more of the buffer. |
 | WDL loss | Cross-entropy against final W/D/L | Persistent high validation loss means weak result prediction. |
 | policy top-1 | Agreement with the largest visit target | Useful learning signal, not a strength score. |
 | WDL top-1 | Agreement with observed result class | Can hide poor draw calibration if read alone. |

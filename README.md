@@ -118,15 +118,17 @@ The pipeline attacks the feedback loop at four different points:
   non-starter, while official play still uses neutral `P(win) - P(loss)`;
 - cycle-adjacent restarts shorten the horizon where conversion failed and use
   800 MCTS simulations per move there instead of the regular 200;
-- policy loss does not imitate the non-starter's moves from a game it ultimately
-  failed to convert. The starter's drawing defence and every official WDL target
-  remain fully weighted.
+- policy loss normally omits the non-starter's moves from a game it failed to
+  convert. At an immediate third repetition, it removes only that known drawing
+  action and renormalizes MCTS's remaining alternatives. The starter's defence
+  and every official WDL target remain fully weighted.
 
 This last rule follows the observed failure directly: the starter is allowed to
 learn a drawing defence, while the non-starter should not receive a sharp
-policy-imitation reward for failing to convert. It uses only self-play targets
-and the generic repetition rule, so it applies unchanged to the planned 5×6
-game.
+policy-imitation reward for failing to convert. Once the rules expose the exact
+action that ends in a draw, the other search visits finally provide a positive
+training target. This uses only self-play and the generic repetition rule, so it
+applies unchanged to the planned 5×6 game.
 
 The early decisive-tail curriculum is temporary. It oversamples tactical ends
 during bootstrap, widens geometrically, and stops at candidate 11. The complete
@@ -144,7 +146,7 @@ Reports include:
 - policy and WDL cross-entropy;
 - policy entropy, top-1 agreement and illegal probability mass;
 - WDL top-1, value calibration and draw-probability error;
-- the mean policy weight after omitting drawn non-starter policy targets;
+- the mean policy weight after omitting unresolved drawn non-starter targets;
 - target entropy, action coverage, immediate-draw mass and repetition mass;
 - separate draw buckets for starter and non-starter positions;
 - initial/restarted self-play outcomes, arena results by seat and both gates.

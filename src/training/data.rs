@@ -2,8 +2,6 @@
 
 use std::collections::VecDeque;
 
-use rand::seq::SliceRandom;
-use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -37,6 +35,12 @@ pub struct PolicyTargetDiagnostics {
 pub struct DatasetDiagnostics {
     pub all: PolicyTargetDiagnostics,
     pub draws: PolicyTargetDiagnostics,
+    /// Draw positions where the player to move also started the game.
+    #[serde(default)]
+    pub draw_starter: PolicyTargetDiagnostics,
+    /// Draw positions where the player to move is expected to convert.
+    #[serde(default)]
+    pub draw_non_starter: PolicyTargetDiagnostics,
     pub decisive: PolicyTargetDiagnostics,
 }
 
@@ -469,39 +473,66 @@ impl ReplayBuffer {
         if !validation_fraction.is_finite() || !(0.0..=1.0).contains(&validation_fraction) {
             return Err(TrainingDataError::InvalidValidationFraction);
         }
-        let mut games = self.games.iter().cloned().collect::<Vec<_>>();
-        games.shuffle(&mut ChaCha8Rng::seed_from_u64(seed));
-        let validation_count = validation_game_count(games.len(), validation_fraction);
-        let validation_games = games.split_off(games.len().saturating_sub(validation_count));
+        let mut training_games = Vec::new();
+        let mut validation_games = Vec::new();
+        for game in &self.games {
+            if belongs_to_validation(game, validation_fraction, seed) {
+                validation_games.push(game.clone());
+            } else {
+                training_games.push(game.clone());
+            }
+        }
+        // Hash bucketing is stable as the buffer grows. These fallbacks matter
+        // only for tiny test/bootstrap corpora where a bucket can be empty.
+        if training_games.is_empty() && !validation_games.is_empty() {
+            if let Some(game) = validation_games.pop() {
+                training_games.push(game);
+            }
+        } else if validation_fraction > 0.0
+            && validation_games.is_empty()
+            && training_games.len() > 1
+            && let Some(game) = training_games.pop()
+        {
+            validation_games.push(game);
+        }
         Ok(DatasetSplit {
-            training_games: games,
+            training_games,
             validation_games,
         })
     }
 }
 
-/// Computes outcome-split policy-target diagnostics without any external oracle.
+/// Computes outcome- and role-split diagnostics from policy targets alone.
 #[must_use]
 pub fn dataset_diagnostics<'a>(
     games: impl IntoIterator<Item = &'a SelfPlayGame>,
 ) -> DatasetDiagnostics {
     let mut all = PolicyTargetAccumulator::default();
     let mut draws = PolicyTargetAccumulator::default();
+    let mut draw_starter = PolicyTargetAccumulator::default();
+    let mut draw_non_starter = PolicyTargetAccumulator::default();
     let mut decisive = PolicyTargetAccumulator::default();
     for game in games {
-        let outcome_accumulator = if matches!(game.outcome, Outcome::Draw { .. }) {
-            &mut draws
-        } else {
-            &mut decisive
-        };
+        let is_draw = matches!(game.outcome, Outcome::Draw { .. });
         for example in &game.examples {
             all.add(example);
-            outcome_accumulator.add(example);
+            if is_draw {
+                draws.add(example);
+                if example.current_player_is_starter {
+                    draw_starter.add(example);
+                } else {
+                    draw_non_starter.add(example);
+                }
+            } else {
+                decisive.add(example);
+            }
         }
     }
     DatasetDiagnostics {
         all: all.finish(),
         draws: draws.finish(),
+        draw_starter: draw_starter.finish(),
+        draw_non_starter: draw_non_starter.finish(),
         decisive: decisive.finish(),
     }
 }
@@ -721,6 +752,25 @@ fn mirror_action_values<T: Copy + Default>(
 )]
 fn validation_game_count(game_count: usize, fraction: f32) -> usize {
     ((game_count as f32) * fraction).round() as usize
+}
+
+fn belongs_to_validation(game: &SelfPlayGame, fraction: f32, seed: u64) -> bool {
+    const BUCKETS: usize = 10_000;
+    let threshold = validation_game_count(BUCKETS, fraction);
+    if threshold == 0 {
+        return false;
+    }
+    let identity = seed
+        ^ game.seed.rotate_left(17)
+        ^ u64::from(game.generation).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    splitmix64(identity) % (BUCKETS as u64) < threshold as u64
+}
+
+const fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 fn validate_policy(

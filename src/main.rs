@@ -276,11 +276,12 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             report,
         } => {
             eprintln!(
-                "[{elapsed}] step {}/{}: train policy={:.4} WDL={:.4} entropy={:.4} illegal={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                "[{elapsed}] step {}/{}: train policy={:.4} WDL={:.4} policy_weight={:.3} entropy={:.4} illegal={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                 report.step,
                 total_steps,
                 report.training.policy_loss,
                 report.training.value_loss,
+                report.training.mean_policy_weight,
                 report.training.policy_entropy,
                 report.training.illegal_policy_mass,
                 report.training.policy_top1_accuracy,
@@ -289,11 +290,12 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             );
             if let Some(validation) = report.validation {
                 eprintln!(
-                    "[{elapsed}] step {}/{}: valid policy={:.4} WDL={:.4} value_calibration={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                    "[{elapsed}] step {}/{}: valid policy={:.4} WDL={:.4} policy_weight={:.3} value_calibration={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                     report.step,
                     total_steps,
                     validation.policy_loss,
                     validation.value_loss,
+                    validation.mean_policy_weight,
                     validation.value_calibration_error,
                     validation.policy_top1_accuracy,
                     validation.wdl_top1_accuracy,
@@ -457,9 +459,10 @@ fn print_generation_report(report: &yokai::GenerationReport) {
     if let Some(checkpoint) = report.training.selected() {
         println!("training metrics at step={}", checkpoint.step);
         println!(
-            "train policy_loss={:.4} WDL_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+            "train policy_loss={:.4} WDL_loss={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
             checkpoint.training.policy_loss,
             checkpoint.training.value_loss,
+            checkpoint.training.mean_policy_weight,
             checkpoint.training.policy_entropy,
             checkpoint.training.value_calibration_error,
             checkpoint.training.illegal_policy_mass,
@@ -469,9 +472,10 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         );
         if let Some(validation) = checkpoint.validation {
             println!(
-                "valid policy_loss={:.4} WDL_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                "valid policy_loss={:.4} WDL_loss={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                 validation.policy_loss,
                 validation.value_loss,
+                validation.mean_policy_weight,
                 validation.policy_entropy,
                 validation.value_calibration_error,
                 validation.illegal_policy_mass,
@@ -526,6 +530,8 @@ fn print_dataset_diagnostics(label: &str, diagnostics: yokai::DatasetDiagnostics
     for (bucket, metrics) in [
         ("all", diagnostics.all),
         ("draw", diagnostics.draws),
+        ("draw-starter", diagnostics.draw_starter),
+        ("draw-non-starter", diagnostics.draw_non_starter),
         ("decisive", diagnostics.decisive),
     ] {
         println!(

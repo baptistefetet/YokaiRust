@@ -1,260 +1,187 @@
 # AlphaZero in YokaiRust
 
-This document explains what the training loop learns, why the draw problem
-appeared, and what continued training can and cannot guarantee.
+This guide explains what the network learns, how one generation works and why
+repetition draws need special handling. The implementation is self-contained:
+it learns from game rules, MCTS and self-play, and the same design is intended
+for the future 5×6 game.
 
-## The two predictions
+## Network targets
 
-For every non-terminal position, the network produces:
+For every non-terminal position, the network predicts:
 
-- **policy**: 132 logits, one per encoded action;
-- **WDL**: three logits for win, draw and loss from the current player's perspective.
+- **policy**: 132 action logits;
+- **WDL**: win, draw and loss logits from the current player's perspective.
 
-Its input contains the current state plus the seven preceding states. Each
-state contributes 16 planes for pieces and hands; two final planes contain the
-current repetition count and whether the player to move was the starter, for
-130 planes in total. The policy branch also receives two action-aligned features
-for each of its 132 slots: the occurrence count of the resulting position and
-an immediate-threefold flag. Search derives these exactly from the complete
-game history. A finite board-history stack alone does not make repetition fully
-Markovian.
+The input contains the current state and seven preceding states. Each state
+contributes 16 piece/hand planes; two final planes encode current repetition
+count and whether the player to move started the game. The policy branch also
+receives, for each action slot, the occurrence count of the resulting position
+and an immediate-threefold flag. MCTS computes this context from the complete
+`Game` history.
 
-The policy is not trained directly on the action that happened. Its target is
-the normalized MCTS visit distribution after illegal actions are masked. This
-retains information about alternatives explored by the search.
-Move-selection temperature is applied only when choosing the played action. It
-never sharpens the stored policy target: even after self-play becomes greedy,
-the target remains the complete normalized visit distribution.
+The policy target is the normalized MCTS visit distribution, not merely the
+action eventually played. Temperature affects action sampling but never
+sharpens the stored target.
 
-The WDL target is the one-hot final game result:
+The WDL target is the official final result:
 
-- win if the player to move in the recorded position eventually won;
+- win if the recorded player to move eventually won;
 - loss if that player lost;
-- draw for an official repetition.
+- draw after an official repetition.
 
-Official search derives its neutral scalar as `P(win) - P(loss)`. Unlike the old
-scalar target, a certain draw is therefore distinct from an uncertain 50/50
-mixture of wins and losses.
-
-There is deliberately no policy example for a terminal position: it has no legal
-move distribution to learn.
-
-## Why every played position is retained
-
-A midgame self-play position has a valid final result, but that result is a
-high-variance estimate of the position's true game-theoretic value. Weak players
-can win good positions or lose winning positions. Early networks therefore feed
-uncertain targets back into themselves.
-
-Standard AlphaZero nevertheless retains every non-terminal position. Mixing
-many games in a rolling buffer makes those noisy samples useful in aggregate and
-lets opening and midgame knowledge improve alongside tactics.
-
-The optional `terminal_window_plies` setting keeps only the tail of decisive
-games. It is useful for the diagnostic experiment suggested during development:
-if a network cannot learn nearly forced final moves, the policy/value pipeline
-probably contains a bug. It is not enabled in normal training.
+Official search converts WDL to `P(win) - P(loss)`. A certain draw is therefore
+different from an uncertain 50/50 win/loss mixture. Terminal states have no
+policy example because they have no legal move distribution.
 
 ## One generation
 
 ```text
-champion --> noisy self-play --> replay buffer --> train learner candidate
-   ^                                                    |          |
-   +-- publish only if arena + both draw gates ----------+          |
-                                                        +-- keep if arena passed
+accepted champion
+       |
+       v
+noisy self-play + cycle restarts
+       |
+       v
+rolling replay buffer --stable game split--> validation
+       |
+       v
+resume private learner + Adam, then optimize
+       |
+       v
+candidate --arena + draw gates--> publish champion
+       |
+       +-- strong but cycling: keep private learner
+       +-- strength regression: roll learner back to champion
 ```
 
-The candidate starts from a separate private learner lineage. The champion
-remains the source of every following self-play batch until a candidate passes
-the official paired arena and both anti-cycle gates. When a candidate passes
-the strength arena but fails a draw gate, it stays private but its weights and
-Adam state initialize the next optimization attempt. Failing the strength arena
-rolls that lineage back to the champion. This preserves learning across
-draw-only rejections without publishing a cycling player.
+The champion remains the safe self-play source. The learner is an optimization
+lineage: a strong candidate may receive more updates after a draw-only rejection
+without becoming the published player. A genuine strength regression abandons
+that branch.
 
-Once the replay buffer contains a drawn game, it also exposes validated ongoing
-prefixes from two to eight plies before the terminal repetition. The checked-in
-`cycle_restart_fraction = 0.25` deterministically replaces one quarter of the
-next trajectories with these prefixes. The complete action history, starter and
-seven-frame encoder context are preserved, while the exploration-temperature
-schedule restarts at local ply zero. Generation zero has no archive and therefore
-uses only official initial positions.
+Each generation uses a fixed optimizer-step budget. Buffer growth therefore
+does not silently increase training work. Checkpoints preserve both model
+parameters and Adam moments.
 
-Optimization is continuous too. Each generation performs a fixed number of
-uniformly sampled mini-batch updates instead of full passes over an ever-growing
-buffer. The checkpoint stores both the trainable model and Adam's first/second
-moments, so restarting the command does not silently reset the optimizer.
-Validation checkpoints are measurements; they no longer roll the model back to
-an earlier point with optimizer moments belonging to a different model.
+Whole games, rather than individual positions, are assigned to validation. A
+stable hash of `(generation, seed)` keeps old games on the same side when the
+buffer grows. This prevents leakage and makes losses more comparable over time.
 
-This deliberately follows the guarded AlphaGo Zero-style update used in the
-project's original plan. AlphaGo Zero evaluated each candidate and promoted it
-only above 55%; AlphaZero used the latest parameters continuously and omitted
-that selection step. The continuous variant was tested here first, but one
-anti-repetition experiment published a candidate that then lost 0-200 to its
-source. YokaiRust therefore requires the 55% result and both draw gates before
-publication.
+## Why repetitions form a feedback loop
 
-- [AlphaZero paper](https://arxiv.org/abs/1712.01815)
-- [AlphaGo Zero paper](https://www.nature.com/articles/nature24270)
+With limited search, a known short draw can look safer than a long, uncertain
+winning line. MCTS then gives the repetition a sharp visit target. Cross-entropy
+teaches that target back to the network, making the same cycle easier to select
+in the next generation.
 
-## Why draws can increase while strength improves
+Deleting drawn games is not a solution. Their positions contain the strongest
+defence found by the starter and the exact conversion failures the non-starter
+must learn to overcome. Relabelling them would also corrupt the official value
+target.
 
-An official repetition is worth zero. If the WDL head predicts that
-non-repeating alternatives lose, deeper MCTS rationally selects the safe draw.
-Self-play then trains the policy to reproduce that branch. The old scalar head
-also learned zero; the WDL head now learns an explicit draw probability, which
-makes the loop observable and shapeable. This can reflect an inaccurate result
-estimate, but it can also be the correct decision against an equally strong
-opponent.
+YokaiRust instead separates four responsibilities.
 
-The standard bootstrap keeps every position and every official result, but uses
-the explicit WDL draw probability inside self-play search. With the configured
-`starter_draw_value = 0.25`, a current starter evaluates a draw as `+0.25` and a
-current non-starter as `-0.25`; both still rank win > draw > loss. The stored WDL
-target remains official and every arena uses neutral `P(win) - P(loss)`.
-The older edge-local `repetition_contempt` remains available for reproducing
-historical experiments but is mutually exclusive with the role-aware utility.
-Three separate measurements both expose the behavior and protect the next
-self-play source:
+### 1. WDL keeps the outcome observable
 
-- self-play W/L/D shows behavior with exploration;
-- the mirror probe exposes deterministic repetition cycles from the official
-  initial position;
-- the paired arena measures improvement on shared random legal 0-4 ply openings.
+The value head learns draw probability explicitly. Stored targets and official
+arenas remain neutral.
 
-The two games of each arena pair start from the same opening and exchange the
-candidate's absolute color. This cancels much of the opening and move-order
-bias. Using different seeds without different openings is not sufficient in a
-noise-free, temperature-zero search: it merely repeats the same deterministic
-trajectory and makes a nominal 200-game score look more informative than it is.
-The separate mirror remains on the official initial position. Four games cover
-both absolute starting orientations and their color-swapped pairs; more
-temperature-zero copies would repeat the same trajectories. Since the game is
-known to be decisive, any mirrored repetition now rejects the candidate.
+### 2. Self-play gives the two roles different incentives
 
-The fixed-step generation-12 run demonstrates why no single draw threshold can
-diagnose strength: it drew 141/256 self-play games, yet beat generations 1, 4
-and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
-Setting `starter_draw_value = 0.0` restores the neutral experiment. The shaped
-default is explicit because neutral runs repeatedly poisoned later candidates.
+During self-play only, the starter evaluates a draw at `+0.25` and the
+non-starter at `-0.25`:
 
-The clean diversified-arena run through candidate 15 demonstrates the intended
-interaction. Candidate 4 developed a 64/64 initial mirror cycle and was rejected
-despite a 74% arena score. Attempts 5–9 remained anchored to champion 3; attempt
-10 eventually removed the cycle and passed all three gates. Champions then
-advanced through 11, 12 and 14. Candidate 15 again cycled and was rejected, so
-the buffer stayed sourced from champion 14. Across all attempts only 7.1% of
-games and 7.8% of positions in the buffer came from draws.
+```text
+starter:     win - loss + 0.25 * draw
+non-starter: win - loss - 0.25 * draw
+```
 
-This does not mean the raw network is draw-proof. A 64-game champion-14 probe
-gave 25 neutral noisy draws, 11 shaped noisy draws, and 4 neutral
-temperature-zero draws. Repetition contempt is therefore still an exploration
-aid. It changes leaf preferences inside self-play MCTS, not official outcomes
-or replay values. The arena strength score and deterministic mirror are always
-measured with unshaped search.
+Both still rank win above draw above loss. The starter learns its best defence;
+the non-starter is pushed to search for a conversion.
 
-The August v7 diagnostic showed why a search-only contempt is not sufficient:
-it reduced the first two self-play batches to 1/256 and 6/256 draws, but the
-second candidate then lost 0-200 to its predecessor under official arena rules.
-Any future contempt experiment must therefore sit behind a champion promotion
-gate; a low draw count alone must never publish a network.
+### 3. Restarts spend search near the failure
 
-For a controlled bootstrap, `terminal_window_schedule` automates the diagnostic
-suggested during development without replacing the normal replay buffer. Every
-position and draw remains present; final decisive positions are oversampled to
-`decisive_fraction`, their tail widens geometrically, and the additional
-sampling eventually stops. The schedule depends only on the checkpoint
-generation, so interruption and resume cannot silently change the selected
-dataset.
+One quarter of trajectories restart two to eight plies before a historical
+threefold repetition. The full prefix is replayed, so exact repetition state,
+starter role and encoder history remain valid. The local temperature schedule
+restarts at zero to explore alternatives near the cycle.
 
-For this particular game, draws cannot be treated as the expected endpoint of
-perfect play. Dōbutsu Shōgi, whose 3×4 rules and initial position correspond to
-this implementation, has been strongly solved: the player moving second has a
-forced win in 78 plies. Self-play reports therefore distinguish absolute piece
-owner (`First`/`Second`) from move order (`starter`/`non-starter`). Progress
-toward the known result should eventually favor `non-starter`, not repetition.
-See the [original 2009 retrograde-analysis report](https://ipsj.ixsq.nii.ac.jp/records/62415)
-and the independently verified [interactive tablebase](https://dobutsu.brianhliou.com/).
+### 4. Policy weighting stops rewarding failed conversion
 
-A longer exploration window is not automatically an improvement. In a paired
-generation-12 diagnostic using identical seeds and 200 simulations per move,
-the 12-ply schedule produced starter/non-starter/draw counts of 14/32/18. A
-48-ply schedule reduced draws to 8/64 but changed the split to 29/27/8: it mostly
-replaced repetitions with random mistakes and erased the known second-mover
-signal. The default therefore remains 12 plies while the training-data remedy is
-evaluated separately.
+Every example still trains WDL at full weight. For a drawn position where the
+current player is the non-starter, only policy cross-entropy is discounted:
+
+```text
+policy_weight = 1 - discount * repetition_visit_mass
+```
+
+The checked-in `discount = 0.9` leaves weight 1 for a non-repeating target and
+weight 0.1 for a fully cyclic target. Starter draw policies, decisive games and
+non-repetition actions are untouched.
+
+This is not a hidden value label. It says only that a limited MCTS search which
+failed to convert should be imitated less confidently when it mostly revisits
+known states.
+
+## Promotion measurements
+
+A candidate must pass three independent checks:
+
+1. score at least 55% against the champion in 200 paired games;
+2. produce no draw in four deterministic initial-position mirror games;
+3. stay at or below 20% draws in 64 noisy self-play games.
+
+Each arena pair shares a random legal 0–4 ply opening and swaps candidate color.
+This avoids counting one deterministic trajectory hundreds of times. Mirror
+games stay on the official initial positions because they answer a different
+question: does the candidate deterministically enter a repetition cycle?
+
+The gates protect publication; they are not training labels.
 
 ## Reading the metrics
 
-| Metric | Useful interpretation | Common warning sign |
+| Metric | What it measures | Warning sign |
 | --- | --- | --- |
-| policy loss | Cross-entropy against MCTS visits | Training falls while validation rises: policy overfit. |
-| value loss | WDL cross-entropy against the final result | Persistently high: weak result prediction or noisy labels. |
-| entropy | Spread of predicted legal moves | Sudden collapse can indicate premature policy certainty. |
-| top-1 | Agreement with the largest MCTS target | Useful for tactical tests, not a complete strength score. |
-| calibration | Difference between value prediction and outcome | Low validation error means values better match observed results. |
-| WDL top-1 | Agreement with the observed win/draw/loss class | A high aggregate score can hide poor draw recognition; read with draw error. |
-| draw error | Absolute error of predicted draw probability | Rising values expose WDL miscalibration before scalar `W-L` necessarily changes. |
-| illegal mass | Raw probability assigned to illegal actions | High values waste network capacity even though MCTS masks them. |
-| W/L/D | Actual behavior | The primary health signal; always separate draws from wins. |
+| policy loss | Weighted cross-entropy against MCTS visits | Training falls while stable validation rises. |
+| policy weight | Mean multiplier after repetition discount | A sharp drop means many non-starter draw targets are cyclic. |
+| WDL loss | Cross-entropy against final W/D/L | Persistent high validation loss means weak result prediction. |
+| policy top-1 | Agreement with the largest visit target | Useful learning signal, not a strength score. |
+| WDL top-1 | Agreement with observed result class | Can hide poor draw calibration if read alone. |
+| draw error | Error in predicted draw probability | Rising values expose draw miscalibration. |
+| illegal mass | Raw probability wasted on illegal actions | Should fall as representation learning improves. |
+| entropy | Spread of predicted actions | Sudden collapse can indicate premature certainty. |
+| repetition mass | Visit mass on already seen positions | Compare draw starter and non-starter buckets. |
+| W/L/D and arena | Actual behavior | Primary check that lower loss becomes better play. |
 
-Each generation report also derives target-only diagnostics from the self-play
-data, split between drawn and decisive games: visit-policy entropy, largest
-action probability, legal-action coverage, mass on already-seen positions, and
-mass on actions that immediately close a threefold draw. These require neither
-an oracle nor assumptions specific to the 3×4 board and are the first evidence
-to inspect when the learner stalls.
+Losses are moving-target measurements because every new network changes the
+MCTS policy used to supervise the next one. A healthy run should show a downward
+long-term validation trend, rising top-1, falling illegal mass, repeated arena
+promotions and bounded draw probes. Any one of these alone is insufficient.
 
-Loss improvements do not prove playing-strength improvements. Diagnostic arenas
-and fixed tactical/baseline tests remain necessary.
+Arena progress is completion-ordered: short games can finish in a visible block
+before long games. Only the final paired result and its per-seat split should be
+interpreted.
 
-Policy loss is a moving-target metric: each network changes the MCTS visit
-distribution used to train the next network. It therefore has no fixed zero-loss
-reference across generations. The old scalar MSE had a second trap in this game:
-a certain draw and an uncertain 50/50 win/loss mixture both targeted zero. WDL
-removes that aliasing, but a lower cross-entropy still does not prove stronger
-play. Always read both losses beside top-1, illegal mass and W/L/D.
+## Does continued self-play guarantee perfect play?
 
-Arena progress is emitted when concurrent games finish, not by game index. Short
-wins can all appear before long losses. Only the final paired result is meaningful;
-YokaiRust also reports candidate results separately as absolute `First` and
-`Second` to expose side-dependent outcomes.
+No. Self-play can plateau, forget, cycle or overfit its recent opponents. More
+compute creates more samples from the current learning process; it does not turn
+that process into a proof.
 
-## Will continued self-play produce a perfect model?
+A convincing strong model should repeatedly show:
 
-There is no such guarantee. Neural self-play can plateau, forget useful patterns,
-cycle between strategies or exploit weaknesses specific to recent opponents.
-More compute only produces more samples from the current process; it does not
-turn that process into a proof of optimal play.
+- improving stable validation metrics;
+- positive paired results against current and frozen historical champions;
+- controlled deterministic and exploratory draw rates;
+- balanced results across absolute colors and starter roles;
+- reproducibility across several random seeds.
 
-A convincing **strong** model should satisfy all of these repeatedly:
-
-- immediate and multi-ply tactical suites;
-- stable, explainable W/L/D behavior with and without exploration noise;
-- positive results against frozen historical baselines;
-- progress across multiple seeds and historical checkpoints;
-- calibrated value predictions on held-out games.
-
-A **perfectness claim** requires an independent proof or oracle, but that oracle
-is not part of AlphaZero. For 3×4 it may be used manually to audit a finished
-checkpoint; it must never influence examples, search, promotion or gameplay.
-The normal pipeline intentionally relies only on self-play and fixed learned or
-search baselines, so the same design remains applicable to the planned 5×6 game
-where no tablebase is expected. AlphaZero can be an excellent player without
-being a proof-producing solver.
+The project goal is a genuinely from-scratch AlphaZero learner. Its success is
+measured by internal learning and playing strength, with no external component
+in data generation, targets, search, promotion or runtime play.
 
 ## Can Ratatui development start now?
 
-Yes. The TUI depends on stable engine-side contracts (`Game`, `Action`, `Replay`,
-`ActionAnalysis`) rather than on convergence of the latest model. Training can
-continue independently while UI work proceeds.
-
-For reproducible UI tests, use a fixed checkpoint or `UniformEvaluator` instead
-of whatever `models/latest` happens to reference. The one-player mode can load
-the latest network at runtime, while replay and two-player modes require no
-neural model at all.
-
-The next UI milestone should avoid importing Burn types into widgets. A small
-application/controller layer can expose board state, legal actions and analysis
-rows; Ratatui should only render that state and emit user intents.
+Yes. UI code should consume engine-level state and actions, not Burn tensors.
+Use a fixed checkpoint or `UniformEvaluator` for reproducible interface tests;
+training can advance independently.

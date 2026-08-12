@@ -46,6 +46,10 @@ pub struct OptimizationConfig {
     pub weight_decay: f32,
     pub validation_fraction: f32,
     pub mirror_augmentation: bool,
+    /// Discounts policy imitation when the non-starter's drawn trajectory
+    /// assigns MCTS visit mass to repetitions. Value/WDL supervision is kept.
+    #[serde(default)]
+    pub non_starter_draw_repetition_discount: f32,
     /// When set, train only on this many final positions from decisive games.
     /// `None` restores the regular `AlphaZero` dataset containing every position.
     pub terminal_window_plies: Option<usize>,
@@ -149,6 +153,7 @@ impl Default for TrainingConfig {
                 weight_decay: 1.0e-4,
                 validation_fraction: 0.1,
                 mirror_augmentation: true,
+                non_starter_draw_repetition_discount: 0.0,
                 terminal_window_plies: None,
                 terminal_window_schedule: None,
                 replay_buffer: ReplayBufferConfig::default(),
@@ -278,6 +283,15 @@ impl TrainingConfig {
         {
             return Err(TrainingConfigError::Invalid(
                 "validation fraction must be in [0, 1)",
+            ));
+        }
+        if !optimization
+            .non_starter_draw_repetition_discount
+            .is_finite()
+            || !(0.0..1.0).contains(&optimization.non_starter_draw_repetition_discount)
+        {
+            return Err(TrainingConfigError::Invalid(
+                "non-starter draw repetition discount must be in [0, 1)",
             ));
         }
         validate_terminal_window(optimization)?;

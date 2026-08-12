@@ -156,13 +156,49 @@ fn replay_buffer_retains_generations_and_splits_whole_games() {
         .map(|game| game.seed)
         .collect::<HashSet<_>>();
 
-    assert_eq!(training_seeds.len(), 2);
-    assert_eq!(validation_seeds.len(), 2);
+    assert_eq!(training_seeds.len() + validation_seeds.len(), 4);
+    assert!(!training_seeds.is_empty());
+    assert!(!validation_seeds.is_empty());
     assert!(training_seeds.is_disjoint(&validation_seeds));
     assert!(!training_seeds.contains(&10));
     assert!(!validation_seeds.contains(&10));
-    assert_eq!(split.training_examples(true).len(), 4);
-    assert_eq!(split.validation_examples().len(), 2);
+    assert_eq!(
+        split.training_examples(true).len(),
+        training_seeds.len() * 2
+    );
+    assert_eq!(split.validation_examples().len(), validation_seeds.len());
+}
+
+#[test]
+fn validation_assignment_stays_stable_when_the_buffer_grows() {
+    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).expect("valid buffer");
+    for seed in 1_000..1_100 {
+        buffer.push(recorded_game(1, seed));
+    }
+    let first = buffer.split(0.1, 42).expect("first split");
+    let first_validation = first
+        .validation_games
+        .iter()
+        .map(|game| (game.generation, game.seed))
+        .collect::<HashSet<_>>();
+    assert!(!first_validation.is_empty());
+
+    for seed in 2_000..2_100 {
+        buffer.push(recorded_game(2, seed));
+    }
+    let second = buffer.split(0.1, 42).expect("expanded split");
+    let second_validation = second
+        .validation_games
+        .iter()
+        .map(|game| (game.generation, game.seed))
+        .collect::<HashSet<_>>();
+
+    for seed in 1_000..1_100 {
+        assert_eq!(
+            first_validation.contains(&(1, seed)),
+            second_validation.contains(&(1, seed))
+        );
+    }
 }
 
 #[test]
@@ -258,6 +294,8 @@ fn internal_dataset_diagnostics_separate_draw_sharpness_and_repetition_mass() {
 
     assert_eq!(diagnostics.all.positions, 2);
     assert_eq!(diagnostics.draws.positions, 1);
+    assert_eq!(diagnostics.draw_starter.positions, 1);
+    assert_eq!(diagnostics.draw_non_starter.positions, 0);
     assert_eq!(diagnostics.decisive.positions, 1);
     assert_eq!(diagnostics.draws.immediate_draw_positions, 1);
     assert!(diagnostics.draws.mean_immediate_draw_mass > 0.0);
@@ -316,6 +354,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
+    assert!((config.optimization.non_starter_draw_repetition_discount - 0.9).abs() < f32::EPSILON);
     assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(
         config.optimization.terminal_window_schedule,
@@ -345,6 +384,13 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 
     invalid.arena.games = 200;
     invalid.optimization.terminal_window_plies = Some(0);
+    assert!(matches!(
+        invalid.validate(),
+        Err(TrainingConfigError::Invalid(_))
+    ));
+
+    invalid.optimization.terminal_window_plies = None;
+    invalid.optimization.non_starter_draw_repetition_discount = 1.0;
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
@@ -390,6 +436,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         weight_decay: 0.0,
         validation_fraction: 0.5,
         mirror_augmentation: true,
+        non_starter_draw_repetition_discount: 0.0,
         terminal_window_plies: None,
         terminal_window_schedule: None,
         replay_buffer: ReplayBufferConfig::default(),
@@ -585,6 +632,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             weight_decay: 0.0,
             validation_fraction: 0.5,
             mirror_augmentation: true,
+            non_starter_draw_repetition_discount: 0.0,
             terminal_window_plies: None,
             terminal_window_schedule: None,
             replay_buffer: ReplayBufferConfig {

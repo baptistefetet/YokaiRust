@@ -187,12 +187,23 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.self_play.inference_wait_ms, 1);
     assert_eq!(config.self_play.exploration_plies, 12);
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
+    assert!((config.self_play.repetition_contempt - 0.5).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert_eq!(config.optimization.terminal_window_plies, None);
+    assert_eq!(
+        config.optimization.terminal_window_schedule,
+        Some(TerminalWindowSchedule {
+            initial_plies: 1,
+            growth_factor: 2,
+            decisive_fraction: 0.25,
+            full_dataset_generation: 11,
+        })
+    );
     assert_eq!(config.arena.games, 200);
     assert_eq!(config.arena.workers, 128);
     assert_eq!(config.arena.search_batch_size, 1);
+    assert_eq!(config.arena.opening_plies, 4);
     assert!((config.arena.score_threshold - 0.55).abs() < f32::EPSILON);
     assert_eq!(config.arena.mirror_games, 64);
     assert!((config.arena.max_mirror_draw_rate - 0.35).abs() < f32::EPSILON);
@@ -327,6 +338,7 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
             workers: 2,
             simulations: 16,
             search_batch_size: 1,
+            opening_plies: 4,
             score_threshold: 0.55,
             mirror_games: 2,
             max_mirror_draw_rate: 1.0,
@@ -361,6 +373,7 @@ fn arena_progress_reports_consistent_running_outcomes() {
             workers: 2,
             simulations: 4,
             search_batch_size: 1,
+            opening_plies: 4,
             score_threshold: 0.55,
             mirror_games: 4,
             max_mirror_draw_rate: 1.0,
@@ -452,6 +465,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             workers: 2,
             simulations: 1,
             search_batch_size: 1,
+            opening_plies: 4,
             score_threshold: 0.55,
             mirror_games: 2,
             max_mirror_draw_rate: 1.0,

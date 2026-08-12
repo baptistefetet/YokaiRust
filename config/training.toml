@@ -20,8 +20,10 @@ exploration_plies = 12
 # AlphaZero samples from MCTS visits during the opening, then becomes greedy.
 exploration_temperature = 1.0
 final_temperature = 0.0
-# Official game outcomes and replay values score draws as zero.
-repetition_contempt = 0.0
+# Search discourages the player that causes a repetition. Persisted outcomes and
+# every value target still use the official draw value zero. Set this to 0.0 for
+# the unshaped AlphaZero experiment described in the documentation.
+repetition_contempt = 0.5
 
 [optimization]
 # A fixed update budget prevents later generations from receiving more gradient
@@ -33,8 +35,14 @@ learning_rate = 0.001
 weight_decay = 0.0001
 validation_fraction = 0.1
 mirror_augmentation = true
-# `terminal_window_plies` may be set for a focused diagnostic experiment. Its
-# absence is the regular AlphaZero dataset containing every played position.
+# Every position remains in the dataset. During bootstrap, decisive tails are
+# temporarily oversampled; the extra sampling stops automatically at attempt 11.
+
+[optimization.terminal_window_schedule]
+initial_plies = 1
+growth_factor = 2
+decisive_fraction = 0.25
+full_dataset_generation = 11
 
 [optimization.replay_buffer]
 max_games = 20000
@@ -48,6 +56,9 @@ games = 200
 workers = 128
 simulations = 400
 search_batch_size = 1
+# Each pair shares a random legal 0-4 ply opening, then the networks exchange
+# colors. This provides diverse, reproducible games without search noise.
+opening_plies = 4
 score_threshold = 0.55
 # The candidate must pass both draw gates as well as the official 55% arena.
 # A rejected checkpoint remains available for diagnosis but can never generate

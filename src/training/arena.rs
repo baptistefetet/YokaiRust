@@ -1,8 +1,8 @@
 //! Paired, noise-free new-network versus reference-network evaluation.
 
-use std::sync::Mutex;
+use std::{collections::HashSet, sync::Mutex};
 
-use rand::SeedableRng;
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,10 @@ pub struct ArenaResult {
     pub threshold_reached: bool,
     pub candidate_as_first: ArenaSeatResult,
     pub candidate_as_second: ArenaSeatResult,
+    /// Number of different seeded opening histories represented by the games.
+    /// Both games in a color-swapped pair deliberately count as one opening.
+    #[serde(default)]
+    pub distinct_openings: usize,
 }
 
 /// Candidate results for one absolute player assignment.
@@ -61,8 +65,8 @@ impl ArenaProgress {
     }
 }
 
-/// Runs paired seeds with alternating candidate colors, no root noise, and
-/// temperature zero.
+/// Runs paired, reproducible openings with alternating candidate colors, no
+/// root noise, and temperature zero.
 ///
 /// # Errors
 ///
@@ -133,12 +137,11 @@ where
                 } else {
                     Player::Second
                 };
-                let outcome = play_arena_game(
+                let (outcome, opening) = play_arena_game(
                     (*candidate).clone(),
                     (*reference).clone(),
                     candidate_player,
-                    config.simulations,
-                    config.search_batch_size,
+                    config,
                     max_game_plies,
                     paired_seed,
                 )?;
@@ -152,7 +155,7 @@ where
                     ArenaGameOutcome::Draw => running.draws += 1,
                 }
                 progress(*running);
-                Ok((candidate_player, outcome))
+                Ok((candidate_player, outcome, opening))
             })
             .collect::<Result<Vec<_>, ArenaError>>()
     })?;
@@ -162,7 +165,9 @@ where
     let mut draws = 0;
     let mut candidate_as_first = ArenaSeatResult::default();
     let mut candidate_as_second = ArenaSeatResult::default();
-    for (candidate_player, outcome) in outcomes {
+    let mut openings = HashSet::new();
+    for (candidate_player, outcome, opening) in outcomes {
+        openings.insert(opening);
         let seat = match candidate_player {
             Player::First => &mut candidate_as_first,
             Player::Second => &mut candidate_as_second,
@@ -191,6 +196,7 @@ where
         threshold_reached: score >= config.score_threshold,
         candidate_as_first,
         candidate_as_second,
+        distinct_openings: openings.len(),
     })
 }
 
@@ -198,16 +204,15 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
     candidate: C,
     reference: H,
     candidate_player: Player,
-    simulations: u32,
-    search_batch_size: usize,
+    config: &ArenaConfig,
     max_game_plies: usize,
     seed: u64,
-) -> Result<ArenaGameOutcome, ArenaError> {
-    let mut starting_rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut game = Game::new_random(&mut starting_rng);
+) -> Result<(ArenaGameOutcome, u64), ArenaError> {
+    let mut game = random_opening_game(seed, config.opening_plies)?;
+    let opening = game.history_fingerprint();
     let search_config = SearchConfig {
-        simulations,
-        evaluation_batch_size: search_batch_size,
+        simulations: config.simulations,
+        evaluation_batch_size: config.search_batch_size,
         ..SearchConfig::default()
     };
     let mut candidate_search = Mcts::new(candidate, search_config, seed.wrapping_mul(2))?;
@@ -233,12 +238,36 @@ fn play_arena_game<C: Evaluator, H: Evaluator>(
         let _reference_reused = reference_search.advance_root(result.best_action, &game);
     }
 
-    Ok(match game.outcome() {
+    let outcome = match game.outcome() {
         Outcome::Draw { .. } => ArenaGameOutcome::Draw,
         Outcome::Win { player, .. } if player == candidate_player => ArenaGameOutcome::CandidateWin,
         Outcome::Win { .. } => ArenaGameOutcome::ReferenceWin,
         Outcome::Ongoing => unreachable!("arena loop ends only on a terminal game"),
-    })
+    };
+    Ok((outcome, opening))
+}
+
+fn random_opening_game(seed: u64, opening_plies: usize) -> Result<Game, MoveError> {
+    let mut starting_rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut game = Game::new_random(&mut starting_rng);
+    let opening_length = starting_rng.random_range(0..=opening_plies);
+    for _ in 0..opening_length {
+        let non_terminal_actions = game
+            .legal_actions()
+            .iter()
+            .copied()
+            .filter(|&action| {
+                let mut next = game.clone();
+                next.apply(action).is_ok() && !next.outcome().is_terminal()
+            })
+            .collect::<Vec<_>>();
+        if non_terminal_actions.is_empty() {
+            break;
+        }
+        let action = non_terminal_actions[starting_rng.random_range(0..non_terminal_actions.len())];
+        game.apply(action)?;
+    }
+    Ok(game)
 }
 
 #[derive(Clone, Copy)]
@@ -274,4 +303,28 @@ pub enum ArenaError {
     ThreadPool(#[from] rayon::ThreadPoolBuildError),
     #[error("arena progress state was poisoned by a panicking worker")]
     ProgressStatePoisoned,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::random_opening_game;
+
+    #[test]
+    fn paired_openings_are_reproducible_and_diverse() {
+        let left = random_opening_game(123, 4).expect("first opening");
+        let right = random_opening_game(123, 4).expect("paired opening");
+        assert_eq!(left.position_history(), right.position_history());
+        assert_eq!(left.actions(), right.actions());
+
+        let openings = (0..100)
+            .map(|seed| {
+                random_opening_game(seed, 4)
+                    .expect("seeded opening")
+                    .history_fingerprint()
+            })
+            .collect::<HashSet<_>>();
+        assert!(openings.len() >= 20, "only {} openings", openings.len());
+    }
 }

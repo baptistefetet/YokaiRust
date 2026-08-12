@@ -90,19 +90,28 @@ to predict zero, creating a feedback loop. This can reflect an inaccurate value
 estimate, but it can also be the correct decision against an equally strong
 opponent.
 
-The standard configuration keeps the official objective: all positions remain
-in the dataset and repetition contempt is zero. Three separate measurements
-both expose the behavior and protect the next self-play source:
+The standard bootstrap keeps every position and every official result, but uses
+repetition contempt 0.5 inside self-play search. A player that causes the third
+occurrence sees that leaf as unfavorable; the replay and value target still
+store the official draw value zero. Three separate measurements both expose the
+behavior and protect the next self-play source:
 
 - self-play W/L/D shows behavior with exploration;
-- the mirror probe exposes deterministic repetition cycles;
-- the paired arena tells whether the new network improved against its predecessor.
+- the mirror probe exposes deterministic repetition cycles from the official
+  initial position;
+- the paired arena measures improvement on shared random legal 0-4 ply openings.
+
+The two games of each arena pair start from the same opening and exchange the
+candidate's absolute color. This cancels much of the opening and move-order
+bias. Using different seeds without different openings is not sufficient in a
+noise-free, temperature-zero search: it merely repeats the same deterministic
+trajectory and makes a nominal 200-game score look more informative than it is.
 
 The fixed-step generation-12 run demonstrates why no single draw threshold can
 diagnose strength: it drew 141/256 self-play games, yet beat generations 1, 4
 and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
-Terminal windows and repetition contempt remain explicit research experiments,
-not hidden corrections to the default algorithm.
+Setting `repetition_contempt = 0.0` restores the neutral experiment. The shaped
+default is explicit because neutral runs repeatedly poisoned later candidates.
 
 The August v7 diagnostic showed why a search-only contempt is not sufficient:
 it reduced the first two self-play batches to 1/256 and 6/256 draws, but the

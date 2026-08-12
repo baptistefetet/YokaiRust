@@ -299,8 +299,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             workers,
             simulations,
             search_batch_size,
+            opening_plies,
         } => eprintln!(
-            "[{elapsed}] arena started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaf/inference; progress is completion-ordered"
+            "[{elapsed}] arena started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaf/inference, paired random openings=0-{opening_plies} plies; progress is completion-ordered"
         ),
         TrainingProgress::ArenaAdvanced { progress } => eprintln!(
             "[{elapsed}] arena {}/{} ({:.1}%): candidate/reference/draw={}/{}/{}, current_score={:.3}",
@@ -318,8 +319,12 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             reference_inference,
         } => {
             eprintln!(
-                "[{elapsed}] arena finished: candidate/reference/draw={}/{}/{}, score={:.3}",
-                result.candidate_wins, result.reference_wins, result.draws, result.score
+                "[{elapsed}] arena finished: candidate/reference/draw={}/{}/{}, score={:.3}, distinct_openings={}",
+                result.candidate_wins,
+                result.reference_wins,
+                result.draws,
+                result.score,
+                result.distinct_openings,
             );
             print_arena_seats(&elapsed, result);
             print_inference_stats(&elapsed, "candidate inference", candidate_inference);

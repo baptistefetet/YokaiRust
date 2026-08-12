@@ -30,11 +30,12 @@ first trainable AlphaZero pipeline:
   atomically published pointer to the accepted champion;
 - reproducible parallel self-play, a rolling replay buffer and whole-game
   training/validation splits;
-- the complete AlphaZero dataset by default, with a terminal-window mode kept
-  only for focused diagnostic experiments;
+- the complete AlphaZero dataset, with temporary decisive-tail oversampling
+  during bootstrap;
 - explicit policy/value metrics, including entropy, calibration, illegal policy
   mass and top-1 accuracy;
-- a paired, color-alternating promotion arena against the champion;
+- a paired, color-alternating promotion arena against the champion, using
+  reproducible short openings to avoid replaying one deterministic game;
 - noise-free mirror and noisy self-play gates against repetition cycles;
 - unit and property-based tests.
 
@@ -116,7 +117,9 @@ noisy self-play probe. Rejected checkpoints remain available for diagnosis, but
 never generate later training data. Self-play adds Dirichlet noise at every
 root, samples from MCTS visits for the first 12 plies, then becomes greedy. All
 non-terminal positions produced by the champion enter the rolling buffer and
-official draws always have value zero.
+official draws always have value zero. The checked-in bootstrap additionally
+discourages the player that causes a repetition inside self-play MCTS and
+temporarily oversamples decisive tails; neither changes stored game outcomes.
 
 ```bash
 # Run one generation with the checked-in Metal configuration.
@@ -175,11 +178,11 @@ buffer. Adam moments are stored with every generation and restored before the
 next one; the log reports `Adam resumed=true` when continuity was recovered.
 Validation is diagnostic and runs every `validation_interval_steps` updates.
 
-An optional terminal-window schedule can emphasize decisive tactics without
-manual generation-by-generation edits. The complete replay buffer always stays
-in the training set; terminal positions are additionally sampled until they
-reach `decisive_fraction`. Their window starts at `initial_plies`, is multiplied
-by `growth_factor` each generation, and the extra sampling ends at
+The enabled terminal-window schedule emphasizes decisive tactics without manual
+generation-by-generation edits. The complete replay buffer always stays in the
+training set; terminal positions are additionally sampled until they reach
+`decisive_fraction`. Their window starts at `initial_plies`, is multiplied by
+`growth_factor` each candidate attempt, and the extra sampling ends at
 `full_dataset_generation`. Reports store the effective window and number of
 extra examples, so a resumed run follows the same deterministic curriculum.
 
@@ -303,13 +306,52 @@ against generation 1 by 0-200. Continuous latest-network publication had
 already made this regressed candidate the next self-play source. Avoiding draws
 therefore cannot substitute for a strength gate.
 
-The practical conclusion is stricter than the earlier frozen-baseline result:
-relative improvement and lower losses are not sufficient. The current loop is
-still not accepted for unattended long training because a draw-heavy model
-eventually reduces useful outcome diversity, while forced anti-repetition can
-produce a decisively weaker model. Before another long run, self-play must be
-anchored to a champion that changes only after the candidate passes the paired
-55% arena. Rejected candidates must never become the next data generator.
+The practical conclusion was stricter than the earlier frozen-baseline result:
+relative improvement and lower losses were not sufficient. It motivated the
+current guarded loop, where self-play remains anchored to a champion and every
+candidate must pass the paired 55% arena plus both draw gates. Rejected
+candidates never become the next data generator.
+
+### Guarded 15-generation validation (August 2026)
+
+Two clean 15-candidate campaigns validate both the protection and the bootstrap
+remedy. The first (`guarded-v8`) used neutral self-play and no terminal
+oversampling. It promoted generations 3, 4 and 6, then correctly kept champion
+6 while candidates 8–15 repeatedly converged on deterministic cycles. Several
+would have passed the strength arena with 100 wins and 100 draws, but produced
+64/64 mirror draws and were rejected.
+
+The second (`guarded-curriculum-v9`) combined the same gates with self-play
+repetition contempt 0.5 and temporary decisive-tail oversampling. It promoted
+generations 1, 4, 5, 7 and 13. Extra tail sampling was already zero from
+generation 4 and disabled structurally at generation 11; the later promotion
+of generation 13 therefore did not depend on a permanently restricted dataset.
+
+These two campaigns also exposed a flaw in their strength measurement: without
+search noise or opening diversification, an arena seed changed only the random
+first player. Its 200 games therefore repeated very few deterministic paths;
+the frequent 100-game result blocks were not 200 independent observations.
+The draw gates still prevented contaminated checkpoints from becoming
+champions, but the historical arena scores below must not be overinterpreted.
+The current arena instead gives each color-swapped pair the same random legal
+0-4 ply opening and reports the number of distinct openings it actually used.
+
+| Measurement after candidate 15 | Guarded v8 | Guarded curriculum v9 |
+| --- | ---: | ---: |
+| Accepted champion | 6 | 13 |
+| Promotions | 3 | 5 |
+| Drawn self-play games in full buffer | 393/3840 (10.2%) | 231/3840 (6.0%) |
+| Draw positions in full buffer | 12,766/129,242 (9.9%) | 9,608/142,397 (6.7%) |
+| Final candidate exploratory draws | 28/64 (43.8%) | 9/64 (14.1%) |
+
+The v9 self-play batches ranged from 1 to 31 draws out of 256, rather than
+entering the earlier majority-draw regime. A separate generation-13 probe made
+the remaining limitation explicit: neutral noisy self-play drew 19/64 games,
+whereas shaped self-play drew 4/64. The accepted network is therefore not proved
+optimal and the search shaping still matters. Its official noise-free 400-search
+mirror was nevertheless 0/64 draws, which is directly relevant to future
+one-player play from the initial position. Move-order results remain mixed, so
+the known forced win for the second mover has not yet been learned reliably.
 
 ### Historical guarded-pipeline observations
 

@@ -144,6 +144,7 @@ pub enum TrainingProgress {
         workers: usize,
         simulations: u32,
         search_batch_size: usize,
+        opening_plies: usize,
     },
     ArenaAdvanced {
         progress: ArenaProgress,
@@ -446,6 +447,7 @@ where
         workers: config.arena.workers,
         simulations: config.arena.simulations,
         search_batch_size: config.arena.search_batch_size,
+        opening_plies: config.arena.opening_plies,
     });
     let (source_for_arena, _) =
         load_generation::<B::InnerBackend>(models_root, source_metadata.generation, device)?;
@@ -620,6 +622,9 @@ where
     });
     let mirror_config = crate::ArenaConfig {
         games: config.arena.mirror_games,
+        // Keep this diagnostic anchored to the real initial position. The
+        // promotion arena above is the diversified strength measurement.
+        opening_plies: 0,
         score_threshold: 1.0,
         ..config.arena.clone()
     };

@@ -1,6 +1,7 @@
 //! Explicit local performance probes. They are ignored by the normal suite.
 
 use std::{
+    env,
     hint::black_box,
     path::Path,
     time::{Duration, Instant},
@@ -112,6 +113,7 @@ fn benchmark_metal_default_arena() {
             workers: 128,
             simulations: 400,
             search_batch_size: 1,
+            opening_plies: 4,
             score_threshold: 0.55,
             mirror_games: 64,
             max_mirror_draw_rate: 0.35,
@@ -167,6 +169,7 @@ fn compare_saved_generations_in_both_argument_orders() {
         workers: 16,
         simulations: 100,
         search_batch_size: 1,
+        opening_plies: 4,
         score_threshold: 0.55,
         mirror_games: 20,
         max_mirror_draw_rate: 1.0,
@@ -222,6 +225,7 @@ fn compare_continuous_generations_by_absolute_player() {
         workers: 128,
         simulations: 400,
         search_batch_size: 1,
+        opening_plies: 4,
         score_threshold: 0.55,
         mirror_games: 200,
         max_mirror_draw_rate: 1.0,
@@ -259,6 +263,7 @@ fn compare_fixed_step_generation_12_against_history() {
         workers: 40,
         simulations: 400,
         search_batch_size: 1,
+        opening_plies: 4,
         score_threshold: 0.55,
         mirror_games: 40,
         max_mirror_draw_rate: 1.0,
@@ -364,15 +369,19 @@ fn compare_generation_12_exploration_schedules() {
 #[ignore = "manual saved-champion self-play diagnostic"]
 #[allow(clippy::cast_precision_loss)]
 fn compare_saved_champion_search_modes() {
-    const GENERATION: u32 = 13;
-    for (label, simulations, repetition_contempt) in [
-        ("neutral-curriculum-200", 200, 0.0_f32),
-        ("neutral-full-search-400", 400, 0.0_f32),
+    let models = env::var("YOKAI_DIAGNOSTIC_MODELS").unwrap_or_else(|_| "models".to_owned());
+    let generation = env::var("YOKAI_DIAGNOSTIC_GENERATION")
+        .map_or_else(|_| Ok(13), |value| value.parse::<u32>())
+        .expect("diagnostic generation must be an unsigned integer");
+    for (label, simulations, repetition_contempt, exploration_temperature) in [
+        ("neutral-self-play", 200, 0.0_f32, 1.0_f32),
+        ("shaped-self-play", 200, 0.5_f32, 1.0_f32),
+        ("neutral-zero-temperature", 200, 0.0_f32, 0.0_f32),
     ] {
         let workers = 16_usize;
         let search_batch_size = 8_usize;
         let device = burn::backend::wgpu::WgpuDevice::default();
-        let (model, _) = load_generation::<MetalBackend>(Path::new("models"), GENERATION, &device)
+        let (model, _) = load_generation::<MetalBackend>(Path::new(&models), generation, &device)
             .expect("saved champion checkpoint");
         let service = InferenceService::start_with_batching(
             NetworkEvaluator::new(model, device),
@@ -390,12 +399,12 @@ fn compare_saved_champion_search_modes() {
             inference_batch_size: 128,
             inference_wait_ms: 1,
             exploration_plies: 12,
-            exploration_temperature: 0.0,
+            exploration_temperature,
             final_temperature: 0.0,
             repetition_contempt,
         };
         let started = Instant::now();
-        let games = generate_self_play(&service.client(), &config, GENERATION, 50_000)
+        let games = generate_self_play(&service.client(), &config, generation, 50_000)
             .expect("diagnostic self-play");
         let draws = games
             .iter()
@@ -438,6 +447,7 @@ fn compare_saved_champion_against_itself() {
         workers: 32,
         simulations: 400,
         search_batch_size: 1,
+        opening_plies: 4,
         score_threshold: 0.55,
         mirror_games: 32,
         max_mirror_draw_rate: 1.0,

@@ -11,7 +11,7 @@ use crate::{
 };
 
 const POLICY_TOLERANCE: f32 = 1.0e-4;
-pub const CYCLE_RESTART_MIN_PLIES: usize = 2;
+pub const CYCLE_RESTART_MIN_PLIES: usize = 1;
 pub const CYCLE_RESTART_MAX_PLIES: usize = 8;
 
 /// Aggregate diagnostics derived only from self-play policy targets.
@@ -107,7 +107,7 @@ impl SelfPlayGame {
         self.selected_examples(mirror, None)
     }
 
-    /// Reconstructs ongoing prefixes two to eight plies before a recorded draw.
+    /// Reconstructs ongoing prefixes one to eight plies before a recorded draw.
     ///
     /// # Errors
     ///

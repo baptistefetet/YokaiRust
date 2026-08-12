@@ -222,7 +222,7 @@ the non-starter is pushed to search for a conversion.
 
 ### 3. Restarts spend search near the failure
 
-One quarter of trajectories restart two to eight plies before a historical
+One quarter of trajectories restart one to eight plies before a historical
 threefold repetition. The full prefix is replayed, so exact repetition state,
 starter role and encoder history remain valid. These targeted trajectories use
 800 MCTS simulations per move instead of the regular 200. The local temperature

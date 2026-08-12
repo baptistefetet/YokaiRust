@@ -224,8 +224,8 @@ fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_frac
         .cycle_restart_replays()
         .expect("cycle prefixes must validate");
 
-    assert_eq!(archive.len(), 7);
-    assert_eq!(archive[0].actions.len(), 18);
+    assert_eq!(archive.len(), 8);
+    assert_eq!(archive[0].actions.len(), 19);
     assert!(archive.iter().all(|prefix| {
         prefix
             .to_game()

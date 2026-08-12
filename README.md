@@ -94,7 +94,7 @@ under the configured data path. Generation-boundary writes are atomic.
 ### One generation
 
 1. Let the champion generate 75% of trajectories from fresh initial
-   states and restart 25% two to eight plies before observed repetition cycles.
+   states and restart 25% one to eight plies before observed repetition cycles.
 2. Add every resulting position and its official W/D/L result to the rolling
    replay buffer.
 3. Resume the champion's weights and Adam moments for a fixed 400 updates.

@@ -16,10 +16,9 @@ use crate::{
     ModelMetadata, ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer,
     ReplayBufferConfig, ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample,
     TrainingReport, TrainingStepReport, dataset_diagnostics, generate_self_play_with_progress,
-    generate_self_play_with_restarts_and_progress, load_champion, load_generation, load_learner,
+    generate_self_play_with_restarts_and_progress, load_champion, load_generation,
     load_training_generation, next_generation, planned_restart_count, publish_champion,
-    publish_learner, run_arena_with_progress, save_generation, save_training_generation,
-    train_state_with_progress,
+    run_arena_with_progress, save_generation, save_training_generation, train_state_with_progress,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -42,9 +41,6 @@ pub struct GameOutcomeStats {
 pub struct GenerationReport {
     /// Accepted checkpoint used as the official arena reference.
     pub source_generation: u32,
-    /// Checkpoint whose weights and optimizer initialized this candidate.
-    #[serde(default)]
-    pub learner_source_generation: u32,
     /// Checkpoint that generated this generation's self-play games.
     #[serde(default)]
     pub self_play_source_generation: u32,
@@ -109,7 +105,6 @@ impl PromotionDecision {
 pub enum TrainingProgress {
     GenerationStarted {
         source_generation: u32,
-        learner_generation: u32,
         candidate_generation: u32,
     },
     SelfPlayStarted {
@@ -212,7 +207,6 @@ pub enum TrainingProgress {
     CandidateRejected {
         generation: u32,
         decision: PromotionDecision,
-        learner_generation: u32,
     },
 }
 
@@ -236,7 +230,6 @@ pub fn bootstrap_champion<B: Backend>(
     let metadata = ModelMetadata::new(generation, architecture);
     save_generation(root, &metadata, &model)?;
     publish_champion(root, generation)?;
-    publish_learner(root, generation)?;
     Ok(metadata)
 }
 
@@ -258,8 +251,7 @@ pub fn bootstrap_latest<B: Backend>(
 /// # Errors
 ///
 /// Official strength and both draw gates must pass before the champion changes.
-/// The private learner may still advance after a draw-only rejection, so its
-/// next batch of self-play can explore beyond that temporary plateau.
+/// A rejected candidate never becomes a training or self-play source.
 pub fn run_generation<B>(
     config: &TrainingConfig,
     buffer: &mut ReplayBuffer,
@@ -297,18 +289,16 @@ where
     config.validate().map_err(PipelineError::Configuration)?;
     let models_root = Path::new(&config.paths.models);
     let (_, source_metadata) = load_champion::<B::InnerBackend>(models_root, device)?;
-    let (_, learner_metadata) = load_learner::<B::InnerBackend>(models_root, device)?;
     let candidate_generation = next_generation(models_root)?;
     progress(TrainingProgress::GenerationStarted {
         source_generation: source_metadata.generation,
-        learner_generation: learner_metadata.generation,
         candidate_generation,
     });
 
     let persisted_games = load_self_play_generation(
         &config.paths.self_play,
         candidate_generation,
-        learner_metadata.generation,
+        source_metadata.generation,
     )?;
     let games = if let Some(games) = persisted_games {
         let examples = games.iter().map(|game| game.examples.len()).sum();
@@ -333,7 +323,7 @@ where
             planned_restarts,
         });
         let (source_for_self_play, _) =
-            load_generation::<B::InnerBackend>(models_root, learner_metadata.generation, device)?;
+            load_generation::<B::InnerBackend>(models_root, source_metadata.generation, device)?;
         let self_play_service = InferenceService::start_with_batching(
             NetworkEvaluator::new(source_for_self_play, device.clone()),
             config
@@ -348,7 +338,7 @@ where
         let games = generate_self_play_with_restarts_and_progress(
             &self_play_client,
             &config.self_play,
-            learner_metadata.generation,
+            source_metadata.generation,
             config
                 .seed
                 .wrapping_add(u64::from(candidate_generation) << 32),
@@ -449,14 +439,14 @@ where
     });
     let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
         models_root,
-        learner_metadata.generation,
+        source_metadata.generation,
         &config.optimization,
         device,
     )? {
         (state, true)
     } else {
         let (source_for_training, _) =
-            load_generation::<B>(models_root, learner_metadata.generation, device)?;
+            load_generation::<B>(models_root, source_metadata.generation, device)?;
         (
             AlphaZeroTrainingState::new(source_for_training, &config.optimization),
             false,
@@ -486,7 +476,7 @@ where
         completed_steps: training.steps_completed,
     });
     let candidate_metadata =
-        ModelMetadata::new(candidate_generation, learner_metadata.architecture.clone());
+        ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
     save_training_generation(models_root, &candidate_metadata, &training_state)?;
     let candidate = training_state.model.valid();
     progress(TrainingProgress::CandidateSaved {
@@ -543,25 +533,19 @@ where
     let promotion = promotion_decision(&arena, &candidate_diagnostics, config);
     if promotion.promoted() {
         publish_champion(models_root, candidate_generation)?;
-        publish_learner(models_root, candidate_generation)?;
         progress(TrainingProgress::ChampionPromoted {
             generation: candidate_generation,
         });
     } else {
-        let learner_generation =
-            next_learner_generation(promotion, source_metadata.generation, candidate_generation);
-        publish_learner(models_root, learner_generation)?;
         progress(TrainingProgress::CandidateRejected {
             generation: candidate_generation,
             decision: promotion,
-            learner_generation,
         });
     }
 
     let report = GenerationReport {
         source_generation: source_metadata.generation,
-        learner_source_generation: learner_metadata.generation,
-        self_play_source_generation: learner_metadata.generation,
+        self_play_source_generation: source_metadata.generation,
         candidate_generation,
         generated_games: games.len(),
         restarted_games,
@@ -615,18 +599,6 @@ fn promotion_decision(
         arena_passed,
         mirror_draw_gate_passed,
         exploratory_draw_gate_passed,
-    }
-}
-
-const fn next_learner_generation(
-    promotion: PromotionDecision,
-    champion_generation: u32,
-    candidate_generation: u32,
-) -> u32 {
-    if promotion.arena_passed {
-        candidate_generation
-    } else {
-        champion_generation
     }
 }
 
@@ -970,26 +942,4 @@ pub enum PipelineError {
     Io(#[from] io::Error),
     #[error("training pipeline JSON error: {0}")]
     Json(#[from] serde_json::Error),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{PromotionDecision, next_learner_generation};
-
-    #[test]
-    fn draw_only_rejection_advances_learner_but_strength_regression_rolls_back() {
-        let draw_only_rejection = PromotionDecision {
-            arena_passed: true,
-            mirror_draw_gate_passed: false,
-            exploratory_draw_gate_passed: false,
-        };
-        let strength_regression = PromotionDecision {
-            arena_passed: false,
-            mirror_draw_gate_passed: true,
-            exploratory_draw_gate_passed: true,
-        };
-
-        assert_eq!(next_learner_generation(draw_only_rejection, 6, 15), 15);
-        assert_eq!(next_learner_generation(strength_regression, 6, 15), 6);
-    }
 }

@@ -13,8 +13,7 @@ use yokai::{
     EvaluationError, EvaluationRequest, Evaluator, Game, HandPiece, INPUT_PLANES, InferenceService,
     MetalBackend, ModelMetadata, ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece,
     PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_generation,
-    load_latest, load_learner, policy_context_batch_tensor, publish_latest, publish_learner,
-    save_generation,
+    load_latest, policy_context_batch_tensor, publish_latest, save_generation,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -335,10 +334,6 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
 
     save_generation(&root, &metadata, &model).expect("generation save");
     publish_latest(&root, 3).expect("latest publication");
-    let (_, fallback_learner_metadata) =
-        load_learner::<CpuBackend>(&root, &device).expect("learner falls back to champion");
-    assert_eq!(fallback_learner_metadata.generation, 3);
-    publish_learner(&root, 3).expect("learner publication");
     let (loaded, loaded_metadata) = load_latest::<CpuBackend>(&root, &device).expect("latest load");
     let after = loaded
         .forward(

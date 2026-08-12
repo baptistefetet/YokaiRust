@@ -29,7 +29,6 @@ pub const MODEL_FORMAT_VERSION: u16 = 2;
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";
-const LEARNER_FILE: &str = "learner";
 const LEGACY_CHAMPION_FILE: &str = "champion";
 const TRAINING_MODEL_FILE: &str = "training-model";
 const OPTIMIZER_FILE: &str = "optimizer";
@@ -102,8 +101,6 @@ pub enum ModelStoreError {
     GenerationMissing(u32),
     #[error("champion pointer is missing or invalid")]
     InvalidLatest,
-    #[error("learner pointer is invalid")]
-    InvalidLearner,
 }
 
 /// Writes a complete generation and atomically makes its final directory
@@ -304,16 +301,6 @@ pub fn publish_champion(root: impl AsRef<Path>, generation: u32) -> Result<(), M
     publish_pointer(root.as_ref(), LATEST_FILE, generation)
 }
 
-/// Atomically updates the private optimization-lineage pointer.
-///
-/// # Errors
-///
-/// Returns [`ModelStoreError`] when the generation is absent or the pointer
-/// cannot be written.
-pub fn publish_learner(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
-    publish_pointer(root.as_ref(), LEARNER_FILE, generation)
-}
-
 /// Backward-compatible name for [`publish_champion`].
 ///
 /// # Errors
@@ -354,31 +341,6 @@ pub fn load_champion<B: Backend>(
         .trim()
         .parse::<u32>()
         .map_err(|_| ModelStoreError::InvalidLatest)?;
-    load_generation(root, generation, device)
-}
-
-/// Loads the private optimization lineage, falling back to the champion when
-/// no learner pointer has been published yet.
-///
-/// # Errors
-///
-/// Returns [`ModelStoreError`] for an invalid pointer or checkpoint.
-pub fn load_learner<B: Backend>(
-    root: impl AsRef<Path>,
-    device: &B::Device,
-) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
-    let root = root.as_ref();
-    let pointer = match fs::read_to_string(root.join(LEARNER_FILE)) {
-        Ok(pointer) => pointer,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return load_champion(root, device);
-        }
-        Err(error) => return Err(ModelStoreError::Io(error)),
-    };
-    let generation = pointer
-        .trim()
-        .parse::<u32>()
-        .map_err(|_| ModelStoreError::InvalidLearner)?;
     load_generation(root, generation, device)
 }
 

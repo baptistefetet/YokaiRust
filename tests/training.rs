@@ -779,13 +779,8 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
         &fs::read(self_play.join("generation-000001.json")).expect("generation-1 games"),
     )
     .expect("persisted game JSON");
-    let expected_learner = if report.promotion.arena_passed {
-        1
-    } else {
-        expected_champion
-    };
     for game in &mut persisted_games {
-        game.generation = expected_learner;
+        game.generation = expected_champion;
         game.seed = game.seed.wrapping_add(10_000);
     }
     fs::write(
@@ -832,8 +827,11 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             _ => None,
         })
         .expect("training start event");
-    assert_eq!(resumed_report.self_play_source_generation, expected_learner);
-    assert_eq!(optimizer_was_resumed, report.promotion.arena_passed);
+    assert_eq!(
+        resumed_report.self_play_source_generation,
+        expected_champion
+    );
+    assert_eq!(optimizer_was_resumed, report.promoted());
     let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("resumed latest model");
     let expected_champion = if resumed_report.promoted() {
         2

@@ -22,8 +22,8 @@ pub use neural::{
     POLICY_CONTEXT_FEATURES,
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
-        load_latest, load_learner, load_training_generation, next_generation, publish_champion,
-        publish_latest, publish_learner, save_generation, save_training_generation,
+        load_latest, load_training_generation, next_generation, publish_champion, publish_latest,
+        save_generation, save_training_generation,
     },
     encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
     evaluator::{

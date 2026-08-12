@@ -192,10 +192,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
     match event {
         TrainingProgress::GenerationStarted {
             source_generation,
-            learner_generation,
             candidate_generation,
         } => eprintln!(
-            "[{elapsed}] generation {candidate_generation} started: champion {source_generation}, learner {learner_generation}"
+            "[{elapsed}] generation {candidate_generation} started from champion {source_generation}"
         ),
         TrainingProgress::SelfPlayStarted {
             games,
@@ -402,10 +401,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         TrainingProgress::CandidateRejected {
             generation,
             decision,
-            learner_generation,
         } => {
             eprintln!(
-                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_gate={} exploratory_draw_gate={}; learner now {learner_generation}",
+                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_gate={} exploratory_draw_gate={}; champion unchanged",
                 decision.arena_passed,
                 decision.mirror_draw_gate_passed,
                 decision.exploratory_draw_gate_passed,
@@ -444,10 +442,9 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source_champion={} source_learner={} self_play_source={} promoted={} games={} restarted_games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
+        "generation={} source_champion={} self_play_source={} promoted={} games={} restarted_games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
-        report.learner_source_generation,
         report.self_play_source_generation,
         report.promoted(),
         report.generated_games,

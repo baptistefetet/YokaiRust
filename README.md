@@ -18,7 +18,7 @@ The repository contains:
 - CPU tests and WGPU/Metal training on Apple Silicon;
 - parallel self-play, a rolling replay buffer and stable whole-game validation;
 - draw-aware search, cycle-adjacent restarts and guarded model promotion;
-- atomic checkpoints for an accepted champion and a private learner lineage;
+- atomic checkpoints for the accepted champion and its optimizer state;
 - dataset, optimization, arena and draw diagnostics in JSON reports.
 
 The next product milestone is the Ratatui interface. Training can continue
@@ -82,32 +82,31 @@ a 64-game exploratory draw probe per candidate.
 # Start from random generation zero in the configured paths.
 cargo run --release -- train --config config/training.toml --generations 15 --headless
 
-# Resume from the accepted champion, learner state and replay buffer.
+# Resume from the accepted champion, optimizer state and replay buffer.
 cargo run --release -- train --resume latest --generations 5 --headless
 ```
 
 `--headless` disables the future TUI, not textual progress. Checkpoints are
-stored under the configured model path. `latest` points to the accepted
-champion; `learner` may point to a later unpublished checkpoint. Self-play data,
-replays and structured generation reports are stored under the configured data
-path. Generation-boundary writes are atomic.
+stored under the configured model path and `latest` points to the accepted
+champion. Self-play data, replays and structured generation reports are stored
+under the configured data path. Generation-boundary writes are atomic.
 
 ### One generation
 
-1. Let the private learner generate 75% of trajectories from fresh initial
+1. Let the champion generate 75% of trajectories from fresh initial
    states and restart 25% two to eight plies before observed repetition cycles.
 2. Add every resulting position and its official W/D/L result to the rolling
    replay buffer.
-3. Resume the learner's weights and Adam moments for a fixed 400 updates.
+3. Resume the champion's weights and Adam moments for a fixed 400 updates.
 4. Compare the candidate with the champion on paired random 0–4 ply openings.
 5. Measure deterministic initial-position cycles and noisy self-play draws.
 6. Promote only when strength and both draw gates pass.
 
-The two checkpoint pointers have distinct jobs. `champion` is the conservative,
-published reference. `learner` is the model that trains **and generates the next
-self-play batch**. A strong candidate that cycles remains private but advances
-the learner, so later generations can discover a way out of that plateau. A
-candidate that loses the strength arena rolls the learner back to the champion.
+The champion is the sole source of weights, optimizer state and self-play. A
+candidate becomes the new champion only after all three checks pass. A rejected
+candidate is kept as an experiment report but never generates training data.
+The next attempt starts from the same safe checkpoint with a larger replay
+buffer and a different deterministic seed.
 
 ### Draw-aware learning
 

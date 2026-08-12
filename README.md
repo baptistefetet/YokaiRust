@@ -25,6 +25,31 @@ The next product milestone is the Ratatui interface. Training can continue
 independently because the UI only needs the stable `Game`, `Action`, `Replay`
 and analysis contracts.
 
+## JavaScript predecessor
+
+This Rust project follows an earlier browser implementation:
+[`baptistefetet/yokai`](https://github.com/baptistefetet/yokai). That repository
+remains the visual reference for the future interface. Its Phaser front end
+contains the 3×4 and 5×6 boards and piece sprites, animated moves, captures,
+drops and promotions, plus overlays that expose the network's policy and value
+predictions.
+
+It is also an architectural reference for the learning work. Its TensorFlow.js
+network encodes the position from the player-to-move perspective, processes the
+board with two small convolutional layers, joins the result with the pieces in
+hand, then branches into a scalar value head and a policy head. Early
+experiments with datasets restricted to endgame positions gave particularly
+convincing predictions: both the preferred moves and the position evaluations
+were often close to what a human player would expect.
+
+That result is an important baseline, but it answers an easier and more local
+question than the current project. Endgame-only data teaches the network on a
+short horizon with a dense, reliable terminal signal. YokaiRust is trying to
+learn the complete game from random weights and self-play, including the long
+credit-assignment problem that precedes those endgames. The old project is
+therefore a source of UI assets, implementation ideas and experimental
+comparisons—not an oracle or a source of labels for the Rust learner.
+
 ## Guides
 
 - [Reading YokaiRust as a C++ developer learning Rust](docs/reading-guide.md)

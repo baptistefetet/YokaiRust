@@ -246,9 +246,10 @@ is 55.2%, versus 53.8% in v19, so the exact-decision restarts do not produce a
 consistent reduction in that local metric. The mirror gate again prevents a
 superficially strong but cyclic network from becoming the self-play teacher.
 
-The next action is the endgame-distance diagnostic below. Run it on the frozen
-v20 checkpoints before implementing or starting v21; training behavior must
-remain unchanged until that comparison exists.
+The frozen endgame-distance diagnostic below confirms that the largest
+remaining prediction failure is long-horizon WDL, especially for eventual
+draws. The next action is to implement the v21 rollout bootstrap; no other
+training variable should change.
 
 ## Handoff: next JavaScript-informed research program
 
@@ -286,17 +287,51 @@ must be retained until every v21 comparison is complete.
 The structured JSON reports are authoritative if prose and runtime files ever
 disagree.
 
-### 1. Add an endgame-distance diagnostic
+### 1. Frozen v20 endgame-distance diagnostic
 
-Before changing training behavior, report validation policy and WDL metrics by
-distance from the terminal result: `1`, `2–4`, `5–8`, `9–16`, and `17+` plies.
-Keep whole games on one side of the existing stable train/validation split.
-This diagnostic must not alter sampling or gradients.
+The read-only diagnostic is complete for every saved v20 checkpoint from 0
+through 15. Its versioned JSON reports are in
+`data/alpha-zero-draw-aware-v20/diagnostics/endgame-distance/`. Every checkpoint
+was evaluated against the same final-buffer split: 399 complete validation
+games, comprising 75 draws and 324 decisive results, with 13,552 positions.
+The split is the existing stable seed-42 whole-game split, so no game crosses
+between training and validation. The diagnostic changes neither sampling nor
+gradients.
 
-It answers whether the network still predicts endgames well but loses accuracy
-with a longer horizon. Run it on saved v20 checkpoints so v21 has a frozen
-comparison. Report at least example count, policy loss/top-1 and WDL loss/top-1
-for each bucket; keep drawn and decisive positions distinguishable.
+The table below is the final candidate 15. Policy loss uses the configured
+draw-policy weighting, including omission of unresolved drawn non-starter
+targets; example counts still include every official position.
+
+| Distance | Outcome | Examples | Policy loss | Policy top-1 | WDL loss | WDL top-1 |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| 1 | all | 399 | 1.473 | 68.4% | 0.229 | 91.2% |
+| 1 | draw | 75 | 0.915 | 74.7% | 0.699 | 70.7% |
+| 1 | decisive | 324 | 1.602 | 67.0% | 0.121 | 96.0% |
+| 2–4 | all | 1,142 | 1.786 | 55.2% | 0.439 | 84.8% |
+| 2–4 | draw | 178 | 0.955 | 78.7% | 0.786 | 72.5% |
+| 2–4 | decisive | 964 | 1.852 | 50.8% | 0.375 | 87.0% |
+| 5–8 | all | 1,400 | 1.805 | 50.9% | 0.576 | 77.4% |
+| 5–8 | draw | 158 | 1.258 | 62.7% | 1.572 | 38.0% |
+| 5–8 | decisive | 1,242 | 1.843 | 49.4% | 0.449 | 82.4% |
+| 9–16 | all | 2,468 | 1.740 | 52.0% | 0.741 | 70.5% |
+| 9–16 | draw | 235 | 1.702 | 48.5% | 2.392 | 12.3% |
+| 9–16 | decisive | 2,233 | 1.743 | 52.4% | 0.567 | 76.7% |
+| 17+ | all | 8,143 | 1.482 | 59.6% | 0.961 | 54.3% |
+| 17+ | draw | 851 | 1.437 | 60.9% | 2.389 | 5.3% |
+| 17+ | decisive | 7,292 | 1.487 | 59.4% | 0.794 | 60.1% |
+
+Policy accuracy is not a simple function of horizon: the middle `5–8` bucket
+is hardest, while the more regular `17+` positions are easier again. WDL is
+different. Its all-position loss rises from 0.229 at one ply to 0.961 at
+`17+`, and top-1 falls from 91.2% to 54.3%. Decisive WDL also degrades, but the
+dominant failure is draws: draw top-1 collapses from 70.7% at one ply to 5.3%
+at `17+`. Aggregate metrics conceal this because decisive examples outnumber
+draw examples by more than eight to one in the longest bucket.
+
+Champion 13 shows the same plateau: its `17+` all-position WDL is 0.974 / 54.5%
+top-1 and its drawn WDL is 2.549 / 4.9%, nearly identical to candidate 15.
+Candidate 15's strong arena therefore did not repair long-horizon result
+prediction, which is consistent with its four deterministic mirror cycles.
 
 ### 2. v21 changes only the generation-zero bootstrap
 

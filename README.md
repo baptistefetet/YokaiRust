@@ -197,59 +197,62 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v20 through generation 15
+## Latest completed research run: v21 through generation 15
 
-This deterministic run started from random weights. Compared with v19, its only
-change was the targeted-restart distance: a restart may begin one ply before an
-observed repetition draw, instead of two to eight plies before it. At that exact
-decision, the deeper 800-simulation search can explore the alternatives that
-the corrected non-starter target preserves. This remains ordinary self-play
-from an observed game prefix.
+This deterministic run started from random weights. Compared with v20, its only
+change was the generation-zero bootstrap: until candidate 1 was accepted,
+self-play MCTS used uniform priors and seeded random rollouts rather than the
+random neural policy and WDL heads. Candidate training and every promotion
+check remained neural. After that first promotion, generation 2 and all later
+self-play used the ordinary neural evaluator.
 
 `source` is the last accepted champion; `arena` is candidate/champion/draw over
-200 games; `probe` is exploratory draws out of 64. Promotion requires arena
-≥55%, mirror 0/4 and probe ≤12/64.
+200 games; `probe` is exploratory draws out of 64. `P/V` means policy/value
+(WDL). Promotion requires arena ≥55%, mirror 0/4 and probe ≤12/64.
 
-| Gen | Source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
+| Gen | Source | Self-play draws | Train loss P/V | Valid loss P/V | Valid top-1 P/V | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| 1 | 0 | 7/256 | 2.253 | 2.565 / 1.065 | 31.9% | 168/32/0 | 0/4 | 1/64 | promoted |
-| 2 | 1 | 33/256 | 1.858 | 2.238 / 0.973 | 39.1% | 177/23/0 | 0/4 | 1/64 | promoted |
-| 3 | 2 | 34/256 | 1.803 | 2.063 / 0.965 | 44.0% | 148/50/2 | 0/4 | 1/64 | promoted |
-| 4 | 3 | 35/256 | 1.730 | 1.950 / 0.969 | 45.3% | 106/56/38 | 4/4 | 3/64 | draw rejection |
-| 5 | 3 | 49/256 | 1.735 | 1.908 / 0.866 | 47.7% | 161/38/1 | 0/4 | 7/64 | promoted |
-| 6 | 5 | 57/256 | 1.671 | 1.839 / 0.806 | 50.3% | 144/40/16 | 0/4 | 5/64 | promoted |
-| 7 | 6 | 63/256 | 1.646 | 1.771 / 0.816 | 51.0% | 72/46/82 | 4/4 | 15/64 | draw rejection |
-| 8 | 6 | 64/256 | 1.635 | 1.744 / 0.875 | 51.7% | 96/22/82 | 0/4 | 4/64 | promoted |
-| 9 | 8 | 46/256 | 1.560 | 1.676 / 0.859 | 53.7% | 94/38/68 | 4/4 | 7/64 | draw rejection |
-| 10 | 8 | 53/256 | 1.569 | 1.664 / 0.866 | 54.2% | 64/25/111 | 4/4 | 7/64 | draw rejection |
-| 11 | 8 | 50/256 | 1.557 | 1.647 / 0.845 | 54.9% | 107/15/78 | 4/4 | 13/64 | draw rejection |
-| 12 | 8 | 63/256 | 1.554 | 1.638 / 0.827 | 55.1% | 112/22/66 | 0/4 | 9/64 | promoted |
-| 13 | 12 | 57/256 | 1.524 | 1.603 / 0.810 | 56.7% | 84/46/70 | 0/4 | 12/64 | promoted |
-| 14 | 13 | 69/256 | 1.500 | 1.588 / 0.842 | 57.4% | 45/85/70 | 4/4 | 11/64 | strength + draw rejection |
-| 15 | 13 | 63/256 | 1.504 | 1.586 / 0.815 | 57.2% | 117/43/40 | 4/4 | 1/64 | draw rejection |
+| 1 | 0 | 2/256 | 2.449 / 0.256 | 2.901 / 1.419 | 23.3% / 49.6% | 157/43/0 | 0/4 | 1/64 | promoted (rollout) |
+| 2 | 1 | 27/256 | 1.910 / 0.303 | 2.332 / 1.431 | 35.3% / 52.5% | 107/64/29 | 0/4 | 2/64 | promoted |
+| 3 | 2 | 47/256 | 1.776 / 0.337 | 2.145 / 1.150 | 38.7% / 58.3% | 128/22/50 | 0/4 | 0/64 | promoted |
+| 4 | 3 | 52/256 | 1.715 / 0.363 | 2.024 / 1.128 | 42.3% / 59.9% | 96/67/37 | 4/4 | 0/64 | draw rejection |
+| 5 | 3 | 50/256 | 1.706 / 0.439 | 1.940 / 0.973 | 45.5% / 62.8% | 116/31/53 | 4/4 | 4/64 | draw rejection |
+| 6 | 3 | 48/256 | 1.707 / 0.480 | 1.907 / 0.768 | 47.0% / 68.0% | 121/29/50 | 4/4 | 2/64 | draw rejection |
+| 7 | 3 | 47/256 | 1.708 / 0.513 | 1.855 / 0.686 | 48.8% / 67.6% | 121/34/45 | 0/4 | 1/64 | promoted |
+| 8 | 7 | 57/256 | 1.620 / 0.500 | 1.772 / 0.756 | 52.3% / 66.2% | 142/29/29 | 0/4 | 2/64 | promoted |
+| 9 | 8 | 51/256 | 1.602 / 0.502 | 1.757 / 0.776 | 51.8% / 66.2% | 94/92/14 | 0/4 | 3/64 | strength rejection |
+| 10 | 8 | 53/256 | 1.602 / 0.541 | 1.748 / 0.740 | 52.3% / 66.8% | 158/32/10 | 4/4 | 3/64 | draw rejection |
+| 11 | 8 | 51/256 | 1.614 / 0.559 | 1.741 / 0.724 | 53.0% / 66.6% | 160/25/15 | 0/4 | 1/64 | promoted |
+| 12 | 11 | 54/256 | 1.587 / 0.560 | 1.712 / 0.729 | 53.1% / 67.1% | 159/23/18 | 0/4 | 2/64 | promoted |
+| 13 | 12 | 63/256 | 1.576 / 0.559 | 1.689 / 0.762 | 53.5% / 66.4% | 133/44/23 | 0/4 | 7/64 | promoted |
+| 14 | 13 | 54/256 | 1.557 / 0.565 | 1.674 / 0.759 | 53.9% / 66.3% | 132/46/22 | 0/4 | 6/64 | promoted |
+| 15 | 14 | 59/256 | 1.552 / 0.574 | 1.659 / 0.743 | 54.7% / 66.9% | 37/57/106 | 4/4 | 6/64 | strength + draw rejection |
 
-Across 3,840 games and 127,717 positions, validation policy loss fell 38.2%,
-policy top-1 rose from 31.9% to 57.2%, WDL top-1 rose from 58.1% to 63.3%,
-and illegal probability mass fell from 46.9% to 9.2%. Eight candidates were
-promoted. The accepted sequence is `0 -> 1 -> 2 -> 3 -> 5 -> 6 -> 8 -> 12 ->
-13`. Compared with v19, the one-ply restart therefore produced one more
-promotion and moved the final champion from 11 to 13. In particular, candidates
-12 and 13 both passed every gate after three consecutive rejections from
-champion 8.
+Across 3,840 games and 120,165 positions, validation policy loss fell 42.8%
+from candidate 1 to 15 and policy top-1 rose from 23.3% to 54.7%. Validation
+WDL loss fell 47.7% and WDL top-1 rose from 49.6% to 66.9%; illegal policy mass
+fell from 52.7% to 10.2%. Training WDL loss moved in the opposite direction,
+from 0.256 to 0.574, because the rollout generation contained only two draws
+and was much easier than the progressively draw-rich neural buffer. The
+validation trend and frozen diagnostic are the meaningful generalization
+signals, not that raw training comparison by itself.
 
-The change delays the cyclic plateau but does not remove it. Candidate 14 is
-weaker than champion 13 and cycles in all four mirrors. Candidate 15 lowers
-validation policy loss again and beats champion 13 by 117 wins to 43, with
-only 40 arena draws and one exploratory draw, yet all four deterministic
-mirrors still cycle. The final buffer's drawn non-starter immediate-draw mass
-is 55.2%, versus 53.8% in v19, so the exact-decision restarts do not produce a
-consistent reduction in that local metric. The mirror gate again prevents a
-superficially strong but cyclic network from becoming the self-play teacher.
+Nine candidates were promoted. The accepted sequence is `0 -> 1 -> 2 -> 3 ->
+7 -> 8 -> 11 -> 12 -> 13 -> 14`, versus v20's `0 -> 1 -> 2 -> 3 -> 5 -> 6 ->
+8 -> 12 -> 13`. The rollout bootstrap therefore produced a decisive first
+promotion with only 2/256 self-play draws and ultimately one additional
+promotion and a generation-14 champion. It did not make every early target
+better: v21 remained stuck on champion 3 for candidates 4 through 6, whereas
+v20 promoted candidates 5 and 6.
 
-The frozen endgame-distance diagnostic below confirms that the largest
-remaining prediction failure is long-horizon WDL, especially for eventual
-draws. The next action is to implement the v21 rollout bootstrap; no other
-training variable should change.
+The late cyclic failure also remains. Candidate 10 beat champion 8 by
+158 wins to 32 with only 10 arena draws, yet all four mirrors cycled. Candidate
+15 achieved the run's best policy validation loss and top-1, but lost to
+champion 14 by 37 wins to 57 with 106 draws and also cycled in all four mirrors.
+Losses are therefore necessary learning indicators, but not substitutes for
+paired strength and behavioral gates: the network can imitate its increasingly
+cyclic search targets more accurately while becoming a worse game-playing
+teacher.
 
 ## Handoff: next JavaScript-informed research program
 
@@ -275,155 +278,123 @@ Commit and push each implementation separately from its completed experimental
 report. A new conversation must be able to recover the current state and next
 action from this README plus the structured JSON reports alone.
 
-### 0. Frozen v20 baseline
+### 0. Frozen comparison artifacts
 
-The one-ply-restart run is complete through candidate 15 and no trainer is
-writing its directories. Its accepted champion is generation 13, and
-`reports/generation-000015.json` records the final rejected candidate. Runtime
-artifacts remain in `data/alpha-zero-draw-aware-v20` and
-`models/alpha-zero-draw-aware-v20`; they are intentionally ignored by Git and
-must be retained until every v21 comparison is complete.
+The v20 and v21 runs are both complete through candidate 15 and no trainer is
+writing their directories. v20's accepted champion is generation 13; v21's is
+generation 14. In both runs `reports/generation-000015.json` records the final
+rejected candidate. Retain all four ignored runtime directories for subsequent
+comparisons:
+
+- `data/alpha-zero-draw-aware-v20` and `models/alpha-zero-draw-aware-v20`;
+- `data/alpha-zero-draw-aware-v21` and `models/alpha-zero-draw-aware-v21`.
 
 The structured JSON reports are authoritative if prose and runtime files ever
 disagree.
 
-### 1. Frozen v20 endgame-distance diagnostic
+### 1. Frozen v21 endgame-distance diagnostic
 
-The read-only diagnostic is complete for every saved v20 checkpoint from 0
+The read-only diagnostic is complete for every saved v21 checkpoint from 0
 through 15. Its versioned JSON reports are in
-`data/alpha-zero-draw-aware-v20/diagnostics/endgame-distance/`. Every checkpoint
-was evaluated against the same final-buffer split: 399 complete validation
-games, comprising 75 draws and 324 decisive results, with 13,552 positions.
-The split is the existing stable seed-42 whole-game split, so no game crosses
-between training and validation. The diagnostic changes neither sampling nor
-gradients.
+`data/alpha-zero-draw-aware-v21/diagnostics/endgame-distance/`. Every checkpoint
+was evaluated against the same final-buffer split: 410 complete validation
+games, comprising 84 draws and 326 decisive results, with 12,631 positions.
+The split is the stable seed-42 whole-game split, so no game crosses between
+training and validation. The diagnostic changes neither sampling nor gradients.
 
-The table below is the final candidate 15. Policy loss uses the configured
+The table below is final candidate 15. Policy loss uses the configured
 draw-policy weighting, including omission of unresolved drawn non-starter
 targets; example counts still include every official position.
 
 | Distance | Outcome | Examples | Policy loss | Policy top-1 | WDL loss | WDL top-1 |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| 1 | all | 399 | 1.473 | 68.4% | 0.229 | 91.2% |
-| 1 | draw | 75 | 0.915 | 74.7% | 0.699 | 70.7% |
-| 1 | decisive | 324 | 1.602 | 67.0% | 0.121 | 96.0% |
-| 2–4 | all | 1,142 | 1.786 | 55.2% | 0.439 | 84.8% |
-| 2–4 | draw | 178 | 0.955 | 78.7% | 0.786 | 72.5% |
-| 2–4 | decisive | 964 | 1.852 | 50.8% | 0.375 | 87.0% |
-| 5–8 | all | 1,400 | 1.805 | 50.9% | 0.576 | 77.4% |
-| 5–8 | draw | 158 | 1.258 | 62.7% | 1.572 | 38.0% |
-| 5–8 | decisive | 1,242 | 1.843 | 49.4% | 0.449 | 82.4% |
-| 9–16 | all | 2,468 | 1.740 | 52.0% | 0.741 | 70.5% |
-| 9–16 | draw | 235 | 1.702 | 48.5% | 2.392 | 12.3% |
-| 9–16 | decisive | 2,233 | 1.743 | 52.4% | 0.567 | 76.7% |
-| 17+ | all | 8,143 | 1.482 | 59.6% | 0.961 | 54.3% |
-| 17+ | draw | 851 | 1.437 | 60.9% | 2.389 | 5.3% |
-| 17+ | decisive | 7,292 | 1.487 | 59.4% | 0.794 | 60.1% |
+| 1 | all | 410 | 1.692 | 57.6% | 0.168 | 94.4% |
+| 1 | draw | 84 | 2.221 | 10.7% | 0.270 | 91.7% |
+| 1 | decisive | 326 | 1.556 | 69.6% | 0.142 | 95.1% |
+| 2–4 | all | 1,151 | 1.669 | 58.8% | 0.412 | 84.4% |
+| 2–4 | draw | 189 | 0.175 | 95.2% | 0.372 | 93.1% |
+| 2–4 | decisive | 962 | 1.854 | 51.7% | 0.419 | 82.7% |
+| 5–8 | all | 1,335 | 1.779 | 54.6% | 0.528 | 80.0% |
+| 5–8 | draw | 118 | 0.477 | 86.4% | 0.996 | 78.8% |
+| 5–8 | decisive | 1,217 | 1.834 | 51.5% | 0.483 | 80.1% |
+| 9–16 | all | 2,210 | 1.782 | 50.3% | 0.673 | 72.2% |
+| 9–16 | draw | 57 | 1.706 | 50.9% | 3.016 | 12.3% |
+| 9–16 | decisive | 2,153 | 1.783 | 50.3% | 0.611 | 73.8% |
+| 17+ | all | 7,525 | 1.599 | 55.3% | 0.883 | 58.9% |
+| 17+ | draw | 245 | 1.482 | 60.8% | 3.434 | 2.0% |
+| 17+ | decisive | 7,280 | 1.603 | 55.1% | 0.797 | 60.8% |
 
-Policy accuracy is not a simple function of horizon: the middle `5–8` bucket
-is hardest, while the more regular `17+` positions are easier again. WDL is
-different. Its all-position loss rises from 0.229 at one ply to 0.961 at
-`17+`, and top-1 falls from 91.2% to 54.3%. Decisive WDL also degrades, but the
-dominant failure is draws: draw top-1 collapses from 70.7% at one ply to 5.3%
-at `17+`. Aggregate metrics conceal this because decisive examples outnumber
-draw examples by more than eight to one in the longest bucket.
+On this frozen split, candidate 1 to 15 policy loss improves in every distance
+bucket: by 42.9% at one ply, 43.6% at `2–4`, 40.6% at `5–8`, 39.6% at `9–16`
+and 41.8% at `17+`. WDL loss also improves everywhere, but the gain shrinks
+with horizon: 82.7%, 56.8%, 47.6%, 43.6% and 36.1% respectively. Candidate
+15's WDL top-1 correspondingly falls from 94.4% one ply before the result to
+58.9% at `17+`.
 
-Champion 13 shows the same plateau: its `17+` all-position WDL is 0.974 / 54.5%
-top-1 and its drawn WDL is 2.549 / 4.9%, nearly identical to candidate 15.
-Candidate 15's strong arena therefore did not repair long-horizon result
-prediction, which is consistent with its four deterministic mirror cycles.
+The remaining failure is specifically long-horizon draws. Candidate 15 reaches
+91.7% drawn WDL top-1 at one ply and 93.1% at `2–4`, but only 12.3% at `9–16`
+and 2.0% at `17+`. Champion 14 is similar at long range: 4.5% top-1 with 3.322
+WDL loss on drawn `17+` positions. v21 improves all-position long-range WDL
+over v20 candidate 15 (0.883 / 58.9% versus 0.961 / 54.3%), but worsens the
+draw-only result (3.434 / 2.0% versus 2.389 / 5.3%). The splits differ because
+the runs generated different games, so this cross-run comparison is directional
+rather than paired.
 
-### 2. v21 changes only the generation-zero bootstrap
+### 2. v21 conclusion: rollout bootstrap helps initialization, not cycles
 
-The v21 implementation is complete and the checked-in configuration now uses
-fresh `alpha-zero-draw-aware-v21` paths. Until the first candidate is accepted,
-self-play MCTS uses
-uniform legal-action priors and random rollouts instead of generation zero's
-random neural policy and WDL. A rejection leaves champion generation zero in
-place, so the following attempt must also use rollouts. Immediately after the
-first promotion, all self-play returns to the ordinary neural evaluator.
+The rollout implementation and 15-generation experiment are complete. Reports
+persist the evaluator metadata, and generation 1 records
+`random_rollout { max_plies: 512 }`; generation 2 records `neural`, proving the
+switch happened immediately after the first promotion. Candidate training,
+arena, mirror and probe remained neural throughout.
 
-This is an explicit, validated configuration option, not a hidden candidate
-attempt special case. The activation condition is the accepted source champion
-being generation zero. v21 uses `models/alpha-zero-draw-aware-v21` and
-`data/alpha-zero-draw-aware-v21`; it never reuses the v20 buffer or weights.
+The bootstrap gives a cleaner first dataset and a stronger final accepted
+sequence than v20, but it does not solve the feedback loop. It neither prevents
+mid-run mirror rejections nor teaches the WDL head to recognize distant draws.
+The result supports keeping rollout bootstrap as the baseline while changing a
+different variable next; it does not justify relaxing either draw gate.
 
-The intended configuration shape is explicit enough to survive resume:
+### 3. Next experiment: v22 changes only the hand representation
 
-```toml
-[self_play.bootstrap]
-mode = "random_rollout_until_first_promotion"
-rollout_max_plies = 512
-```
+Create fresh `alpha-zero-draw-aware-v22` model and data paths. Keep v21's
+rollout bootstrap, seed 42, game budgets, replay sampling, optimizer schedule,
+restart logic, promotion threshold and draw gates unchanged. The sole ablation
+is the encoder/network boundary:
 
-The rollout contract is:
+- a hand is an unordered count per droppable piece type and player;
+- keep every board-history feature spatial;
+- move the existing normalized hand counts, repetition count and starter flag
+  out of constant board planes;
+- preserve those global features for every existing history frame;
+- concatenate the scalar branch after the convolutions and feed the resulting
+  shared representation to both policy and WDL heads, as in the JavaScript
+  network.
 
-- start from the complete leaf `Game`, including its repetition history;
-- choose uniformly among legal actions with the search's seeded RNG;
-- stop on an official terminal outcome or the configured safety limit;
-- return `+1`, `0`, or `-1` from the leaf player-to-move's perspective, with a
-  limit reached while ongoing treated as zero;
-- expand the leaf with uniform priors and do not query the inference service;
-- omit root Dirichlet noise during this bootstrap, matching the JavaScript
-  behavior; random rollouts and the opening temperature provide exploration;
-- store the usual normalized MCTS visits as policy targets and the final
-  self-play result as the official WDL target;
-- keep candidate training, arena, mirror gate and exploratory probe neural.
+This shape change requires a checkpoint metadata/version bump, shape and
+round-trip tests, a strict preflight, then a fresh 15-generation run. Report
+both policy and WDL train/validation losses and top-1 values explicitly beside
+arena and draw-gate results. In particular, test whether separating non-spatial
+state improves the stalled long-horizon WDL head without sacrificing policy
+learning.
 
-`UniformEvaluator` is not an implementation of this algorithm: it always
-returns value zero and has no complete `Game` from which to play. Put the
-rollout path where MCTS still owns the reconstructed leaf game, or refactor the
-leaf-evaluation boundary without sending full games through the GPU inference
-service. Preserve deterministic seed ordering and official repetition rules.
+### 4. Later ablations, in this order
 
-Tests cover deterministic rollouts for a fixed seed, uniform priors without
-root noise, absence of inference calls, win/loss sign from the leaf
-perspective, safety-limit draws, rollout use after a rejected generation-zero
-candidate, and the switch to neural evaluation after the first promotion.
-Persisted games, progress and generation reports state which evaluator and
-rollout limit generated self-play, so a saved dataset is not ambiguous.
-
-Everything else remains identical to v20: seed 42, network and encoder,
-self-play and restart budgets, replay sampling, optimizer and learning-rate
-schedule, promotion threshold and both draw gates. Run 15 candidate generations
-from scratch. Compare the complete champion sequence, policy/WDL losses and
-top-1 metrics, endgame-distance buckets, illegal mass, initial/restarted draws,
-arena W/D/L, deterministic mirror draws and exploratory draws. A lower loss
-alone is not success; the main question is whether the first targets are more
-useful and the late cyclic plateau is delayed or avoided.
-
-The preflight passes `cargo fmt --check`, `cargo test`, strict Clippy and
-`cargo build --release`. Launch the checked-in configuration with:
-
-```bash
-target/release/yokai train --config config/training.toml \
-  --generations 15 --headless
-```
-
-### 3. Later ablations, in this order
-
-Only after v21 is documented should subsequent fresh runs test these ideas one
+Only after v22 is documented should subsequent fresh runs test these ideas one
 at a time:
 
-1. **Scalar hand branch.** A hand is an unordered count per droppable piece
-   type and player. Keep board history spatial, but move the existing normalized
-   hand counts, repetition count and starter flag out of constant board planes.
-   Concatenate these global scalars after the convolutions, as in the JavaScript
-   network, and feed the resulting shared representation to both heads. Preserve
-   the information from all existing history frames for this first comparison.
-2. **Smaller network.** Compare the current 64 filters and four residual blocks
+1. **Smaller network.** Compare the current 64 filters and four residual blocks
    with 32 filters and two blocks. The JavaScript 3×4 model had roughly 77,000
    parameters versus roughly 410,000 currently; a smaller Rust model may learn
    more reliably from the available number of correlated positions.
-3. **Explicit recent moves.** Encode the origin and destination of the last two
+2. **Explicit recent moves.** Encode the origin and destination of the last two
    moves directly, then test whether some full historical board frames can be
    removed. Do not discard repetition context: the game remains responsible
    for exact occurrence counts.
-4. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
+3. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
    small MSE term on `P(win) - P(loss)` against `+1/0/-1`. This imports the
    ordered scalar signal that worked well in JavaScript without making a
    certain draw indistinguishable from a 50/50 win/loss prediction.
-5. **Stronger endgame curriculum.** Increase the early fraction of decisive
+4. **Stronger endgame curriculum.** Increase the early fraction of decisive
    terminal tails and expand from `1` to `2`, `4`, `8`, `16`, then all plies.
    Advance this schedule from the accepted source champion, not rejected
    candidate attempt numbers. The JavaScript experiments sometimes trained

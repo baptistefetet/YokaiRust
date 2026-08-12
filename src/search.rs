@@ -15,6 +15,9 @@ use crate::{
 pub struct EvaluationRequest {
     pub position: Position,
     pub repetition_count: u8,
+    pub current_player_is_starter: bool,
+    /// Resulting occurrence count for each legal policy action; zero elsewhere.
+    pub action_repetition_counts: [u8; POLICY_ACTIONS],
     /// Most recent position first; missing pre-game frames are `None`.
     pub history: [Option<Position>; HISTORY_POSITIONS],
 }
@@ -23,9 +26,21 @@ impl EvaluationRequest {
     #[must_use]
     pub fn from_game(game: &Game) -> Self {
         let positions = game.position_history();
+        let player = game.position().side_to_move();
+        let mut action_repetition_counts = [0; POLICY_ACTIONS];
+        for action in game.legal_actions() {
+            if let (Some(index), Some(count)) = (
+                action.policy_index(player),
+                game.repetition_count_after(action),
+            ) {
+                action_repetition_counts[index.as_usize()] = count;
+            }
+        }
         Self {
             position: *game.position(),
             repetition_count: game.current_repetition_count(),
+            current_player_is_starter: player == game.initial_player(),
+            action_repetition_counts,
             history: std::array::from_fn(|offset| {
                 positions
                     .len()
@@ -40,21 +55,45 @@ impl EvaluationRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
     pub policy: [f32; POLICY_ACTIONS],
+    /// Win, draw and loss probabilities from the current player's perspective.
+    pub wdl: [f32; 3],
+    /// Neutral expected outcome, equal to `P(win) - P(loss)`.
     pub value: f32,
 }
 
 impl Evaluation {
     #[must_use]
     pub const fn new(policy: [f32; POLICY_ACTIONS], value: f32) -> Self {
-        Self { policy, value }
+        let bounded = if value < -1.0 {
+            -1.0
+        } else if value > 1.0 {
+            1.0
+        } else {
+            value
+        };
+        // A legacy scalar carries no evidence that the position is a draw.
+        // Preserve its expectation as a win/loss mixture instead of inventing
+        // draw probability that role-aware search would then shape.
+        let wdl = [1.0_f32.midpoint(bounded), 0.0, 1.0_f32.midpoint(-bounded)];
+        Self {
+            policy,
+            wdl,
+            value: bounded,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_wdl(policy: [f32; POLICY_ACTIONS], wdl: [f32; 3]) -> Self {
+        Self {
+            policy,
+            wdl,
+            value: wdl[0] - wdl[2],
+        }
     }
 
     #[must_use]
     pub const fn uniform(value: f32) -> Self {
-        Self {
-            policy: [1.0 / 132.0; POLICY_ACTIONS],
-            value,
-        }
+        Self::new([1.0 / 132.0; POLICY_ACTIONS], value)
     }
 }
 
@@ -135,8 +174,8 @@ impl<E> CachedEvaluator<E> {
         self.insertion_order.clear();
     }
 
-    fn insert(&mut self, request: EvaluationRequest, evaluation: Evaluation) {
-        if self.max_entries == 0 || self.entries.contains_key(&request) {
+    fn insert(&mut self, request: &EvaluationRequest, evaluation: Evaluation) {
+        if self.max_entries == 0 || self.entries.contains_key(request) {
             return;
         }
         while self.entries.len() >= self.max_entries {
@@ -145,8 +184,8 @@ impl<E> CachedEvaluator<E> {
             };
             self.entries.remove(&oldest);
         }
-        self.insertion_order.push_back(request);
-        self.entries.insert(request, evaluation);
+        self.insertion_order.push_back(*request);
+        self.entries.insert(*request, evaluation);
     }
 }
 
@@ -185,7 +224,7 @@ impl<E: Evaluator> Evaluator for CachedEvaluator<E> {
                 .zip(missing_indices)
                 .zip(evaluated)
             {
-                self.insert(request, evaluation.clone());
+                self.insert(&request, evaluation.clone());
                 for index in indices {
                     results[index] = Some(evaluation.clone());
                 }
@@ -213,6 +252,9 @@ pub struct SearchConfig {
     /// Search-only reward given to the opponent when a player causes a draw.
     /// Zero preserves the official game-theoretic value.
     pub repetition_contempt: f32,
+    /// Self-play-only utility of a draw for the player who started the game.
+    /// The non-starter receives the opposite utility. Zero is official play.
+    pub starter_draw_value: f32,
 }
 
 impl Default for SearchConfig {
@@ -224,6 +266,7 @@ impl Default for SearchConfig {
             dirichlet_alpha: 0.3,
             dirichlet_weight: 0.25,
             repetition_contempt: 0.0,
+            starter_draw_value: 0.0,
         }
     }
 }
@@ -569,11 +612,17 @@ impl<E: Evaluator> Mcts<E> {
         self.release_pending(&pending);
 
         for (simulation, evaluation) in pending.into_iter().zip(evaluations) {
+            let leaf_value = role_aware_value(
+                &evaluation,
+                simulation.game.position().side_to_move(),
+                simulation.game.initial_player(),
+                self.config.starter_draw_value,
+            );
             self.expand(simulation.node_index, &simulation.game, &evaluation)?;
             if simulation.node_index == self.root && add_root_noise && !self.root_noise_applied {
                 self.apply_root_noise()?;
             }
-            self.backpropagate(&simulation.path, sanitize_value(evaluation.value));
+            self.backpropagate(&simulation.path, leaf_value);
             completed += 1;
         }
         Ok(completed)
@@ -609,7 +658,9 @@ impl<E: Evaluator> Mcts<E> {
             let value = terminal_value(
                 game.outcome(),
                 game.position().side_to_move(),
+                game.initial_player(),
                 self.config.repetition_contempt,
+                self.config.starter_draw_value,
             );
             self.backpropagate(&path, value);
             Ok(PreparedSimulation::Completed)
@@ -915,6 +966,16 @@ fn validate_config(config: SearchConfig) -> Result<(), SearchError> {
             "repetition contempt must be finite and between zero and one",
         ));
     }
+    if !config.starter_draw_value.is_finite() || !(0.0..1.0).contains(&config.starter_draw_value) {
+        return Err(SearchError::InvalidConfiguration(
+            "starter draw value must be finite and in [0, 1)",
+        ));
+    }
+    if config.repetition_contempt > 0.0 && config.starter_draw_value > 0.0 {
+        return Err(SearchError::InvalidConfiguration(
+            "repetition contempt and starter draw value are mutually exclusive",
+        ));
+    }
     Ok(())
 }
 
@@ -968,12 +1029,44 @@ fn sample_probability_index<R: Rng + ?Sized>(probabilities: &[f32], rng: &mut R)
     probabilities.len().saturating_sub(1)
 }
 
-fn terminal_value(outcome: Outcome, player_to_move: Player, repetition_contempt: f32) -> f32 {
+fn role_aware_value(
+    evaluation: &Evaluation,
+    player_to_move: Player,
+    initial_player: Player,
+    starter_draw_value: f32,
+) -> f32 {
+    let draw_probability = if evaluation.wdl[1].is_finite() {
+        evaluation.wdl[1].clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let draw_utility = if player_to_move == initial_player {
+        starter_draw_value
+    } else {
+        -starter_draw_value
+    };
+    sanitize_value(evaluation.value + draw_utility * draw_probability)
+}
+
+fn terminal_value(
+    outcome: Outcome,
+    player_to_move: Player,
+    initial_player: Player,
+    repetition_contempt: f32,
+    starter_draw_value: f32,
+) -> f32 {
     match outcome {
         Outcome::Ongoing => 0.0,
         // `player_to_move` is the opponent of the player whose move completed
         // the repetition, so a positive value makes that action unattractive
         // to the player who caused the draw on the preceding tree edge.
+        Outcome::Draw { .. } if starter_draw_value > 0.0 => {
+            if player_to_move == initial_player {
+                starter_draw_value
+            } else {
+                -starter_draw_value
+            }
+        }
         Outcome::Draw { .. } => repetition_contempt,
         Outcome::Win { player, .. } if player == player_to_move => 1.0,
         Outcome::Win { .. } => -1.0,

@@ -604,6 +604,33 @@ impl Game {
         self.repetitions.get(&self.position).copied().unwrap_or(0)
     }
 
+    /// Returns how often the position reached by `action` would have occurred.
+    ///
+    /// Terminal wins return zero because repetition is not consulted after a
+    /// decisive result. This deliberately includes the third occurrence for an
+    /// action that ends the game by repetition.
+    #[must_use]
+    pub fn repetition_count_after(&self, action: Action) -> Option<u8> {
+        if !self.is_legal_action(action) {
+            return None;
+        }
+        // Applying on a fresh shell avoids cloning the potentially long action,
+        // position and repetition histories for every legal policy slot.
+        let mut next = Self::from_position(self.position);
+        let transition = next.apply(action).ok()?;
+        if matches!(transition.outcome, Outcome::Win { .. }) {
+            Some(0)
+        } else {
+            Some(
+                self.repetitions
+                    .get(next.position())
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_add(1),
+            )
+        }
+    }
+
     #[must_use]
     pub fn legal_actions(&self) -> Vec<Action> {
         if self.outcome.is_terminal() {

@@ -192,9 +192,10 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
     match event {
         TrainingProgress::GenerationStarted {
             source_generation,
+            learner_generation,
             candidate_generation,
         } => eprintln!(
-            "[{elapsed}] generation {candidate_generation} started from network {source_generation}"
+            "[{elapsed}] generation {candidate_generation} started: champion {source_generation}, learner {learner_generation}"
         ),
         TrainingProgress::SelfPlayStarted {
             games,
@@ -202,8 +203,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             simulations,
             search_batch_size,
             repetition_contempt,
+            starter_draw_value,
         } => eprintln!(
-            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}"
+            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}, starter draw value={starter_draw_value:.2}"
         ),
         TrainingProgress::SelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] self-play {completed}/{total} ({:.1}%)",
@@ -387,9 +389,10 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         TrainingProgress::CandidateRejected {
             generation,
             decision,
+            learner_generation,
         } => {
             eprintln!(
-                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_gate={} exploratory_draw_gate={}",
+                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_gate={} exploratory_draw_gate={}; learner now {learner_generation}",
                 decision.arena_passed,
                 decision.mirror_draw_gate_passed,
                 decision.exploratory_draw_gate_passed,
@@ -428,9 +431,10 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source_champion={} promoted={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
+        "generation={} source_champion={} source_learner={} promoted={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
+        report.learner_source_generation,
         report.promoted(),
         report.generated_games,
         report.buffer_examples,

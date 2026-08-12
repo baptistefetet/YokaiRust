@@ -31,6 +31,7 @@ pub fn play_self_play_game<E: Evaluator>(
             simulations: config.simulations,
             evaluation_batch_size: config.search_batch_size,
             repetition_contempt: config.repetition_contempt,
+            starter_draw_value: config.starter_draw_value,
             ..SearchConfig::default()
         },
         seed,

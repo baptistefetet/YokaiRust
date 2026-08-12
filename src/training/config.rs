@@ -27,6 +27,9 @@ pub struct SelfPlayConfig {
     pub exploration_temperature: f32,
     pub final_temperature: f32,
     pub repetition_contempt: f32,
+    /// Draw utility for the starter during self-play; the non-starter gets its negation.
+    #[serde(default = "default_starter_draw_value")]
+    pub starter_draw_value: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -132,6 +135,7 @@ impl Default for TrainingConfig {
                 exploration_temperature: 1.0,
                 final_temperature: 0.0,
                 repetition_contempt: 0.0,
+                starter_draw_value: default_starter_draw_value(),
             },
             optimization: OptimizationConfig {
                 steps_per_generation: 400,
@@ -169,6 +173,10 @@ const fn default_arena_opening_plies() -> usize {
     4
 }
 
+const fn default_starter_draw_value() -> f32 {
+    0.25
+}
+
 impl TrainingConfig {
     /// Loads and validates a TOML training configuration.
     ///
@@ -186,6 +194,7 @@ impl TrainingConfig {
     /// # Errors
     ///
     /// Returns [`TrainingConfigError::Invalid`] with a focused diagnostic.
+    #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> Result<(), TrainingConfigError> {
         if self.network.filters == 0
             || self.network.residual_blocks == 0
@@ -221,6 +230,18 @@ impl TrainingConfig {
         {
             return Err(TrainingConfigError::Invalid(
                 "self-play repetition contempt must be finite and in [0, 1]",
+            ));
+        }
+        if !self.self_play.starter_draw_value.is_finite()
+            || !(0.0..1.0).contains(&self.self_play.starter_draw_value)
+        {
+            return Err(TrainingConfigError::Invalid(
+                "self-play starter draw value must be finite and in [0, 1)",
+            ));
+        }
+        if self.self_play.repetition_contempt > 0.0 && self.self_play.starter_draw_value > 0.0 {
+            return Err(TrainingConfigError::Invalid(
+                "self-play repetition contempt and starter draw value are mutually exclusive",
             ));
         }
         let optimization = &self.optimization;

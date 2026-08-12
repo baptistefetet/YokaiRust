@@ -9,7 +9,7 @@ use burn::{
     tensor::activation::relu,
 };
 
-use crate::{INPUT_PLANES, POLICY_ACTIONS};
+use crate::{INPUT_PLANES, POLICY_ACTIONS, POLICY_CONTEXT_FEATURES};
 
 const BOARD_VALUES: usize = 12;
 const POLICY_CHANNELS: usize = 2;
@@ -56,13 +56,16 @@ impl AlphaZeroNetworkConfig {
             residual_tower,
             policy_conv: pointwise_conv(self.filters, POLICY_CHANNELS, device),
             policy_norm: BatchNormConfig::new(POLICY_CHANNELS).init(device),
-            policy_linear: LinearConfig::new(POLICY_CHANNELS * BOARD_VALUES, POLICY_ACTIONS)
-                .init(device),
+            policy_linear: LinearConfig::new(
+                POLICY_CHANNELS * BOARD_VALUES + POLICY_CONTEXT_FEATURES,
+                POLICY_ACTIONS,
+            )
+            .init(device),
             value_conv: pointwise_conv(self.filters, VALUE_CHANNELS, device),
             value_norm: BatchNormConfig::new(VALUE_CHANNELS).init(device),
             value_hidden: LinearConfig::new(VALUE_CHANNELS * BOARD_VALUES, self.value_hidden)
                 .init(device),
-            value_output: LinearConfig::new(self.value_hidden, 1).init(device),
+            value_output: LinearConfig::new(self.value_hidden, 3).init(device),
         }
     }
 }
@@ -107,15 +110,15 @@ pub struct AlphaZeroNetwork<B: Backend> {
     value_output: Linear<B>,
 }
 
-/// Unnormalized policy logits and a `tanh` value for each batch item.
+/// Unnormalized policy and Win/Draw/Loss logits for each batch item.
 pub struct NetworkOutput<B: Backend> {
     pub policy_logits: Tensor<B, 2>,
-    pub value: Tensor<B, 2>,
+    pub wdl_logits: Tensor<B, 2>,
 }
 
 impl<B: Backend> AlphaZeroNetwork<B> {
     #[must_use]
-    pub fn forward(&self, input: Tensor<B, 4>) -> NetworkOutput<B> {
+    pub fn forward(&self, input: Tensor<B, 4>, policy_context: Tensor<B, 2>) -> NetworkOutput<B> {
         let mut trunk = relu(self.input_norm.forward(self.input_conv.forward(input)));
         for block in &self.residual_tower {
             trunk = block.forward(trunk);
@@ -125,15 +128,16 @@ impl<B: Backend> AlphaZeroNetwork<B> {
             self.policy_norm
                 .forward(self.policy_conv.forward(trunk.clone())),
         );
-        let policy_logits = self.policy_linear.forward(policy.flatten(1, 3));
+        let policy = Tensor::cat(vec![policy.flatten(1, 3), policy_context], 1);
+        let policy_logits = self.policy_linear.forward(policy);
 
         let value = relu(self.value_norm.forward(self.value_conv.forward(trunk)));
         let value = relu(self.value_hidden.forward(value.flatten(1, 3)));
-        let value = self.value_output.forward(value).tanh();
+        let wdl_logits = self.value_output.forward(value);
 
         NetworkOutput {
             policy_logits,
-            value,
+            wdl_logits,
         }
     }
 }

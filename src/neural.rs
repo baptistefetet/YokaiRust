@@ -8,23 +8,26 @@ pub mod service;
 use burn::prelude::{Backend, Tensor, TensorData};
 
 use crate::{
-    BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, Game, HandPiece, PieceKind, Player, Position, Square,
+    BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, Game, HandPiece, POLICY_ACTIONS, PieceKind, Player,
+    Position, Square,
 };
 
-pub const ENCODER_VERSION: u16 = 2;
+pub const ENCODER_VERSION: u16 = 3;
 pub const HISTORY_LENGTH: usize = 8;
 pub const HISTORY_POSITIONS: usize = HISTORY_LENGTH - 1;
 const POSITION_PLANES: usize = 16;
-pub const INPUT_PLANES: usize = POSITION_PLANES * HISTORY_LENGTH + 1;
+pub const INPUT_PLANES: usize = POSITION_PLANES * HISTORY_LENGTH + 2;
 pub const INPUT_VALUES: usize = INPUT_PLANES * BOARD_SQUARES;
+pub const POLICY_CONTEXT_FEATURES: usize = POLICY_ACTIONS * 2;
 
 const CURRENT_PIECES_OFFSET: usize = 0;
 const OPPONENT_PIECES_OFFSET: usize = 5;
 const CURRENT_HAND_OFFSET: usize = 10;
 const OPPONENT_HAND_OFFSET: usize = 13;
-const REPETITION_PLANE: usize = INPUT_PLANES - 1;
+const REPETITION_PLANE: usize = INPUT_PLANES - 2;
+const STARTER_PLANE: usize = INPUT_PLANES - 1;
 
-/// A channel-first `[129, 4, 3]` input stored contiguously.
+/// A channel-first `[130, 4, 3]` input stored contiguously.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EncodedPosition {
     values: [f32; INPUT_VALUES],
@@ -64,6 +67,37 @@ pub fn encoded_batch_tensor<B: Backend>(
     )
 }
 
+/// Packs per-action repetition counts and immediate-draw flags.
+///
+/// # Panics
+///
+/// Panics when `contexts` is empty.
+#[must_use]
+pub fn policy_context_batch_tensor<B: Backend>(
+    contexts: &[[u8; POLICY_ACTIONS]],
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    assert!(
+        !contexts.is_empty(),
+        "a policy context batch cannot be empty"
+    );
+    let values = contexts
+        .iter()
+        .flat_map(|context| {
+            context.iter().flat_map(|&count| {
+                [
+                    f32::from(count.min(3)) / 3.0,
+                    if count >= 3 { 1.0 } else { 0.0 },
+                ]
+            })
+        })
+        .collect::<Vec<_>>();
+    Tensor::from_data(
+        TensorData::new(values, [contexts.len(), POLICY_CONTEXT_FEATURES]),
+        device,
+    )
+}
+
 /// Encodes a game from the perspective of its player to move.
 #[must_use]
 pub fn encode_game(game: &Game) -> EncodedPosition {
@@ -74,7 +108,12 @@ pub fn encode_game(game: &Game) -> EncodedPosition {
             .checked_sub(offset + 2)
             .map(|index| positions[index])
     });
-    encode_position_with_history(game.position(), game.current_repetition_count(), &history)
+    encode_position_with_history(
+        game.position(),
+        game.current_repetition_count(),
+        game.position().side_to_move() == game.initial_player(),
+        &history,
+    )
 }
 
 /// Encodes a position using the canonical perspective of its player to move.
@@ -84,7 +123,7 @@ pub fn encode_game(game: &Game) -> EncodedPosition {
 /// available.
 #[must_use]
 pub fn encode_position(position: &Position, repetition_count: u8) -> EncodedPosition {
-    encode_position_with_history(position, repetition_count, &[None; HISTORY_POSITIONS])
+    encode_position_with_history(position, repetition_count, true, &[None; HISTORY_POSITIONS])
 }
 
 /// Encodes the current position and up to seven preceding positions.
@@ -97,6 +136,7 @@ pub fn encode_position(position: &Position, repetition_count: u8) -> EncodedPosi
 pub fn encode_position_with_history(
     position: &Position,
     repetition_count: u8,
+    current_player_is_starter: bool,
     history: &[Option<Position>; HISTORY_POSITIONS],
 ) -> EncodedPosition {
     let current = position.side_to_move();
@@ -112,6 +152,11 @@ pub fn encode_position_with_history(
         &mut values,
         REPETITION_PLANE,
         f32::from(repetition_count.min(3)) / 3.0,
+    );
+    fill_plane(
+        &mut values,
+        STARTER_PLANE,
+        if current_player_is_starter { 1.0 } else { 0.0 },
     );
     EncodedPosition { values }
 }

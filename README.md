@@ -21,18 +21,19 @@ first trainable AlphaZero pipeline:
 - self-play-only Dirichlet noise and a configurable temperature schedule;
 - legal-policy masking plus per-action prior, visits, policy and Q diagnostics;
 - optional MCTS analyses embedded in validated replay files;
-- a versioned 129-plane canonical neural encoder covering eight successive
-  states, with horizontal augmentation;
-- a configurable Burn residual network with 132 policy logits and a value head;
+- a versioned 130-plane canonical neural encoder covering eight successive
+  states plus the starter role, with horizontal augmentation;
+- action-aligned repetition context for all 132 policy actions;
+- a configurable Burn residual network with 132 policy logits and a WDL head;
 - CPU inference for deterministic tests and WGPU/Metal inference on Apple Silicon;
 - a batching inference service shared by concurrent self-play games;
-- generation-based SafeTensors checkpoints with validated metadata and an
-  atomically published pointer to the accepted champion;
+- generation-based SafeTensors checkpoints with validated metadata and separate
+  atomic pointers for the accepted champion and private learner lineage;
 - reproducible parallel self-play, a rolling replay buffer and whole-game
   training/validation splits;
 - the complete AlphaZero dataset, with temporary decisive-tail oversampling
   during bootstrap;
-- explicit policy/value metrics, including entropy, calibration, illegal policy
+- explicit policy/WDL metrics, including entropy, calibration, illegal policy
   mass and top-1 accuracy;
 - a paired, color-alternating promotion arena against the champion, using
   reproducible short openings to avoid replaying one deterministic game;
@@ -295,13 +296,13 @@ would only have spent more compute confirming it.
 
 Separating the played-move temperature from the stored MCTS visit distribution
 prevents late policies from becoming artificially one-hot, but did not remove
-the draw attractor. Adding seven previous states makes repetition evaluation
-Markovian and matches AlphaZero's treatment of chess/shogi history, but made the
-safe cycle easier to recognize. Replacing the buffer with only the final won
-position was also rejected: its first candidate lost the first 90 arena games
-against the random generation zero. Keeping the full buffer and oversampling
-decisive tails avoided that catastrophic forgetting and produced temporary
-200-0 improvements, but draws returned at generation 5.
+the draw attractor. Adding seven previous states reduces repetition ambiguity
+and matches AlphaZero's finite chess/shogi history, but does not encode the full
+threefold context and made short safe cycles easier to recognize. Replacing the
+buffer with only the final won position was also rejected: its first candidate
+lost the first 90 arena games against the random generation zero. Keeping the
+full buffer and oversampling decisive tails avoided that catastrophic forgetting
+and produced temporary 200-0 improvements, but draws returned at generation 5.
 
 A final self-play-only repetition penalty nearly eliminated draws in v7, while
 all recorded outcomes and arenas retained the official zero value. It exposed a
@@ -385,88 +386,156 @@ than evidence of perfect play.
 A controlled champion-14 probe separates network behavior from search shaping:
 neutral noisy self-play drew 25/64, shaped noisy self-play 11/64, and neutral
 temperature-zero play 4/64 at 200 simulations. Its official 400-simulation
-mirror was 0/64. The current conclusion is therefore precise: training-data
+mirror was 0/64. The v10 conclusion was therefore precise: training-data
 poisoning is contained and competitive play is mostly decisive, but exploration
 still relies on repetition contempt and the network has not solved the game.
 
 ### Research findings and next experiments
 
-The draw problem is not unique to this project. A 2026 two-player reinforcement
-learning study evaluates Animal Shogi on a 4×3 board with the same 132-action
-space as YokaiRust. Under its protocol, standard AlphaZero reached only
-`31 ± 2%` against the anchored baseline, while Gumbel AlphaZero reached
-`67 ± 5%`. Its entropy ablation also showed the familiar failure mode: playing
-strength first increased and then declined as policy entropy collapsed almost
-to zero. The experiment used roughly 800 million simulator evaluations, so the
-small board alone does not imply that a few generations must solve the game.
-See [Revisiting Regularized Policy Optimization for Stable and Efficient
-Reinforcement Learning in Two-Player Games](https://arxiv.org/html/2602.10894v2).
+The v10 data narrows the failure beyond "too many zero values." Draws account
+for only 274/3,840 games and 11,208/143,383 positions, so they no longer dominate
+the buffer. They nevertheless carry unusually confident imitation targets: the
+mean visit-policy entropy is 0.862 on draw positions versus 0.977 on decisive
+positions, and the mean largest action probability is 70.6% versus 66.1%.
+Cross-entropy therefore teaches a comparatively sharp version of the cycle even
+though the accompanying scalar value target is zero.
 
-This external result and the `diverse-arena-v10` measurements suggest the
-following hypotheses, in priority order:
+The finite history is a second source of label aliasing. Of the 274 v10 draws,
+259 close a cycle of period 4, 11 of period 8, three of period 12 and one of
+period 16. The eight-frame encoder cannot distinguish the complete repetition
+context for the 15 games whose period exceeds seven preceding positions. The
+old generation-12 run has the same problem in 7/144 draws, with periods as long
+as 26. This is a minority rather than the dominant failure, but it proves that
+seven preceding positions reduce ambiguity without making a threefold game
+fully Markovian. Search still owns the exact `Game` history and detects terminal
+repetitions correctly; the network input and its training targets do not.
 
-1. Standard PUCT may produce a poor policy-improvement target when relevant root
-   actions receive few or no visits. Gumbel AlphaZero combines sampling without
-   replacement with sequential halving specifically to make policy improvement
-   reliable at limited search budgets. It is the strongest next controlled
-   search experiment because it was substantially better on Animal Shogi. See
-   [Policy Improvement by Planning with Gumbel](https://openreview.net/pdf?id=bERaNdoegnO).
-2. The scalar value `P(win) - P(loss)` cannot distinguish a certain draw from an
-   even mixture of wins and losses: both equal zero. A three-logit Win/Draw/Loss
-   head would retain this information while still deriving the scalar search
-   value as `W - L`. Lc0 has used an explicit WDL head for this reason. See
-   [Lc0 WDL rescaling and contempt](https://lczero.org/blog/2023/07/the-lc0-v0.30.0-wdl-rescale/contempt-implementation/).
-3. Dirichlet or forced exploration may be copied too literally into the stored
-   policy target. KataGo keeps forced exploratory playouts but prunes visits that
-   existed only for exploration before creating the policy target. That is
-   relevant because champion 14 has many more neutral noisy draws than
-   temperature-zero draws. See [KataGo's self-play training
-   methods](https://github.com/lightvector/KataGo/blob/master/docs/KataGoMethods.md).
-4. Predecessor-only promotion does not measure absolute progress or detect every
-   non-transitive regression. Evaluation should include a fixed ladder: random
-   generation 0, selected historical champions, pure MCTS and eventually an
-   exact solver. OpenSpiel's AlphaZero implementation likewise evaluates
-   continually against fixed MCTS-plus-solver strengths. See [OpenSpiel
-   AlphaZero](https://openspiel.readthedocs.io/en/stable/alpha_zero.html).
-5. If the fixed ladder confirms catastrophic forgetting, a minority of
-   self-play games can use randomly sampled historical champions. A recent
-   Tablut replication reports this failure and uses a historical opponent pool,
-   fixed anchors and draw-aware ratings. This is a fallback, not the first
-   change, because it changes the data-generating process and costs additional
-   games. See [Mastering Tablut through Self-Play](https://arxiv.org/abs/2604.05476).
+Finally, the tactical horizon is not small merely because the board is small.
+The independently reproduced tablebase contains 246,803,167 reachable
+positions, the initial forced win takes 78 plies, and some winning positions
+take 173 plies. A 200-simulation search guided by a still inaccurate value head
+can discover a short safe cycle much more easily than a long refutation. See
+[Solving Dōbutsu Shōgi](https://brianhliou.com/posts/dobutsu-shogi/) and the
+[MIT-licensed Rust tablebase](https://github.com/brianhliou/dobutsu-shogi).
 
-The next session should avoid changing several of these variables at once. The
-recommended sequence is:
+These observations rule out simply deleting draws or extending random move
+sampling. Deletion removes exactly the defensive lines the winning side must
+learn to refute, while the 48-ply experiment already showed that more random
+moves replace cycles with mistakes. The proposed recovery instead makes every
+draw informative and spends additional search near the states where conversion
+failed.
 
-1. Add per-root diagnostics without changing behavior: number and fraction of
-   legal actions visited, prior mass on unvisited actions, policy-target entropy,
-   prior/target divergence and separate metrics for decisive and drawn games.
-2. Add fixed historical evaluation opponents so every experiment has an
-   absolute comparison in addition to the candidate/champion arena.
-3. Implement Gumbel root search and compare it from random generation 0 against
-   the current PUCT baseline with the same seeds, network, simulation budget and
-   15-candidate protocol. This requires no new crate or system dependency.
-4. Independently replace the scalar value head with WDL cross-entropy training,
-   then derive `Q = P(win) - P(loss)` for official search. This also requires no
-   new dependency, but changes the checkpoint architecture and therefore needs
-   a fresh run from generation 0.
-5. Try KataGo-style policy-target pruning only if the new diagnostics show that
-   exploration-only visits materially distort the target.
+#### Recovery implementation: draw-aware targeted self-play
 
-Monte Carlo graph search is lower priority. Sharing transpositions could make
-search faster in a game with drops, but repetition is history-dependent: graph
-nodes cannot safely be merged using the board position alone. Any future DAG
-must include an equivalent repetition context. Likewise, KL-regularized
-model-free training is an interesting external benchmark but would be a larger
-departure from the intended AlphaZero implementation than Gumbel search or a
-WDL value head.
+The representation, WDL loss, role-aware utility and separate learner lineage
+described below are now implemented. They change the checkpoint and encoder
+formats, so the next controlled campaign must start at generation 0. Targeted
+cycle restarts and tablebase evaluation remain the next experiments; no result
+from the new pipeline is claimed yet. The checked-in configuration isolates it
+under `models/alpha-zero-draw-aware-v11/` and
+`data/alpha-zero-draw-aware-v11/` so legacy checkpoints and examples cannot be
+loaded accidentally.
 
-The reference baseline for these experiments is `diverse-arena-v10`, champion
-14, with the figures recorded in the preceding section. Success must mean more
-than lower neural losses: the candidate must improve against the fixed ladder,
-retain the paired 55% promotion gate and avoid a rising fraction of drawn games
-and draw-origin replay positions. No additional Rust or system dependency has
-been approved or installed for these proposed experiments.
+1. **Expose the missing game context to the evaluator (implemented).** A constant plane
+   indicating whether the current player was the starter. For the policy head,
+   also provide an action-aligned feature containing the occurrence count of
+   the position reached by each legal action and a flag for an immediate
+   threefold draw. Include these features in `EvaluationRequest` and its cache
+   key. Search already computes the exact result from the full `Game`; this
+   change lets the learned prior distinguish two otherwise identical boards
+   where one action repeats and the other does not. It avoids an unbounded stack
+   of board-history planes without claiming that the value input contains the
+   complete repetition multiset.
+2. **Replace the scalar value with a WDL head (implemented).** Train three logits against the
+   one-hot Win/Draw/Loss result from the current player's perspective. Official
+   arenas and play continue to use the neutral value
+   `Q_official = P(win) - P(loss)`. Unlike scalar MSE, WDL cross-entropy gives a
+   certain draw a different target from an uncertain 50/50 win/loss state. Lc0
+   made the same representation change and uses the explicit draw probability
+   to adjust search utility; see [its WDL and contempt
+   notes](https://lczero.org/blog/2023/07/the-lc0-v0.30.0-wdl-rescale/contempt-implementation/).
+3. **Use role-aware draw utility only during self-play (implemented).** Dōbutsu Shōgi is a
+   forced win for the non-starter. A draw is therefore a successful defence for
+   the starter and a failed conversion for the non-starter. With WDL probabilities
+   from the current player's perspective, use
+   `Q_self_play = W - L + cD` when that player is the starter and
+   `Q_self_play = W - L - cD` otherwise, initially with `c = 0.25`. Because
+   `0 < c < 1`, both roles still order outcomes as win > draw > loss, but the
+   draw now supplies an adversarial margin. This is preferable to penalizing the
+   player that happens to close the loop: the starter should learn the strongest
+   drawing defence while the non-starter is forced to find its refutation.
+   Stored outcomes remain official W/D/L and all promotion searches use `c = 0`.
+4. **Restart a minority of games immediately before known cycles (next experiment).** Preserve a
+   complete `Game` snapshot, including its full prefix and initial player, for
+   positions two to eight plies before a repetition. Start 25% of the next
+   self-play batch from this archive and 75% from the official initial position,
+   keeping the total simulator-evaluation budget fixed. This revisits the exact
+   failure states, produces shorter and more independent value targets, and
+   gives the non-starter repeated chances to find a conversion. Go-Exploit
+   reports better value accuracy and sample efficiency from this general restart
+   strategy in Connect Four and 9x9 Go; see [Targeted Search Control in
+   AlphaZero](https://arxiv.org/abs/2302.12359). YokaiRust should target the
+   archive at cycles rather than sample every historical state uniformly.
+5. **Separate learner progress from champion publication (implemented).** The previous pipeline
+   reloaded the accepted champion's model and optimizer after every rejection.
+   Consequently, rejected attempts did not form a learning lineage: champion 6
+   produced candidates 8–15, but each attempt restarted from champion 6. The
+   accepted champion remains the safe self-play and publication source, while a
+   separate `learner` pointer retains optimization progress. A rejected learner
+   now continues when it passed the strength arena but failed a draw gate; it is
+   rolled back to the champion when it regresses in the official arena. This lets
+   a strong-but-cycling candidate receive subsequent counterexamples without
+   publishing it.
+
+The repetition features, role-aware WDL utility and targeted restarts are
+complementary. The features make the immediate choice observable, WDL says
+which role failed when a trajectory draws, and the restart archive determines
+where to spend the next search budget. The separate learner pointer then lets
+that new evidence accumulate across rejected publication attempts. None of
+these changes requires a drawn trajectory to be relabelled as an official win
+or loss.
+
+#### Oracle and evaluation protocol
+
+The solved game makes a stronger evaluation possible than a historical ladder
+alone. First validate a tablebase adapter against YokaiRust's exact Try and
+repetition semantics, then keep it outside training and report:
+
+- WDL accuracy and calibration on fixed fresh positions;
+- probability mass assigned to tablebase-optimal actions;
+- the same measurements bucketed by distance to result;
+- conversion rate as non-starter from the two official orientations;
+- cycle period, draw-policy entropy and draw-origin buffer mass.
+
+The tablebase can later provide a separate solver-assisted experiment by
+reanalysing fresh, cycle-adjacent positions, but that must be labelled as
+supervised oracle assistance rather than learning from zero. Its first purpose
+is to reveal absolute progress and distinguish "fewer draws" from "closer to
+perfect play." OpenSpiel similarly keeps fixed MCTS-plus-solver evaluators
+outside its AlphaZero learner; see [OpenSpiel
+AlphaZero](https://openspiel.readthedocs.io/en/stable/alpha_zero.html).
+
+Run the recovery as controlled ablations from generation 0: scalar baseline,
+context-aware scalar, context-aware neutral WDL (`c = 0`), role-aware WDL
+(`c = 0.25`), then role-aware WDL plus 25% targeted restarts. Add the separate
+learner lineage as a second experimental factor, then extend the best run beyond
+15 candidates. Keep the same seeds, network trunk and simulator budget; a
+claimed improvement should reproduce across at least three
+seeds. Success is a sustained rise in tablebase agreement and non-starter
+conversion, not merely lower losses or a lower raw draw rate.
+
+Gumbel AlphaZero remains the next search ablation if root diagnostics show poor
+action coverage; it has strong published evidence under small simulation
+budgets and on Animal Shogi specifically. In a 2026 comparison trained with 800
+million simulator evaluations, standard AlphaZero scored `31 ± 2%` and Gumbel
+AlphaZero `67 ± 5%` against the same anchored opponent under the paper's
+800-rollout evaluation; see [Revisiting Regularized Policy Optimization for
+Two-Player Games](https://arxiv.org/html/2602.10894v2). Gumbel does not, by
+itself, correct the aliased repetition context or the zero-valued draw target.
+Policy-target pruning is likewise conditional on showing that Dirichlet-only
+visits carry material target mass. Historical opponents are useful only if the
+fixed ladder confirms forgetting. These remain secondary to repairing the
+measured draw signal.
 
 ### Historical guarded-pipeline observations
 

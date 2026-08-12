@@ -18,6 +18,11 @@ const POLICY_TOLERANCE: f32 = 1.0e-4;
 pub struct TrainingExample {
     pub position: Position,
     pub repetition_count: u8,
+    /// Whether the player to move also made the first move of the game.
+    pub current_player_is_starter: bool,
+    /// Resulting occurrence count for each legal policy action; zero elsewhere.
+    #[serde(with = "action_repetition_serde")]
+    pub action_repetition_counts: [u8; POLICY_ACTIONS],
     /// Runtime-only preceding states, reconstructed from the containing game.
     /// Keeping this out of JSON avoids duplicating history for every ply.
     #[serde(skip)]
@@ -34,6 +39,11 @@ impl TrainingExample {
         Self {
             position: self.position.mirrored_horizontally(),
             repetition_count: self.repetition_count,
+            current_player_is_starter: self.current_player_is_starter,
+            action_repetition_counts: mirror_action_values(
+                &self.action_repetition_counts,
+                self.position.side_to_move(),
+            ),
             history: self
                 .history
                 .map(|position| position.map(Position::mirrored_horizontally)),
@@ -116,6 +126,8 @@ pub struct SelfPlayRecorder {
 struct PendingExample {
     position: Position,
     repetition_count: u8,
+    current_player_is_starter: bool,
+    action_repetition_counts: [u8; POLICY_ACTIONS],
     policy: [f32; POLICY_ACTIONS],
     action: Action,
 }
@@ -139,9 +151,21 @@ impl SelfPlayRecorder {
             return Err(TrainingDataError::TerminalPolicyTarget);
         }
         validate_policy(game.position(), &search.policy)?;
+        let player = game.position().side_to_move();
+        let mut action_repetition_counts = [0; POLICY_ACTIONS];
+        for action in game.legal_actions() {
+            if let (Some(index), Some(count)) = (
+                action.policy_index(player),
+                game.repetition_count_after(action),
+            ) {
+                action_repetition_counts[index.as_usize()] = count;
+            }
+        }
         self.pending.push(PendingExample {
             position: *game.position(),
             repetition_count: game.current_repetition_count(),
+            current_player_is_starter: player == game.initial_player(),
+            action_repetition_counts,
             policy: search.policy,
             action: search.selected_action,
         });
@@ -183,6 +207,8 @@ impl SelfPlayRecorder {
             .map(|pending| TrainingExample {
                 position: pending.position,
                 repetition_count: pending.repetition_count,
+                current_player_is_starter: pending.current_player_is_starter,
+                action_repetition_counts: pending.action_repetition_counts,
                 history: [None; HISTORY_POSITIONS],
                 policy: pending.policy,
                 value: outcome_value(outcome, pending.position.side_to_move()),
@@ -390,6 +416,29 @@ pub fn mirror_policy(policy: &[f32; POLICY_ACTIONS], player: Player) -> [f32; PO
     mirrored
 }
 
+fn mirror_action_values<T: Copy + Default>(
+    values: &[T; POLICY_ACTIONS],
+    player: Player,
+) -> [T; POLICY_ACTIONS] {
+    let mut mirrored = [T::default(); POLICY_ACTIONS];
+    for (raw_index, &value) in values.iter().enumerate() {
+        let Ok(raw_index_u8) = u8::try_from(raw_index) else {
+            continue;
+        };
+        let Some(index) = PolicyIndex::new(raw_index_u8) else {
+            continue;
+        };
+        let Some(action) = Action::from_policy_index(index, player) else {
+            continue;
+        };
+        let Some(mirrored_index) = action.mirrored_horizontally().policy_index(player) else {
+            continue;
+        };
+        mirrored[mirrored_index.as_usize()] = value;
+    }
+    mirrored
+}
+
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
@@ -456,6 +505,33 @@ mod policy_serde {
             .map_err(|values: Vec<f32>| {
                 D::Error::custom(format_args!(
                     "expected {POLICY_ACTIONS} policy values, got {}",
+                    values.len()
+                ))
+            })
+    }
+}
+
+mod action_repetition_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+
+    use crate::POLICY_ACTIONS;
+
+    pub fn serialize<S>(counts: &[u8; POLICY_ACTIONS], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        counts.as_slice().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; POLICY_ACTIONS], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Vec::<u8>::deserialize(deserializer)?
+            .try_into()
+            .map_err(|values: Vec<u8>| {
+                D::Error::custom(format_args!(
+                    "expected {POLICY_ACTIONS} action repetition counts, got {}",
                     values.len()
                 ))
             })

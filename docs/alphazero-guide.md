@@ -8,14 +8,16 @@ appeared, and what continued training can and cannot guarantee.
 For every non-terminal position, the network produces:
 
 - **policy**: 132 logits, one per encoded action;
-- **value**: one number in `[-1, 1]` from the current player's perspective.
+- **WDL**: three logits for win, draw and loss from the current player's perspective.
 
 Its input contains the current state plus the seven preceding states. Each
-state contributes 16 planes for pieces and hands; a final plane contains the
-current repetition count, for 129 planes in total. This history is necessary
-because repetition makes the board alone non-Markovian: the same visible
-position can have a different value depending on which earlier state the next
-move would repeat.
+state contributes 16 planes for pieces and hands; two final planes contain the
+current repetition count and whether the player to move was the starter, for
+130 planes in total. The policy branch also receives two action-aligned features
+for each of its 132 slots: the occurrence count of the resulting position and
+an immediate-threefold flag. Search derives these exactly from the complete
+game history. A finite board-history stack alone does not make repetition fully
+Markovian.
 
 The policy is not trained directly on the action that happened. Its target is
 the normalized MCTS visit distribution after illegal actions are masked. This
@@ -24,11 +26,15 @@ Move-selection temperature is applied only when choosing the played action. It
 never sharpens the stored policy target: even after self-play becomes greedy,
 the target remains the complete normalized visit distribution.
 
-The value target is the final game result:
+The WDL target is the one-hot final game result:
 
-- `+1` if the player to move in the recorded position eventually won;
-- `-1` if that player lost;
-- `0` for an official draw.
+- win if the player to move in the recorded position eventually won;
+- loss if that player lost;
+- draw for an official repetition.
+
+Official search derives its neutral scalar as `P(win) - P(loss)`. Unlike the old
+scalar target, a certain draw is therefore distinct from an uncertain 50/50
+mixture of wins and losses.
 
 There is deliberately no policy example for a terminal position: it has no legal
 move distribution to learn.
@@ -52,16 +58,19 @@ probably contains a bug. It is not enabled in normal training.
 ## One generation
 
 ```text
-champion --> noisy self-play --> replay buffer --> train candidate
-   ^                                                |
-   |                                                v
-   +--- promote only if 55% arena + mirror gate + noisy draw gate
+champion --> noisy self-play --> replay buffer --> train learner candidate
+   ^                                                    |          |
+   +-- publish only if arena + both draw gates ----------+          |
+                                                        +-- keep if arena passed
 ```
 
-The candidate starts from the champion weights. It becomes the source of the
-following self-play batch only after passing the official paired arena and both
-anti-cycle gates. A rejected checkpoint is retained for analysis while the
-champion and its optimizer state remain unchanged.
+The candidate starts from a separate private learner lineage. The champion
+remains the source of every following self-play batch until a candidate passes
+the official paired arena and both anti-cycle gates. When a candidate passes
+the strength arena but fails a draw gate, it stays private but its weights and
+Adam state initialize the next optimization attempt. Failing the strength arena
+rolls that lineage back to the champion. This preserves learning across
+draw-only rejections without publishing a cycling player.
 
 Optimization is continuous too. Each generation performs a fixed number of
 uniformly sampled mini-batch updates instead of full passes over an ever-growing
@@ -83,18 +92,23 @@ publication.
 
 ## Why draws can increase while strength improves
 
-An official repetition is worth zero. If the value head predicts that
+An official repetition is worth zero. If the WDL head predicts that
 non-repeating alternatives lose, deeper MCTS rationally selects the safe draw.
-Self-play then trains the policy to reproduce that branch and trains the value
-to predict zero, creating a feedback loop. This can reflect an inaccurate value
+Self-play then trains the policy to reproduce that branch. The old scalar head
+also learned zero; the WDL head now learns an explicit draw probability, which
+makes the loop observable and shapeable. This can reflect an inaccurate result
 estimate, but it can also be the correct decision against an equally strong
 opponent.
 
 The standard bootstrap keeps every position and every official result, but uses
-repetition contempt 0.5 inside self-play search. A player that causes the third
-occurrence sees that leaf as unfavorable; the replay and value target still
-store the official draw value zero. Three separate measurements both expose the
-behavior and protect the next self-play source:
+the explicit WDL draw probability inside self-play search. With the configured
+`starter_draw_value = 0.25`, a current starter evaluates a draw as `+0.25` and a
+current non-starter as `-0.25`; both still rank win > draw > loss. The stored WDL
+target remains official and every arena uses neutral `P(win) - P(loss)`.
+The older edge-local `repetition_contempt` remains available for reproducing
+historical experiments but is mutually exclusive with the role-aware utility.
+Three separate measurements both expose the behavior and protect the next
+self-play source:
 
 - self-play W/L/D shows behavior with exploration;
 - the mirror probe exposes deterministic repetition cycles from the official
@@ -114,7 +128,7 @@ known to be decisive, any mirrored repetition now rejects the candidate.
 The fixed-step generation-12 run demonstrates why no single draw threshold can
 diagnose strength: it drew 141/256 self-play games, yet beat generations 1, 4
 and 8 by 40-0 each, then scored 20 wins and 20 draws against generation 11.
-Setting `repetition_contempt = 0.0` restores the neutral experiment. The shaped
+Setting `starter_draw_value = 0.0` restores the neutral experiment. The shaped
 default is explicit because neutral runs repeatedly poisoned later candidates.
 
 The clean diversified-arena run through candidate 15 demonstrates the intended
@@ -168,7 +182,7 @@ evaluated separately.
 | Metric | Useful interpretation | Common warning sign |
 | --- | --- | --- |
 | policy loss | Cross-entropy against MCTS visits | Training falls while validation rises: policy overfit. |
-| value loss | Squared error against final result | Persistently high: weak result prediction or noisy labels. |
+| value loss | WDL cross-entropy against the final result | Persistently high: weak result prediction or noisy labels. |
 | entropy | Spread of predicted legal moves | Sudden collapse can indicate premature policy certainty. |
 | top-1 | Agreement with the largest MCTS target | Useful for tactical tests, not a complete strength score. |
 | calibration | Difference between value prediction and outcome | Low validation error means values better match observed results. |
@@ -180,10 +194,10 @@ and fixed tactical/baseline tests remain necessary.
 
 Policy loss is a moving-target metric: each network changes the MCTS visit
 distribution used to train the next network. It therefore has no fixed zero-loss
-reference across generations. Value loss has a second trap in this game: as the
-draw fraction grows, more targets equal exactly zero, which can lower mean squared
-error without making the player stronger. Always read both losses beside top-1,
-illegal mass and W/L/D.
+reference across generations. The old scalar MSE had a second trap in this game:
+a certain draw and an uncertain 50/50 win/loss mixture both targeted zero. WDL
+removes that aliasing, but a lower cross-entropy still does not prove stronger
+play. Always read both losses beside top-1, illegal mass and W/L/D.
 
 Arena progress is emitted when concurrent games finish, not by game index. Short
 wins can all appear before long losses. Only the final paired result is meaningful;

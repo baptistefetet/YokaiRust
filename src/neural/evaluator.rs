@@ -8,7 +8,10 @@ use burn::{
 
 use crate::{
     Evaluation, EvaluationError, EvaluationRequest, Evaluator, POLICY_ACTIONS,
-    neural::{encode_position_with_history, encoded_batch_tensor, model::AlphaZeroNetwork},
+    neural::{
+        encode_position_with_history, encoded_batch_tensor, model::AlphaZeroNetwork,
+        policy_context_batch_tensor,
+    },
 };
 
 pub type CpuBackend = Flex<f32, i32>;
@@ -60,19 +63,30 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
                 encode_position_with_history(
                     &request.position,
                     request.repetition_count,
+                    request.current_player_is_starter,
                     &request.history,
                 )
             })
             .collect::<Vec<_>>();
-        let output = self
-            .model
-            .forward(encoded_batch_tensor(&encoded, &self.device));
-        let output_width = POLICY_ACTIONS + 1;
-        let predictions =
-            burn::tensor::Tensor::cat(vec![softmax(output.policy_logits, 1), output.value], 1)
-                .into_data()
-                .to_vec::<f32>()
-                .map_err(|error| EvaluationError::Backend(error.to_string()))?;
+        let policy_contexts = requests
+            .iter()
+            .map(|request| request.action_repetition_counts)
+            .collect::<Vec<_>>();
+        let output = self.model.forward(
+            encoded_batch_tensor(&encoded, &self.device),
+            policy_context_batch_tensor(&policy_contexts, &self.device),
+        );
+        let output_width = POLICY_ACTIONS + 3;
+        let predictions = burn::tensor::Tensor::cat(
+            vec![
+                softmax(output.policy_logits, 1),
+                softmax(output.wdl_logits, 1),
+            ],
+            1,
+        )
+        .into_data()
+        .to_vec::<f32>()
+        .map_err(|error| EvaluationError::Backend(error.to_string()))?;
 
         if predictions.len() != requests.len() * output_width {
             return Err(EvaluationError::BatchSizeMismatch {
@@ -87,7 +101,10 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
                 let policy = prediction[..POLICY_ACTIONS].try_into().map_err(|_| {
                     EvaluationError::Backend("invalid policy tensor width".to_owned())
                 })?;
-                Ok(Evaluation::new(policy, prediction[POLICY_ACTIONS]))
+                let wdl = prediction[POLICY_ACTIONS..]
+                    .try_into()
+                    .map_err(|_| EvaluationError::Backend("invalid WDL tensor width".to_owned()))?;
+                Ok(Evaluation::from_wdl(policy, wdl))
             })
             .collect()
     }

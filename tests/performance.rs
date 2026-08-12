@@ -328,6 +328,7 @@ fn compare_generation_12_exploration_schedules() {
             exploration_temperature: 1.0,
             final_temperature,
             repetition_contempt: 0.0,
+            starter_draw_value: 0.0,
         };
         let started = Instant::now();
         let games = generate_self_play(&service.client(), &config, 12, 202_608_120)
@@ -402,6 +403,7 @@ fn compare_saved_champion_search_modes() {
             exploration_temperature,
             final_temperature: 0.0,
             repetition_contempt,
+            starter_draw_value: 0.0,
         };
         let started = Instant::now();
         let games = generate_self_play(&service.client(), &config, generation, 50_000)
@@ -526,6 +528,7 @@ fn benchmark_metal_self_play_case_with_config(
         exploration_temperature: 1.0,
         final_temperature: 0.0,
         repetition_contempt: 0.0,
+        starter_draw_value: 0.0,
     };
     let started = Instant::now();
     let games = generate_self_play(&service.client(), &config, 0, 8_000)

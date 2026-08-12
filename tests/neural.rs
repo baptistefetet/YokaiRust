@@ -13,7 +13,8 @@ use yokai::{
     EvaluationError, EvaluationRequest, Evaluator, Game, HandPiece, INPUT_PLANES, InferenceService,
     MetalBackend, ModelMetadata, ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece,
     PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_generation,
-    load_latest, publish_latest, save_generation,
+    load_latest, load_learner, policy_context_batch_tensor, publish_latest, publish_learner,
+    save_generation,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -57,9 +58,11 @@ fn game_encoding_includes_the_previous_position() {
 
     assert_eq!(request.history[0], Some(initial));
     assert!(request.history[1..].iter().all(Option::is_none));
+    assert!(!request.current_player_is_starter);
     // Frame one starts at plane 16 and is canonicalized for Second, who now moves.
     assert!((encoded.get(16, 3, 1) - 1.0).abs() < f32::EPSILON);
     assert!((encoded.get(21, 0, 1) - 1.0).abs() < f32::EPSILON);
+    assert_plane_is_constant(&encoded, INPUT_PLANES - 1, 0.0);
 }
 
 #[test]
@@ -77,7 +80,8 @@ fn hand_and_repetition_planes_are_normalized_constants() {
     assert_plane_is_constant(&encoded, 10 + HandPiece::Tanuki.index(), 1.0);
     assert_plane_is_constant(&encoded, 10 + HandPiece::Kitsune.index(), 0.5);
     assert_plane_is_constant(&encoded, 13 + HandPiece::Kodama.index(), 0.5);
-    assert_plane_is_constant(&encoded, INPUT_PLANES - 1, 2.0 / 3.0);
+    assert_plane_is_constant(&encoded, INPUT_PLANES - 2, 2.0 / 3.0);
+    assert_plane_is_constant(&encoded, INPUT_PLANES - 1, 1.0);
 }
 
 #[test]
@@ -107,7 +111,7 @@ fn horizontal_position_mirror_reverses_only_encoded_columns() {
 }
 
 #[test]
-fn residual_network_has_fixed_policy_and_bounded_value_outputs() {
+fn residual_network_has_fixed_policy_and_wdl_outputs() {
     type Backend = CpuBackend;
 
     let device = burn::backend::flex::FlexDevice;
@@ -120,16 +124,20 @@ fn residual_network_has_fixed_policy_and_bounded_value_outputs() {
         encode_position(&Position::initial(Player::First), 1),
         encode_position(&Position::initial(Player::Second), 2),
     ];
-    let output = model.forward(encoded_batch_tensor(&positions, &device));
+    let contexts = [[0; POLICY_ACTIONS]; 2];
+    let output = model.forward(
+        encoded_batch_tensor(&positions, &device),
+        policy_context_batch_tensor(&contexts, &device),
+    );
 
     assert_eq!(output.policy_logits.dims(), [2, POLICY_ACTIONS]);
-    assert_eq!(output.value.dims(), [2, 1]);
-    let values = output
-        .value
+    assert_eq!(output.wdl_logits.dims(), [2, 3]);
+    let logits = output
+        .wdl_logits
         .into_data()
         .to_vec::<f32>()
-        .expect("f32 value output");
-    assert!(values.iter().all(|value| (-1.0..=1.0).contains(value)));
+        .expect("f32 WDL output");
+    assert!(logits.iter().all(|value| value.is_finite()));
 }
 
 #[test]
@@ -154,6 +162,7 @@ fn cpu_network_evaluator_batches_normalized_predictions() {
     assert_eq!(evaluations.len(), 2);
     for evaluation in evaluations {
         assert!((evaluation.policy.iter().sum::<f32>() - 1.0).abs() < 1.0e-5);
+        assert!((evaluation.wdl.iter().sum::<f32>() - 1.0).abs() < 1.0e-5);
         assert!((-1.0..=1.0).contains(&evaluation.value));
     }
 }
@@ -313,8 +322,12 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
     let model = config.init::<CpuBackend>(&device);
     let metadata = ModelMetadata::new(3, config);
     let encoded = [encode_position(&Position::initial(Player::First), 1)];
+    let contexts = [[0; POLICY_ACTIONS]];
     let before = model
-        .forward(encoded_batch_tensor(&encoded, &device))
+        .forward(
+            encoded_batch_tensor(&encoded, &device),
+            policy_context_batch_tensor(&contexts, &device),
+        )
         .policy_logits
         .into_data()
         .to_vec::<f32>()
@@ -322,9 +335,16 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
 
     save_generation(&root, &metadata, &model).expect("generation save");
     publish_latest(&root, 3).expect("latest publication");
+    let (_, fallback_learner_metadata) =
+        load_learner::<CpuBackend>(&root, &device).expect("learner falls back to champion");
+    assert_eq!(fallback_learner_metadata.generation, 3);
+    publish_learner(&root, 3).expect("learner publication");
     let (loaded, loaded_metadata) = load_latest::<CpuBackend>(&root, &device).expect("latest load");
     let after = loaded
-        .forward(encoded_batch_tensor(&encoded, &device))
+        .forward(
+            encoded_batch_tensor(&encoded, &device),
+            policy_context_batch_tensor(&contexts, &device),
+        )
         .policy_logits
         .into_data()
         .to_vec::<f32>()

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AlphaZeroNetwork, POLICY_ACTIONS, TrainingExample, encode_position_with_history,
-    encoded_batch_tensor, training::config::OptimizationConfig,
+    encoded_batch_tensor, policy_context_batch_tensor, training::config::OptimizationConfig,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -258,8 +258,10 @@ pub fn validate_model<B: Backend<FloatElem = f32>>(
 
 struct BatchTensors<B: Backend> {
     input: Tensor<B, 4>,
+    policy_context: Tensor<B, 2>,
     policy: Tensor<B, 2>,
     value: Tensor<B, 2>,
+    wdl: Tensor<B, 2>,
     illegal: Tensor<B, 2>,
 }
 
@@ -271,9 +273,14 @@ impl<B: Backend> BatchTensors<B> {
                 encode_position_with_history(
                     &example.position,
                     example.repetition_count,
+                    example.current_player_is_starter,
                     &example.history,
                 )
             })
+            .collect::<Vec<_>>();
+        let policy_contexts = examples
+            .iter()
+            .map(|example| example.action_repetition_counts)
             .collect::<Vec<_>>();
         let policy = examples
             .iter()
@@ -283,17 +290,27 @@ impl<B: Backend> BatchTensors<B> {
             .iter()
             .map(|example| example.value)
             .collect::<Vec<_>>();
+        let wdl = examples
+            .iter()
+            .flat_map(|example| match example.value {
+                value if value > 0.0 => [1.0, 0.0, 0.0],
+                value if value < 0.0 => [0.0, 0.0, 1.0],
+                _ => [0.0, 1.0, 0.0],
+            })
+            .collect::<Vec<_>>();
         let illegal = examples
             .iter()
             .flat_map(illegal_policy_mask)
             .collect::<Vec<_>>();
         Self {
             input: encoded_batch_tensor(&encoded, device),
+            policy_context: policy_context_batch_tensor(&policy_contexts, device),
             policy: Tensor::from_data(
                 TensorData::new(policy, [examples.len(), POLICY_ACTIONS]),
                 device,
             ),
             value: Tensor::from_data(TensorData::new(value, [examples.len(), 1]), device),
+            wdl: Tensor::from_data(TensorData::new(wdl, [examples.len(), 3]), device),
             illegal: Tensor::from_data(
                 TensorData::new(illegal, [examples.len(), POLICY_ACTIONS]),
                 device,
@@ -311,22 +328,24 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
     model: &AlphaZeroNetwork<B>,
     batch: BatchTensors<B>,
 ) -> BatchLosses<B> {
-    let output = model.forward(batch.input);
+    let output = model.forward(batch.input, batch.policy_context);
     let log_probabilities = log_softmax(output.policy_logits.clone(), 1);
     let probabilities = softmax(output.policy_logits.clone(), 1);
     let policy_loss = (log_probabilities.clone() * batch.policy.clone())
         .sum_dim(1)
         .mean()
         .neg();
-    let value_loss = (output.value.clone() - batch.value.clone())
-        .powf_scalar(2.0)
-        .mean();
+    let wdl_log_probabilities = log_softmax(output.wdl_logits.clone(), 1);
+    let value_loss = (wdl_log_probabilities * batch.wdl).sum_dim(1).mean().neg();
     let total = policy_loss.clone() + value_loss.clone();
     let entropy = (probabilities.clone() * log_probabilities)
         .sum_dim(1)
         .mean()
         .neg();
-    let calibration = (output.value - batch.value).abs().mean();
+    let wdl_probabilities = softmax(output.wdl_logits, 1);
+    let predicted_value =
+        wdl_probabilities.clone().narrow(1, 0, 1) - wdl_probabilities.narrow(1, 2, 1);
+    let calibration = (predicted_value - batch.value).abs().mean();
     let illegal_mass = (probabilities * batch.illegal).sum_dim(1).mean();
     let top1 = output
         .policy_logits

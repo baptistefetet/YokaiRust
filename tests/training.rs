@@ -187,7 +187,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.self_play.inference_wait_ms, 1);
     assert_eq!(config.self_play.exploration_plies, 12);
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
-    assert!((config.self_play.repetition_contempt - 0.5).abs() < f32::EPSILON);
+    assert!(config.self_play.repetition_contempt.abs() < f32::EPSILON);
+    assert!((config.self_play.starter_draw_value - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert_eq!(config.optimization.terminal_window_plies, None);
@@ -313,6 +314,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         exploration_temperature: 1.0,
         final_temperature: 0.0,
         repetition_contempt: 0.0,
+        starter_draw_value: 0.0,
     };
 
     let first = generate_self_play(&UniformEvaluator, &config, 2, 500)
@@ -444,6 +446,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             exploration_temperature: 1.0,
             final_temperature: 0.0,
             repetition_contempt: 0.0,
+            starter_draw_value: 0.0,
         },
         optimization: OptimizationConfig {
             steps_per_generation: 1,

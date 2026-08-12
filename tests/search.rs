@@ -13,6 +13,24 @@ struct BatchRecordingEvaluator {
     calls: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CertainDrawEvaluator;
+
+impl Evaluator for CertainDrawEvaluator {
+    fn evaluate_batch(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        Ok(vec![
+            Evaluation::from_wdl(
+                [1.0 / 132.0; POLICY_ACTIONS],
+                [0.0, 1.0, 0.0]
+            );
+            requests.len()
+        ])
+    }
+}
+
 impl Evaluator for BatchRecordingEvaluator {
     fn evaluate_batch(
         &mut self,
@@ -129,6 +147,17 @@ fn repetition_contempt_penalizes_only_the_player_causing_the_draw() {
         game.apply(action).expect("repetition setup action");
     }
     let drawing_action = cycle[3];
+    let request = EvaluationRequest::from_game(&game);
+    let drawing_index = drawing_action
+        .policy_index(game.position().side_to_move())
+        .expect("drawing action has a policy index");
+
+    assert!(!request.current_player_is_starter);
+    assert_eq!(game.repetition_count_after(drawing_action), Some(3));
+    assert_eq!(
+        request.action_repetition_counts[drawing_index.as_usize()],
+        3
+    );
 
     let mut neutral = Mcts::new(UniformEvaluator, search_config(128), 71).expect("neutral search");
     let mut contempt = Mcts::new(
@@ -155,6 +184,31 @@ fn repetition_contempt_penalizes_only_the_player_causing_the_draw() {
     assert!(q_for(&neutral_result).abs() < f32::EPSILON);
     assert!(q_for(&contempt_result) < -0.99);
     assert_ne!(contempt_result.best_action, drawing_action);
+}
+
+#[test]
+fn role_aware_draw_value_rewards_starter_and_penalizes_non_starter() {
+    let config = SearchConfig {
+        simulations: 16,
+        starter_draw_value: 0.25,
+        ..SearchConfig::default()
+    };
+    let starter_game = Game::new(Player::First);
+    let mut starter_search = Mcts::new(CertainDrawEvaluator, config, 73).expect("valid search");
+    let starter_result = starter_search
+        .search(&starter_game, 0.0)
+        .expect("starter search");
+
+    let mut non_starter_game = starter_game;
+    let entry = non_starter_game.legal_actions()[0];
+    non_starter_game.apply(entry).expect("legal entry move");
+    let mut non_starter_search = Mcts::new(CertainDrawEvaluator, config, 74).expect("valid search");
+    let non_starter_result = non_starter_search
+        .search(&non_starter_game, 0.0)
+        .expect("non-starter search");
+
+    assert!(starter_result.root_value > 0.2);
+    assert!(non_starter_result.root_value < -0.2);
 }
 
 #[test]

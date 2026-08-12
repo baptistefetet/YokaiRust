@@ -118,10 +118,9 @@ The pipeline attacks the feedback loop at four different points:
 - self-play values a draw at `+0.25` for the starter and `-0.25` for the
   non-starter, while official play still uses neutral `P(win) - P(loss)`;
 - cycle-adjacent restarts shorten the horizon where conversion failed;
-- policy loss discounts repetition imitation only in drawn positions where the
-  player to move is the non-starter. With the checked-in discount of `0.9`, a
-  target carrying 100% repetition mass retains 10% of its policy weight. Its
-  WDL loss remains fully weighted.
+- policy loss does not imitate the non-starter's moves from a game it ultimately
+  failed to convert. The starter's drawing defence and every official WDL target
+  remain fully weighted.
 
 This last rule follows the observed failure directly: the starter is allowed to
 learn a drawing defence, while the non-starter should not receive a sharp
@@ -145,7 +144,7 @@ Reports include:
 - policy and WDL cross-entropy;
 - policy entropy, top-1 agreement and illegal probability mass;
 - WDL top-1, value calibration and draw-probability error;
-- the mean policy weight after non-starter draw discounting;
+- the mean policy weight after omitting drawn non-starter policy targets;
 - target entropy, action coverage, immediate-draw mass and repetition mass;
 - separate draw buckets for starter and non-starter positions;
 - initial/restarted self-play outcomes, arena results by seat and both gates.
@@ -155,54 +154,49 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Draw-aware v11: 15-generation result
+## Latest completed research run: v13 through generation 15
 
-This clean run started from random weights with the WDL head, role-aware draw
-utility, targeted restarts and separate learner lineage. It predates the stable
-validation split and repetition-weighted policy loss described above; its
-validation values are therefore useful trend indicators but not a perfectly
-fixed longitudinal holdout.
+This clean run started from random weights with the stable validation split,
+WDL head, role-aware draw utility and targeted restarts. It was the first run
+where the private learner, rather than the last accepted champion, generated
+the next self-play batch after a draw-only rejection.
 
 `arena` is candidate/reference/draw over 200 games. `probe` is exploratory draws
 out of 64. A candidate is promoted only when arena ≥55%, mirror is 0/4 and probe
 is at most 12/64 (20%).
 
-| Gen | Source champion/learner | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
+| Gen | Champion/learner source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| 1 | 0/0 | 3/256 | 2.190 | 2.463 / 1.011 | 30.8% | 166/34/0 | 0/4 | 2/64 | promoted |
-| 2 | 1/1 | 36/256 | 1.801 | 2.185 / 1.086 | 37.3% | 152/45/3 | 0/4 | 5/64 | promoted |
-| 3 | 2/2 | 56/256 | 1.736 | 1.934 / 0.693 | 46.6% | 107/45/48 | 0/4 | 8/64 | promoted |
-| 4 | 3/3 | 71/256 | 1.683 | 1.788 / 0.665 | 49.8% | 113/47/40 | 4/4 | 15/64 | draw rejection |
-| 5 | 3/4 | 74/256 | 1.608 | 1.700 / 0.753 | 54.5% | 63/109/28 | 0/4 | 11/64 | strength rollback |
-| 6 | 3/3 | 78/256 | 1.673 | 1.764 / 0.743 | 51.0% | 129/29/42 | 4/4 | 18/64 | draw rejection |
-| 7 | 3/6 | 60/256 | 1.605 | 1.664 / 0.696 | 55.2% | 101/31/68 | 4/4 | 13/64 | draw rejection |
-| 8 | 3/7 | 61/256 | 1.564 | 1.656 / 0.751 | 55.3% | 148/19/33 | 0/4 | 12/64 | promoted |
-| 9 | 8/8 | 75/256 | 1.554 | 1.609 / 0.696 | 56.4% | 109/62/29 | 0/4 | 10/64 | promoted |
-| 10 | 9/9 | 86/256 | 1.540 | 1.546 / 0.737 | 58.1% | 88/39/73 | 4/4 | 11/64 | draw rejection |
-| 11 | 9/10 | 72/256 | 1.515 | 1.559 / 0.616 | 57.7% | 106/17/77 | 4/4 | 14/64 | draw rejection |
-| 12 | 9/11 | 60/256 | 1.515 | 1.569 / 0.656 | 57.4% | 89/28/83 | 4/4 | 18/64 | draw rejection |
-| 13 | 9/12 | 83/256 | 1.484 | 1.509 / 0.750 | 59.4% | 113/35/52 | 4/4 | 14/64 | draw rejection |
-| 14 | 9/13 | 77/256 | 1.475 | 1.486 / 0.675 | 61.3% | 123/25/52 | 4/4 | 15/64 | draw rejection |
-| 15 | 9/14 | 74/256 | 1.467 | 1.486 / 0.679 | 60.4% | 118/29/53 | 4/4 | 26/64 | draw rejection |
+| 1 | 0/0 | 3/256 | 2.203 | 2.582 / 1.858 | 33.8% | 154/46/0 | 0/4 | 3/64 | promoted |
+| 2 | 1/1 | 33/256 | 1.821 | 2.124 / 1.263 | 39.3% | 160/38/2 | 0/4 | 4/64 | promoted |
+| 3 | 2/2 | 44/256 | 1.757 | 2.031 / 1.006 | 41.9% | 108/38/54 | 4/4 | 4/64 | draw rejection |
+| 4 | 2/3 | 52/256 | 1.706 | 1.905 / 0.930 | 45.8% | 150/49/1 | 0/4 | 15/64 | draw rejection |
+| 5 | 2/4 | 81/256 | 1.663 | 1.858 / 0.996 | 47.1% | 141/48/11 | 4/4 | 11/64 | draw rejection |
+| 6 | 2/5 | 75/256 | 1.631 | 1.819 / 0.949 | 47.7% | 167/21/12 | 4/4 | 14/64 | draw rejection |
+| 7 | 2/6 | 80/256 | 1.592 | 1.774 / 0.936 | 48.9% | 185/13/2 | 4/4 | 12/64 | draw rejection |
+| 8 | 2/7 | 78/256 | 1.570 | 1.726 / 0.956 | 51.2% | 182/15/3 | 0/4 | 19/64 | draw rejection |
+| 9 | 2/8 | 88/256 | 1.553 | 1.714 / 0.933 | 52.0% | 182/16/2 | 4/4 | 22/64 | draw rejection |
+| 10 | 2/9 | 105/256 | 1.537 | 1.679 / 0.934 | 53.4% | 186/13/1 | 4/4 | 25/64 | draw rejection |
+| 11 | 2/10 | 130/256 | 1.513 | 1.670 / 0.943 | 53.9% | 189/8/3 | 4/4 | 25/64 | draw rejection |
+| 12 | 2/11 | 97/256 | 1.503 | 1.649 / 0.921 | 54.1% | 192/6/2 | 4/4 | 40/64 | draw rejection |
+| 13 | 2/12 | 145/256 | 1.481 | 1.627 / 0.902 | 55.8% | 185/13/2 | 0/4 | 21/64 | draw rejection |
+| 14 | 2/13 | 106/256 | 1.459 | 1.609 / 0.904 | 56.6% | 180/18/2 | 0/4 | 27/64 | draw rejection |
+| 15 | 2/14 | 117/256 | 1.455 | 1.597 / 0.949 | 56.7% | 188/11/1 | 4/4 | 35/64 | draw rejection |
 
-The run produced 3,840 games and 108,077 positions. Initial-state trajectories
-drew 470/2,880 (16.3%); deliberately difficult restarts drew 496/960 (51.7%).
-Drawn games supplied 12,731 positions, 11.8% of the final buffer. Promotions
-were generations 1, 2, 3, 8 and 9.
+The run produced 3,840 games and 99,293 positions. From generation 1 to 15,
+validation policy loss fell 38.1%, policy top-1 rose from 33.8% to 56.7%, and
+illegal mass fell from 45.1% to 6.6%. The private lineage also became vastly
+stronger than champion 2. These are real improvements, but not a solved training
+loop: self-play draws rose to 117/256 at generation 15 and drawn games supplied
+14,758 positions (14.9%) of the final buffer.
 
-Learning clearly continued: from generation 1 to 15, validation policy loss
-fell 39.7%, WDL loss fell 32.9%, policy top-1 rose from 30.8% to 60.4%, and
-illegal mass fell from 44.4% to 6.3%. Behavior also improved through champion
-9. The remaining failure is narrower: candidates 10–15 all passed the strength
-arena, often decisively, but all entered the same deterministic mirror cycle.
-
-An internal audit of the generation-6 buffer found that 1,002/2,084 drawn
-non-starter positions assigned policy mass to a repetition. When present, that
-mass averaged 76.4%; decisive non-starter positions averaged only 2.5%
-repetition mass overall. That measurement motivates the new policy weighting.
-The next clean run must determine whether it shortens the six-candidate plateau
-without weakening arena performance. No external evaluator or generated label
-is part of that experiment.
+The experiment found why the previous weighting was insufficient. It only
+discounted policy in non-starter draw positions in proportion to visit mass on
+an already repeated state. Even at generation 15 the mean policy weight was
+0.977, so 97.7% of the original imitation signal remained. The checked-in next
+experiment uses the simpler trajectory-level rule described above: a drawn
+non-starter position trains WDL but has policy weight zero. No external
+evaluator or generated label is involved.
 
 ## Rules source
 

@@ -229,20 +229,16 @@ restarts at zero to explore alternatives near the cycle.
 
 ### 4. Policy weighting stops rewarding failed conversion
 
-Every example still trains WDL at full weight. For a drawn position where the
-current player is the non-starter, only policy cross-entropy is discounted:
+Every example still trains WDL at full weight. The starter's moves in a draw
+also remain normal policy examples because they describe a successful defence.
+For the non-starter, however, the final draw proves that the complete conversion
+attempt failed. Its policy weight is therefore zero for every position in that
+drawn trajectory, including the earlier choices that led toward the cycle.
 
-```text
-policy_weight = 1 - discount * repetition_visit_mass
-```
-
-The checked-in `discount = 0.9` leaves weight 1 for a non-repeating target and
-weight 0.1 for a fully cyclic target. Starter draw policies, decisive games and
-non-repetition actions are untouched.
-
-This is not a hidden value label. It says only that a limited MCTS search which
-failed to convert should be imitated less confidently when it mostly revisits
-known states.
+This does not invent a result or a better action. It separates two statements
+already present in self-play: “this game ended in a draw” remains a full WDL
+target, while “imitate the failed converter's search distribution” is omitted.
+Policy for the non-starter is still learned from every decisive game.
 
 ## Promotion measurements
 
@@ -264,7 +260,7 @@ The gates protect publication; they are not training labels.
 | Metric | What it measures | Warning sign |
 | --- | --- | --- |
 | policy loss | Weighted cross-entropy against MCTS visits | Training falls while stable validation rises. |
-| policy weight | Mean multiplier after repetition discount | A sharp drop means many non-starter draw targets are cyclic. |
+| policy weight | Mean policy-loss multiplier after drawn non-starter examples are omitted | A drop means draws occupy more of the buffer. |
 | WDL loss | Cross-entropy against final W/D/L | Persistent high validation loss means weak result prediction. |
 | policy top-1 | Agreement with the largest visit target | Useful learning signal, not a strength score. |
 | WDL top-1 | Agreement with observed result class | Can hide poor draw calibration if read alone. |

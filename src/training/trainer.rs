@@ -206,8 +206,7 @@ where
                 training_examples[index].clone()
             })
             .collect::<Vec<_>>();
-        let tensors =
-            BatchTensors::<B>::new(&batch, config.non_starter_draw_repetition_discount, device);
+        let tensors = BatchTensors::<B>::new(&batch, config.non_starter_draw_policy_weight, device);
         let losses = forward_losses(&state.model, tensors);
         accumulator.add(read_metrics(&losses), batch.len());
         let gradients = GradientsParams::from_grads(losses.total.backward(), &state.model);
@@ -221,11 +220,11 @@ where
             let validation = if validation_examples.is_empty() {
                 None
             } else {
-                Some(validate_model_with_policy_discount(
+                Some(validate_model_with_policy_weight(
                     &state.model.valid(),
                     validation_examples,
                     config.batch_size,
-                    config.non_starter_draw_repetition_discount,
+                    config.non_starter_draw_policy_weight,
                     device,
                 ))
             };
@@ -260,14 +259,14 @@ pub fn validate_model<B: Backend<FloatElem = f32>>(
     batch_size: usize,
     device: &B::Device,
 ) -> LossMetrics {
-    validate_model_with_policy_discount(model, examples, batch_size, 0.0, device)
+    validate_model_with_policy_weight(model, examples, batch_size, 1.0, device)
 }
 
-fn validate_model_with_policy_discount<B: Backend<FloatElem = f32>>(
+fn validate_model_with_policy_weight<B: Backend<FloatElem = f32>>(
     model: &AlphaZeroNetwork<B>,
     examples: &[TrainingExample],
     batch_size: usize,
-    non_starter_draw_repetition_discount: f32,
+    non_starter_draw_policy_weight: f32,
     device: &B::Device,
 ) -> LossMetrics {
     assert!(batch_size > 0, "validation batch size must be positive");
@@ -275,7 +274,7 @@ fn validate_model_with_policy_discount<B: Backend<FloatElem = f32>>(
     for batch in examples.chunks(batch_size) {
         let losses = forward_losses(
             model,
-            BatchTensors::<B>::new(batch, non_starter_draw_repetition_discount, device),
+            BatchTensors::<B>::new(batch, non_starter_draw_policy_weight, device),
         );
         accumulator.add(read_metrics(&losses), batch.len());
     }
@@ -295,7 +294,7 @@ struct BatchTensors<B: Backend> {
 impl<B: Backend> BatchTensors<B> {
     fn new(
         examples: &[TrainingExample],
-        non_starter_draw_repetition_discount: f32,
+        non_starter_draw_policy_weight: f32,
         device: &B::Device,
     ) -> Self {
         let encoded = examples
@@ -319,7 +318,7 @@ impl<B: Backend> BatchTensors<B> {
             .collect::<Vec<_>>();
         let policy_weight = examples
             .iter()
-            .map(|example| policy_loss_weight(example, non_starter_draw_repetition_discount))
+            .map(|example| policy_loss_weight(example, non_starter_draw_policy_weight))
             .collect::<Vec<_>>();
         let value = examples
             .iter()
@@ -371,14 +370,17 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
 
     // Cross-entropy for a target distribution p and predicted logits z is
     // -sum(p * log_softmax(z)). Keep one value per position first because
-    // cyclic non-starter draw targets receive a smaller imitation weight.
+    // drawn non-starter targets may be omitted from policy imitation.
     let log_probabilities = log_softmax(output.policy_logits.clone(), 1);
     let probabilities = softmax(output.policy_logits.clone(), 1);
     let policy_loss_per_position = (log_probabilities.clone() * batch.policy.clone())
         .sum_dim(1)
         .neg();
-    let policy_loss = (policy_loss_per_position * batch.policy_weight.clone()).sum()
-        / batch.policy_weight.clone().sum();
+    // The clamp also makes an artificial all-zero-weight test batch safe: its
+    // policy loss is zero while WDL still trains normally.
+    let policy_weight_sum = batch.policy_weight.clone().sum().clamp_min(1.0);
+    let policy_loss =
+        (policy_loss_per_position * batch.policy_weight.clone()).sum() / policy_weight_sum;
     // WDL means Win / Draw / Loss. Unlike policy loss, every official outcome
     // remains fully weighted, including draws.
     let wdl_log_probabilities = log_softmax(output.wdl_logits.clone(), 1);
@@ -452,21 +454,14 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
     }
 }
 
-fn policy_loss_weight(example: &TrainingExample, discount: f32) -> f32 {
-    // Decisive positions and the starter's drawing defence remain ordinary
-    // AlphaZero examples. Only a non-starter that failed to convert can have
-    // its repetition-heavy policy target discounted.
-    if example.value != 0.0 || example.current_player_is_starter || discount == 0.0 {
+fn policy_loss_weight(example: &TrainingExample, non_starter_draw_weight: f32) -> f32 {
+    // A draw proves that the non-starter's complete policy trajectory failed to
+    // convert, not merely that its final repeating action was poor. We still
+    // learn the official WDL result, but do not imitate that failed path.
+    if example.value != 0.0 || example.current_player_is_starter {
         return 1.0;
     }
-    let repetition_mass = example
-        .policy
-        .iter()
-        .zip(example.action_repetition_counts)
-        .filter(|(_, count)| *count >= 2)
-        .map(|(probability, _)| probability)
-        .sum::<f32>();
-    1.0 - discount * repetition_mass
+    non_starter_draw_weight
 }
 
 fn illegal_policy_mask(example: &TrainingExample) -> [f32; POLICY_ACTIONS] {
@@ -549,17 +544,15 @@ mod tests {
     }
 
     #[test]
-    fn repetition_discount_only_targets_drawn_non_starter_policy() {
-        let discount = 0.9;
-        let drawn_non_starter = policy_loss_weight(&example(0.0, false, 0.75), discount);
+    fn only_drawn_non_starter_policy_gets_configured_weight() {
+        let weight = 0.0;
+        let drawn_non_starter = policy_loss_weight(&example(0.0, false, 0.75), weight);
 
-        assert!((drawn_non_starter - 0.325).abs() < f32::EPSILON);
+        assert!(drawn_non_starter.abs() < f32::EPSILON);
+        assert!((policy_loss_weight(&example(0.0, true, 0.75), weight) - 1.0).abs() < f32::EPSILON);
         assert!(
-            (policy_loss_weight(&example(0.0, true, 0.75), discount) - 1.0).abs() < f32::EPSILON
+            (policy_loss_weight(&example(1.0, false, 0.75), weight) - 1.0).abs() < f32::EPSILON
         );
-        assert!(
-            (policy_loss_weight(&example(1.0, false, 0.75), discount) - 1.0).abs() < f32::EPSILON
-        );
-        assert!((policy_loss_weight(&example(0.0, false, 0.75), 0.0) - 1.0).abs() < f32::EPSILON);
+        assert!((policy_loss_weight(&example(0.0, false, 0.75), 0.25) - 0.25).abs() < f32::EPSILON);
     }
 }

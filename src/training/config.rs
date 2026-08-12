@@ -46,10 +46,10 @@ pub struct OptimizationConfig {
     pub weight_decay: f32,
     pub validation_fraction: f32,
     pub mirror_augmentation: bool,
-    /// Discounts policy imitation when the non-starter's drawn trajectory
-    /// assigns MCTS visit mass to repetitions. Value/WDL supervision is kept.
-    #[serde(default)]
-    pub non_starter_draw_repetition_discount: f32,
+    /// Policy-loss multiplier for the non-starter's positions in drawn games.
+    /// Value/WDL supervision always stays fully weighted.
+    #[serde(default = "default_non_starter_draw_policy_weight")]
+    pub non_starter_draw_policy_weight: f32,
     /// When set, train only on this many final positions from decisive games.
     /// `None` restores the regular `AlphaZero` dataset containing every position.
     pub terminal_window_plies: Option<usize>,
@@ -153,7 +153,7 @@ impl Default for TrainingConfig {
                 weight_decay: 1.0e-4,
                 validation_fraction: 0.1,
                 mirror_augmentation: true,
-                non_starter_draw_repetition_discount: 0.0,
+                non_starter_draw_policy_weight: 1.0,
                 terminal_window_plies: None,
                 terminal_window_schedule: None,
                 replay_buffer: ReplayBufferConfig::default(),
@@ -188,6 +188,10 @@ const fn default_starter_draw_value() -> f32 {
 
 const fn default_cycle_restart_fraction() -> f32 {
     0.25
+}
+
+const fn default_non_starter_draw_policy_weight() -> f32 {
+    1.0
 }
 
 impl TrainingConfig {
@@ -285,13 +289,11 @@ impl TrainingConfig {
                 "validation fraction must be in [0, 1)",
             ));
         }
-        if !optimization
-            .non_starter_draw_repetition_discount
-            .is_finite()
-            || !(0.0..1.0).contains(&optimization.non_starter_draw_repetition_discount)
+        if !optimization.non_starter_draw_policy_weight.is_finite()
+            || !(0.0..=1.0).contains(&optimization.non_starter_draw_policy_weight)
         {
             return Err(TrainingConfigError::Invalid(
-                "non-starter draw repetition discount must be in [0, 1)",
+                "non-starter draw policy weight must be in [0, 1]",
             ));
         }
         validate_terminal_window(optimization)?;

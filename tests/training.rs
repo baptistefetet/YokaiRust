@@ -354,7 +354,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
-    assert!((config.optimization.non_starter_draw_repetition_discount - 0.9).abs() < f32::EPSILON);
+    assert!(config.optimization.non_starter_draw_policy_weight.abs() < f32::EPSILON);
     assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(
         config.optimization.terminal_window_schedule,
@@ -390,7 +390,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     ));
 
     invalid.optimization.terminal_window_plies = None;
-    invalid.optimization.non_starter_draw_repetition_discount = 1.0;
+    invalid.optimization.non_starter_draw_policy_weight = 1.1;
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
@@ -436,7 +436,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         weight_decay: 0.0,
         validation_fraction: 0.5,
         mirror_augmentation: true,
-        non_starter_draw_repetition_discount: 0.0,
+        non_starter_draw_policy_weight: 1.0,
         terminal_window_plies: None,
         terminal_window_schedule: None,
         replay_buffer: ReplayBufferConfig::default(),
@@ -632,7 +632,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             weight_decay: 0.0,
             validation_fraction: 0.5,
             mirror_augmentation: true,
-            non_starter_draw_repetition_discount: 0.0,
+            non_starter_draw_policy_weight: 1.0,
             terminal_window_plies: None,
             terminal_window_schedule: None,
             replay_buffer: ReplayBufferConfig {

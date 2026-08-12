@@ -5,7 +5,7 @@ use std::{fs, io, path::Path};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{AlphaZeroNetworkConfig, ReplayBufferConfig};
+use crate::{AlphaZeroNetworkConfig, ReplayBufferConfig, SelfPlayEvaluator};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +36,50 @@ pub struct SelfPlayConfig {
     /// Optional larger MCTS budget for cycle-adjacent restart trajectories.
     #[serde(default)]
     pub cycle_restart_simulations: Option<u32>,
+    /// Optional generation-zero evaluator replacement.
+    #[serde(default)]
+    pub bootstrap: SelfPlayBootstrapConfig,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelfPlayBootstrapMode {
+    #[default]
+    Neural,
+    RandomRolloutUntilFirstPromotion,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SelfPlayBootstrapConfig {
+    pub mode: SelfPlayBootstrapMode,
+    pub rollout_max_plies: usize,
+}
+
+impl Default for SelfPlayBootstrapConfig {
+    fn default() -> Self {
+        Self {
+            mode: SelfPlayBootstrapMode::Neural,
+            rollout_max_plies: 512,
+        }
+    }
+}
+
+impl SelfPlayConfig {
+    /// Selects bootstrap from the accepted source, never the attempt number.
+    #[must_use]
+    pub const fn evaluator_for_source_generation(
+        &self,
+        source_generation: u32,
+    ) -> SelfPlayEvaluator {
+        match (self.bootstrap.mode, source_generation) {
+            (SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion, 0) => {
+                SelfPlayEvaluator::RandomRollout {
+                    max_plies: self.bootstrap.rollout_max_plies,
+                }
+            }
+            _ => SelfPlayEvaluator::Neural,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -168,6 +212,7 @@ impl Default for TrainingConfig {
                 starter_draw_value: default_starter_draw_value(),
                 cycle_restart_fraction: default_cycle_restart_fraction(),
                 cycle_restart_simulations: None,
+                bootstrap: SelfPlayBootstrapConfig::default(),
             },
             optimization: OptimizationConfig {
                 steps_per_generation: 400,
@@ -300,6 +345,11 @@ impl TrainingConfig {
         {
             return Err(TrainingConfigError::Invalid(
                 "cycle restart simulations must be at least the regular self-play budget",
+            ));
+        }
+        if self.self_play.bootstrap.rollout_max_plies == 0 {
+            return Err(TrainingConfigError::Invalid(
+                "self-play bootstrap rollout limit must be greater than zero",
             ));
         }
         let optimization = &self.optimization;

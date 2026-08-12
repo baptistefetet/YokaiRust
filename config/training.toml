@@ -31,6 +31,13 @@ cycle_restart_fraction = 0.25
 # Spend a deeper internal search only on the positions where conversion failed.
 cycle_restart_simulations = 800
 
+# Until a candidate is accepted, generation-zero self-play follows the
+# JavaScript bootstrap: uniform priors, seeded random rollouts, and no root
+# Dirichlet noise. Arena and candidate diagnostics remain neural.
+[self_play.bootstrap]
+mode = "random_rollout_until_first_promotion"
+rollout_max_plies = 512
+
 [optimization]
 # A fixed update budget prevents later generations from receiving more gradient
 # steps merely because their replay buffer has grown.
@@ -91,5 +98,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v20"
-self_play = "data/alpha-zero-draw-aware-v20"
+models = "models/alpha-zero-draw-aware-v21"
+self_play = "data/alpha-zero-draw-aware-v21"

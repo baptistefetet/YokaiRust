@@ -37,19 +37,21 @@ pub use policy::{POLICY_ACTIONS, PolicyIndex};
 pub use replay::{REPLAY_FORMAT_VERSION, Replay, ReplayError};
 pub use search::{
     ActionAnalysis, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
-    Mcts, SearchConfig, SearchError, SearchResult, TemperatureSchedule, UniformEvaluator,
+    LeafEvaluation, Mcts, SearchConfig, SearchError, SearchResult, TemperatureSchedule,
+    UniformEvaluator, random_rollout_value,
 };
 pub use training::arena::{
     ArenaError, ArenaProgress, ArenaResult, ArenaSeatResult, run_arena, run_arena_with_progress,
 };
 pub use training::config::{
-    ArenaConfig, BackendKind, LearningRateStage, OptimizationConfig, PathsConfig, SelfPlayConfig,
-    TerminalWindowSchedule, TrainingConfig, TrainingConfigError,
+    ArenaConfig, BackendKind, LearningRateStage, OptimizationConfig, PathsConfig,
+    SelfPlayBootstrapConfig, SelfPlayBootstrapMode, SelfPlayConfig, TerminalWindowSchedule,
+    TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{
     CYCLE_RESTART_MAX_PLIES, CYCLE_RESTART_MIN_PLIES, DatasetDiagnostics, DatasetSplit,
-    PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,
-    TrainingDataError, TrainingExample, dataset_diagnostics, mirror_policy,
+    PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig, SelfPlayEvaluator, SelfPlayGame,
+    SelfPlayRecorder, TrainingDataError, TrainingExample, dataset_diagnostics, mirror_policy,
 };
 pub use training::diagnostics::{
     ENDGAME_DISTANCE_REPORT_VERSION, EndgameDiagnosticError, EndgameDistance,

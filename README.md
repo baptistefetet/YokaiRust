@@ -335,19 +335,18 @@ prediction, which is consistent with its four deterministic mirror cycles.
 
 ### 2. v21 changes only the generation-zero bootstrap
 
-The first new training run must reproduce the useful bootstrap behavior of the
-JavaScript project. Until the first candidate is accepted, self-play MCTS uses
+The v21 implementation is complete and the checked-in configuration now uses
+fresh `alpha-zero-draw-aware-v21` paths. Until the first candidate is accepted,
+self-play MCTS uses
 uniform legal-action priors and random rollouts instead of generation zero's
 random neural policy and WDL. A rejection leaves champion generation zero in
 place, so the following attempt must also use rollouts. Immediately after the
 first promotion, all self-play returns to the ordinary neural evaluator.
 
-Implement this as an explicit, validated configuration option, not as a hidden
-generation-number special case. The activation condition is the accepted
-source champion being generation zero, rather than the candidate attempt being
-generation one. Give v21 fresh paths such as
-`models/alpha-zero-draw-aware-v21` and `data/alpha-zero-draw-aware-v21`; never
-reuse the v20 buffer or weights.
+This is an explicit, validated configuration option, not a hidden candidate
+attempt special case. The activation condition is the accepted source champion
+being generation zero. v21 uses `models/alpha-zero-draw-aware-v21` and
+`data/alpha-zero-draw-aware-v21`; it never reuses the v20 buffer or weights.
 
 The intended configuration shape is explicit enough to survive resume:
 
@@ -377,11 +376,12 @@ rollout path where MCTS still owns the reconstructed leaf game, or refactor the
 leaf-evaluation boundary without sending full games through the GPU inference
 service. Preserve deterministic seed ordering and official repetition rules.
 
-Required tests cover deterministic rollouts for a fixed seed, win/loss sign
-from the leaf perspective, safety-limit draws, rollout use after a rejected
-generation-zero candidate, and the switch to neural evaluation after the first
-promotion. Progress and reports must state which bootstrap evaluator generated
-self-play, so a saved dataset is not ambiguous.
+Tests cover deterministic rollouts for a fixed seed, uniform priors without
+root noise, absence of inference calls, win/loss sign from the leaf
+perspective, safety-limit draws, rollout use after a rejected generation-zero
+candidate, and the switch to neural evaluation after the first promotion.
+Persisted games, progress and generation reports state which evaluator and
+rollout limit generated self-play, so a saved dataset is not ambiguous.
 
 Everything else remains identical to v20: seed 42, network and encoder,
 self-play and restart budgets, replay sampling, optimizer and learning-rate
@@ -392,9 +392,8 @@ arena W/D/L, deterministic mirror draws and exploratory draws. A lower loss
 alone is not success; the main question is whether the first targets are more
 useful and the late cyclic plateau is delayed or avoided.
 
-Before the full run, execute `cargo fmt --check`, `cargo test`, and strict
-Clippy. Then build once with `cargo build --release` and launch the checked-in
-configuration with:
+The preflight passes `cargo fmt --check`, `cargo test`, strict Clippy and
+`cargo build --release`. Launch the checked-in configuration with:
 
 ```bash
 target/release/yokai train --config config/training.toml \

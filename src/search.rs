@@ -255,6 +255,17 @@ pub struct SearchConfig {
     /// Self-play-only utility of a draw for the player who started the game.
     /// The non-starter receives the opposite utility. Zero is official play.
     pub starter_draw_value: f32,
+    /// Source of priors and leaf values for non-terminal expansions.
+    pub leaf_evaluation: LeafEvaluation,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LeafEvaluation {
+    #[default]
+    Evaluator,
+    RandomRollout {
+        max_plies: usize,
+    },
 }
 
 impl Default for SearchConfig {
@@ -267,6 +278,7 @@ impl Default for SearchConfig {
             dirichlet_weight: 0.25,
             repetition_contempt: 0.0,
             starter_draw_value: 0.0,
+            leaf_evaluation: LeafEvaluation::Evaluator,
         }
     }
 }
@@ -546,6 +558,8 @@ impl<E: Evaluator> Mcts<E> {
             ));
         }
 
+        let add_root_noise =
+            add_root_noise && matches!(self.config.leaf_evaluation, LeafEvaluation::Evaluator);
         self.synchronize_root(game);
         if add_root_noise && self.arena[self.root].expanded && !self.root_noise_applied {
             self.apply_root_noise()?;
@@ -582,6 +596,21 @@ impl<E: Evaluator> Mcts<E> {
             }
         }
         if pending.is_empty() {
+            return Ok(completed);
+        }
+
+        if let LeafEvaluation::RandomRollout { max_plies } = self.config.leaf_evaluation {
+            self.release_pending(&pending);
+            for simulation in pending {
+                let leaf_value = random_rollout_value(&simulation.game, max_plies, &mut self.rng)?;
+                self.expand(
+                    simulation.node_index,
+                    &simulation.game,
+                    &Evaluation::uniform(0.0),
+                )?;
+                self.backpropagate(&simulation.path, leaf_value);
+                completed += 1;
+            }
             return Ok(completed);
         }
 
@@ -655,13 +684,18 @@ impl<E: Evaluator> Mcts<E> {
 
         if game.outcome().is_terminal() {
             self.arena[node_index].terminal = true;
-            let value = terminal_value(
-                game.outcome(),
-                game.position().side_to_move(),
-                game.initial_player(),
-                self.config.repetition_contempt,
-                self.config.starter_draw_value,
-            );
+            let value = match self.config.leaf_evaluation {
+                LeafEvaluation::Evaluator => terminal_value(
+                    game.outcome(),
+                    game.position().side_to_move(),
+                    game.initial_player(),
+                    self.config.repetition_contempt,
+                    self.config.starter_draw_value,
+                ),
+                LeafEvaluation::RandomRollout { .. } => {
+                    official_value(game.outcome(), game.position().side_to_move())
+                }
+            };
             self.backpropagate(&path, value);
             Ok(PreparedSimulation::Completed)
         } else if !self.arena[node_index].expanded {
@@ -976,7 +1010,56 @@ fn validate_config(config: SearchConfig) -> Result<(), SearchError> {
             "repetition contempt and starter draw value are mutually exclusive",
         ));
     }
+    if matches!(
+        config.leaf_evaluation,
+        LeafEvaluation::RandomRollout { max_plies: 0 }
+    ) {
+        return Err(SearchError::InvalidConfiguration(
+            "random rollout limit must be greater than zero",
+        ));
+    }
     Ok(())
+}
+
+/// Plays uniformly random legal actions from a complete leaf game.
+///
+/// The returned value is always official `+1`, `0`, or `-1` from the leaf
+/// player-to-move's perspective. Reaching the safety limit while ongoing is a
+/// zero. The cloned [`Game`] preserves the leaf's full repetition history.
+///
+/// # Errors
+///
+/// Returns [`SearchError`] if an ongoing game has no legal action or a legal
+/// action cannot be applied.
+pub fn random_rollout_value<R: Rng + ?Sized>(
+    game: &Game,
+    max_plies: usize,
+    rng: &mut R,
+) -> Result<f32, SearchError> {
+    let perspective = game.position().side_to_move();
+    let mut rollout = game.clone();
+    for _ in 0..max_plies {
+        if rollout.outcome().is_terminal() {
+            return Ok(official_value(rollout.outcome(), perspective));
+        }
+        let legal_actions = rollout.legal_actions();
+        if legal_actions.is_empty() {
+            return Err(SearchError::NoLegalAction);
+        }
+        let action = legal_actions[rng.random_range(0..legal_actions.len())];
+        rollout
+            .apply(action)
+            .map_err(|_| SearchError::InvalidTreeAction)?;
+    }
+    Ok(official_value(rollout.outcome(), perspective))
+}
+
+fn official_value(outcome: Outcome, perspective: Player) -> f32 {
+    match outcome {
+        Outcome::Win { player, .. } if player == perspective => 1.0,
+        Outcome::Win { .. } => -1.0,
+        Outcome::Ongoing | Outcome::Draw { .. } => 0.0,
+    }
 }
 
 fn sanitize_prior(prior: f32) -> f32 {

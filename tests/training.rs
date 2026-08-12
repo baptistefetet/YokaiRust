@@ -9,8 +9,9 @@ use yokai::{
     Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
     CpuTrainingBackend, DatasetSplit, DrawReason, EndgameDistance, Game, LearningRateStage, Mcts,
     ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position, Replay,
-    ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder,
-    Square, TerminalWindowSchedule, TrainingConfig, TrainingConfigError, TrainingDataError,
+    ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayBootstrapConfig, SelfPlayBootstrapMode,
+    SelfPlayConfig, SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, Square,
+    TerminalWindowSchedule, TrainingConfig, TrainingConfigError, TrainingDataError,
     TrainingProgress, UniformEvaluator, bootstrap_latest, dataset_diagnostics,
     endgame_distance_report, generate_self_play, generate_self_play_with_restarts, load_generation,
     load_latest, load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
@@ -247,6 +248,7 @@ fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_frac
         starter_draw_value: 0.0,
         cycle_restart_fraction: 0.5,
         cycle_restart_simulations: Some(8),
+        bootstrap: SelfPlayBootstrapConfig::default(),
     };
     assert_eq!(planned_restart_count(&config, archive.len()), 2);
     let games = generate_self_play_with_restarts(&UniformEvaluator, &config, 1, 900, &archive[..1])
@@ -408,6 +410,13 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!((config.self_play.starter_draw_value - 0.75).abs() < f32::EPSILON);
     assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.self_play.cycle_restart_simulations, Some(800));
+    assert_eq!(
+        config.self_play.bootstrap,
+        SelfPlayBootstrapConfig {
+            mode: SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion,
+            rollout_max_plies: 512,
+        }
+    );
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert!(config.optimization.non_starter_draw_policy_weight.abs() < f32::EPSILON);
@@ -437,6 +446,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
+    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v21");
+    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v21");
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -454,6 +465,36 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 
     invalid.optimization.terminal_window_plies = None;
     invalid.optimization.non_starter_draw_policy_weight = 1.1;
+    assert!(matches!(
+        invalid.validate(),
+        Err(TrainingConfigError::Invalid(_))
+    ));
+}
+
+#[test]
+fn rollout_bootstrap_follows_the_accepted_source_after_rejection_and_promotion() {
+    let mut self_play = TrainingConfig::default().self_play;
+    self_play.bootstrap = SelfPlayBootstrapConfig {
+        mode: SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion,
+        rollout_max_plies: 512,
+    };
+
+    let first_attempt = self_play.evaluator_for_source_generation(0);
+    let retry_after_rejection = self_play.evaluator_for_source_generation(0);
+    let attempt_after_promotion = self_play.evaluator_for_source_generation(1);
+
+    assert_eq!(
+        first_attempt,
+        SelfPlayEvaluator::RandomRollout { max_plies: 512 }
+    );
+    assert_eq!(retry_after_rejection, first_attempt);
+    assert_eq!(attempt_after_promotion, SelfPlayEvaluator::Neural);
+
+    self_play.bootstrap.rollout_max_plies = 0;
+    let invalid = TrainingConfig {
+        self_play,
+        ..TrainingConfig::default()
+    };
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
@@ -582,6 +623,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         starter_draw_value: 0.0,
         cycle_restart_fraction: 0.0,
         cycle_restart_simulations: None,
+        bootstrap: SelfPlayBootstrapConfig::default(),
     };
 
     let first = generate_self_play(&UniformEvaluator, &config, 2, 500)
@@ -595,6 +637,36 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         vec![500, 501]
     );
     assert!(first.iter().all(|game| !game.examples.is_empty()));
+}
+
+#[test]
+fn rollout_self_play_is_explicit_in_saved_games_and_switches_after_promotion() {
+    let mut config = TrainingConfig::default().self_play;
+    config.games_per_generation = 1;
+    config.workers = 1;
+    config.simulations = 8;
+    config.search_batch_size = 2;
+    config.max_game_plies = 512;
+    config.bootstrap = SelfPlayBootstrapConfig {
+        mode: SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion,
+        rollout_max_plies: 64,
+    };
+
+    let bootstrap =
+        generate_self_play(&UniformEvaluator, &config, 0, 700).expect("rollout bootstrap game");
+    assert_eq!(
+        bootstrap[0].evaluator,
+        SelfPlayEvaluator::RandomRollout { max_plies: 64 }
+    );
+    let saved = serde_json::to_value(&bootstrap).expect("bootstrap game serialization");
+    assert_eq!(saved[0]["evaluator"]["kind"], "random_rollout");
+    assert_eq!(saved[0]["evaluator"]["max_plies"], 64);
+
+    let neural =
+        generate_self_play(&UniformEvaluator, &config, 1, 701).expect("post-promotion neural game");
+    assert_eq!(neural[0].evaluator, SelfPlayEvaluator::Neural);
+    let saved = serde_json::to_value(&neural).expect("neural game serialization");
+    assert!(saved[0].get("evaluator").is_none());
 }
 
 #[test]
@@ -716,6 +788,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             starter_draw_value: 0.0,
             cycle_restart_fraction: 0.0,
             cycle_restart_simulations: None,
+            bootstrap: SelfPlayBootstrapConfig::default(),
         },
         optimization: OptimizationConfig {
             steps_per_generation: 1,
@@ -780,6 +853,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
 
     assert_eq!(report.generated_games, 2);
     assert_eq!(report.self_play_source_generation, 0);
+    assert_eq!(report.self_play_evaluator, SelfPlayEvaluator::Neural);
     assert_eq!(
         report.self_play_outcomes.starter_wins
             + report.self_play_outcomes.non_starter_wins
@@ -804,6 +878,10 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     )
     .expect("generation report JSON");
     assert_eq!(persisted_report.candidate_generation, 1);
+    assert_eq!(
+        persisted_report.self_play_evaluator,
+        SelfPlayEvaluator::Neural
+    );
     assert_eq!(persisted_report.training.steps_completed, 1);
     assert_eq!(persisted_report.promotion, report.promotion);
     assert_eq!(
@@ -827,6 +905,13 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
         events.first(),
         Some(TrainingProgress::GenerationStarted { .. })
     ));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        TrainingProgress::SelfPlayStarted {
+            evaluator: SelfPlayEvaluator::Neural,
+            ..
+        }
+    )));
     assert!(events.iter().any(|event| matches!(
         event,
         TrainingProgress::SelfPlayAdvanced {
@@ -904,6 +989,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             .any(|event| matches!(
                 event,
                 TrainingProgress::SelfPlayResumed {
+                    evaluator: _,
                     games: 2,
                     examples: _,
                     restarted_games: _,

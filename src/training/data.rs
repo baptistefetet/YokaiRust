@@ -63,6 +63,32 @@ pub struct TrainingExample {
     pub value: f32,
 }
 
+/// Leaf evaluator that produced a persisted self-play trajectory.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SelfPlayEvaluator {
+    #[default]
+    Neural,
+    RandomRollout {
+        max_plies: usize,
+    },
+}
+
+impl SelfPlayEvaluator {
+    #[must_use]
+    pub const fn is_neural(&self) -> bool {
+        matches!(self, Self::Neural)
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Neural => "neural",
+            Self::RandomRollout { .. } => "random_rollout",
+        }
+    }
+}
+
 impl TrainingExample {
     #[must_use]
     pub fn mirrored(&self) -> Self {
@@ -87,6 +113,9 @@ impl TrainingExample {
 pub struct SelfPlayGame {
     pub generation: u32,
     pub seed: u64,
+    /// Explicitly disambiguates bootstrap data from neural self-play.
+    #[serde(default, skip_serializing_if = "SelfPlayEvaluator::is_neural")]
+    pub evaluator: SelfPlayEvaluator,
     pub outcome: Outcome,
     /// Number of historical prefix plies replayed before this trajectory began.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -360,6 +389,7 @@ impl SelfPlayRecorder {
         Ok(SelfPlayGame {
             generation,
             seed,
+            evaluator: SelfPlayEvaluator::Neural,
             outcome,
             restart_ply,
             restart_history,

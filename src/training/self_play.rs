@@ -8,8 +8,9 @@ use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    Evaluator, Game, Mcts, MoveError, Replay, ReplayError, SearchConfig, SearchError, SelfPlayGame,
-    SelfPlayRecorder, TemperatureSchedule, TrainingDataError, training::config::SelfPlayConfig,
+    Evaluator, Game, LeafEvaluation, Mcts, MoveError, Replay, ReplayError, SearchConfig,
+    SearchError, SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, TemperatureSchedule,
+    TrainingDataError, training::config::SelfPlayConfig,
 };
 
 /// Plays one complete game with exploration enabled only at the MCTS root.
@@ -56,6 +57,13 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         config.cycle_restart_simulations,
         restart.is_some(),
     );
+    let self_play_evaluator = config.evaluator_for_source_generation(generation);
+    let leaf_evaluation = match self_play_evaluator {
+        SelfPlayEvaluator::Neural => LeafEvaluation::Evaluator,
+        SelfPlayEvaluator::RandomRollout { max_plies } => {
+            LeafEvaluation::RandomRollout { max_plies }
+        }
+    };
     let mut search = Mcts::new(
         evaluator,
         SearchConfig {
@@ -63,6 +71,7 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
             evaluation_batch_size: config.search_batch_size,
             repetition_contempt: config.repetition_contempt,
             starter_draw_value: config.starter_draw_value,
+            leaf_evaluation,
             ..SearchConfig::default()
         },
         seed,
@@ -84,9 +93,11 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         game.apply(result.selected_action)?;
         let _reused = search.advance_root(result.selected_action, &game);
     }
-    recorder
+    let mut self_play_game = recorder
         .finish_from_game(generation, seed, &game, restart_ply)
-        .map_err(Into::into)
+        .map_err(SelfPlayError::from)?;
+    self_play_game.evaluator = self_play_evaluator;
+    Ok(self_play_game)
 }
 
 /// Generates a stable seed-ordered batch on a dedicated Rayon pool.

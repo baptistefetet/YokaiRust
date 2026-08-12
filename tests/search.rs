@@ -1,9 +1,11 @@
 use std::sync::{Arc, Mutex};
 
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use yokai::{
     Action, BOARD_SQUARES, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest,
-    Evaluator, Game, Mcts, POLICY_ACTIONS, Piece, PieceKind, Player, Position, Replay,
-    SearchConfig, Square, TemperatureSchedule, UniformEvaluator,
+    Evaluator, Game, LeafEvaluation, Mcts, POLICY_ACTIONS, Piece, PieceKind, Player, Position,
+    Replay, SearchConfig, Square, TemperatureSchedule, UniformEvaluator, random_rollout_value,
 };
 
 #[derive(Clone)]
@@ -318,6 +320,87 @@ fn seeded_root_noise_and_temperature_sampling_are_reproducible() {
             .analysis
             .windows(2)
             .all(|pair| (pair[0].prior - pair[1].prior).abs() < 1.0e-6)
+    );
+}
+
+#[test]
+fn rollout_search_is_seeded_uniform_and_never_queries_the_evaluator() {
+    let game = Game::new(Player::First);
+    let batch_sizes = Arc::new(Mutex::new(Vec::new()));
+    let evaluator = BatchRecordingEvaluator {
+        batch_sizes: batch_sizes.clone(),
+        fail_call: Some(0),
+        calls: 0,
+    };
+    let config = SearchConfig {
+        simulations: 32,
+        evaluation_batch_size: 4,
+        leaf_evaluation: LeafEvaluation::RandomRollout { max_plies: 64 },
+        ..SearchConfig::default()
+    };
+    let mut first = Mcts::new(evaluator, config, 91).expect("rollout search");
+    let mut second = Mcts::new(UniformEvaluator, config, 91).expect("matching rollout search");
+
+    let first_result = first
+        .search_self_play(&game, 1.0)
+        .expect("rollout search bypasses evaluator");
+    let second_result = second
+        .search_self_play(&game, 1.0)
+        .expect("fixed seed reproduces rollouts");
+
+    assert_eq!(first_result, second_result);
+    assert!(batch_sizes.lock().expect("batch recorder").is_empty());
+    assert!(
+        first_result
+            .analysis
+            .windows(2)
+            .all(|pair| { (pair[0].prior - pair[1].prior).abs() < f32::EPSILON })
+    );
+}
+
+#[test]
+fn rollout_value_uses_the_leaf_perspective_and_safety_limit() {
+    let position = position_with(
+        &[
+            (3, 0, PieceKind::Koropokkuru, Player::First),
+            (1, 1, PieceKind::Koropokkuru, Player::Second),
+            (2, 1, PieceKind::Tanuki, Player::First),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    );
+    let game = Game::from_position(position);
+    let winning_action = Action::Move {
+        from: square(2, 1),
+        to: square(1, 1),
+    };
+    let winning_seed = (0..1_024)
+        .find(|seed| {
+            let mut rng = ChaCha8Rng::seed_from_u64(*seed);
+            random_rollout_value(&game, 1, &mut rng)
+                .is_ok_and(|value| (value - 1.0).abs() < f32::EPSILON)
+        })
+        .expect("some seeded uniform rollout must select the immediate win");
+    let mut winning_rng = ChaCha8Rng::seed_from_u64(winning_seed);
+    let winning_value = random_rollout_value(&game, 1, &mut winning_rng).expect("winning rollout");
+    assert!((winning_value - 1.0).abs() < f32::EPSILON);
+
+    let mut terminal = game;
+    terminal.apply(winning_action).expect("immediate win");
+    let mut terminal_rng = ChaCha8Rng::seed_from_u64(0);
+    let losing_value =
+        random_rollout_value(&terminal, 512, &mut terminal_rng).expect("terminal rollout");
+    assert!(
+        (losing_value + 1.0).abs() < f32::EPSILON,
+        "the terminal side to move is the losing leaf perspective",
+    );
+
+    let mut limited_rng = ChaCha8Rng::seed_from_u64(7);
+    let limited_value = random_rollout_value(&Game::new(Player::First), 1, &mut limited_rng)
+        .expect("limited rollout");
+    assert!(
+        limited_value.abs() < f32::EPSILON,
+        "an ongoing rollout at the safety limit is a draw value",
     );
 }
 

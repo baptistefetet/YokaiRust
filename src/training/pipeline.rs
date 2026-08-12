@@ -12,14 +12,30 @@ use thiserror::Error;
 
 use crate::{
     AlphaZeroNetworkConfig, AlphaZeroTrainingState, ArenaError, ArenaProgress, ArenaResult,
-    DatasetDiagnostics, InferenceClient, InferenceService, InferenceServiceError, InferenceStats,
-    ModelMetadata, ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer,
-    ReplayBufferConfig, ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample,
+    DatasetDiagnostics, Evaluation, EvaluationError, EvaluationRequest, Evaluator, InferenceClient,
+    InferenceService, InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError,
+    NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError,
+    SelfPlayError, SelfPlayEvaluator, SelfPlayGame, TrainingConfig, TrainingExample,
     TrainingReport, TrainingStepReport, dataset_diagnostics, generate_self_play_with_progress,
     generate_self_play_with_restarts_and_progress, load_champion, load_generation,
     load_training_generation, next_generation, planned_restart_count, publish_champion,
     run_arena_with_progress, save_generation, save_training_generation, train_state_with_progress,
 };
+
+/// Guard proving that rollout bootstrap never falls back to scalar-zero leaves.
+#[derive(Clone, Copy)]
+struct RolloutOnly;
+
+impl Evaluator for RolloutOnly {
+    fn evaluate_batch(
+        &mut self,
+        _requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        Err(EvaluationError::Backend(
+            "rollout bootstrap attempted neural inference".to_owned(),
+        ))
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GameOutcomeStats {
@@ -44,6 +60,9 @@ pub struct GenerationReport {
     /// Checkpoint that generated this generation's self-play games.
     #[serde(default)]
     pub self_play_source_generation: u32,
+    /// Leaf evaluator used for this generation's persisted self-play.
+    #[serde(default)]
+    pub self_play_evaluator: SelfPlayEvaluator,
     pub candidate_generation: u32,
     pub generated_games: usize,
     #[serde(default)]
@@ -108,6 +127,7 @@ pub enum TrainingProgress {
         candidate_generation: u32,
     },
     SelfPlayStarted {
+        evaluator: SelfPlayEvaluator,
         games: usize,
         workers: usize,
         simulations: u32,
@@ -123,6 +143,7 @@ pub enum TrainingProgress {
         total: usize,
     },
     SelfPlayFinished {
+        evaluator: SelfPlayEvaluator,
         games: usize,
         restarted_games: usize,
         examples: usize,
@@ -130,6 +151,7 @@ pub enum TrainingProgress {
         inference: InferenceStats,
     },
     SelfPlayResumed {
+        evaluator: SelfPlayEvaluator,
         games: usize,
         examples: usize,
         restarted_games: usize,
@@ -296,16 +318,21 @@ where
         source_generation: source_metadata.generation,
         candidate_generation,
     });
+    let self_play_evaluator = config
+        .self_play
+        .evaluator_for_source_generation(source_metadata.generation);
 
     let persisted_games = load_self_play_generation(
         &config.paths.self_play,
         candidate_generation,
         source_metadata.generation,
+        self_play_evaluator,
     )?;
     let games = if let Some(games) = persisted_games {
         let examples = games.iter().map(|game| game.examples.len()).sum();
         let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
         progress(TrainingProgress::SelfPlayResumed {
+            evaluator: self_play_evaluator,
             games: games.len(),
             examples,
             restarted_games,
@@ -315,6 +342,7 @@ where
         let restart_archive = buffer.cycle_restart_replays()?;
         let planned_restarts = planned_restart_count(&config.self_play, restart_archive.len());
         progress(TrainingProgress::SelfPlayStarted {
+            evaluator: self_play_evaluator,
             games: config.self_play.games_per_generation,
             workers: config.self_play.workers,
             simulations: config.self_play.simulations,
@@ -328,39 +356,60 @@ where
             restart_archive: restart_archive.len(),
             planned_restarts,
         });
-        let (source_for_self_play, _) =
-            load_generation::<B::InnerBackend>(models_root, source_metadata.generation, device)?;
-        let self_play_service = InferenceService::start_with_batching(
-            NetworkEvaluator::new(source_for_self_play, device.clone()),
-            config
-                .self_play
-                .workers
-                .saturating_mul(config.self_play.search_batch_size)
-                .min(config.self_play.inference_batch_size),
-            config.self_play.inference_batch_size,
-            Duration::from_millis(config.self_play.inference_wait_ms),
-        )?;
-        let self_play_client = self_play_service.client();
-        let games = generate_self_play_with_restarts_and_progress(
-            &self_play_client,
-            &config.self_play,
-            source_metadata.generation,
-            config
-                .seed
-                .wrapping_add(u64::from(candidate_generation) << 32),
-            &restart_archive,
-            &|completed, total| {
-                if progress_checkpoint(completed, total) {
-                    progress(TrainingProgress::SelfPlayAdvanced { completed, total });
-                }
-            },
-        )?;
-        let inference = self_play_service.stats();
-        drop(self_play_service);
+        let base_seed = config
+            .seed
+            .wrapping_add(u64::from(candidate_generation) << 32);
+        let report_progress = |completed, total| {
+            if progress_checkpoint(completed, total) {
+                progress(TrainingProgress::SelfPlayAdvanced { completed, total });
+            }
+        };
+        let (games, inference) = match self_play_evaluator {
+            SelfPlayEvaluator::Neural => {
+                let (source_for_self_play, _) = load_generation::<B::InnerBackend>(
+                    models_root,
+                    source_metadata.generation,
+                    device,
+                )?;
+                let self_play_service = InferenceService::start_with_batching(
+                    NetworkEvaluator::new(source_for_self_play, device.clone()),
+                    config
+                        .self_play
+                        .workers
+                        .saturating_mul(config.self_play.search_batch_size)
+                        .min(config.self_play.inference_batch_size),
+                    config.self_play.inference_batch_size,
+                    Duration::from_millis(config.self_play.inference_wait_ms),
+                )?;
+                let games = generate_self_play_with_restarts_and_progress(
+                    &self_play_service.client(),
+                    &config.self_play,
+                    source_metadata.generation,
+                    base_seed,
+                    &restart_archive,
+                    &report_progress,
+                )?;
+                let inference = self_play_service.stats();
+                drop(self_play_service);
+                (games, inference)
+            }
+            SelfPlayEvaluator::RandomRollout { .. } => (
+                generate_self_play_with_restarts_and_progress(
+                    &RolloutOnly,
+                    &config.self_play,
+                    source_metadata.generation,
+                    base_seed,
+                    &restart_archive,
+                    &report_progress,
+                )?,
+                InferenceStats::default(),
+            ),
+        };
         let outcomes = outcome_stats(&games);
         let examples = games.iter().map(|game| game.examples.len()).sum();
         let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
         progress(TrainingProgress::SelfPlayFinished {
+            evaluator: self_play_evaluator,
             games: games.len(),
             restarted_games,
             examples,
@@ -557,6 +606,7 @@ where
     let report = GenerationReport {
         source_generation: source_metadata.generation,
         self_play_source_generation: source_metadata.generation,
+        self_play_evaluator,
         candidate_generation,
         generated_games: games.len(),
         restarted_games,
@@ -838,6 +888,7 @@ fn load_self_play_generation(
     root: impl AsRef<Path>,
     file_generation: u32,
     expected_source_generation: u32,
+    expected_evaluator: SelfPlayEvaluator,
 ) -> Result<Option<Vec<SelfPlayGame>>, PipelineError> {
     let path = root
         .as_ref()
@@ -849,13 +900,14 @@ fn load_self_play_generation(
     };
     let games: Vec<SelfPlayGame> = serde_json::from_slice(&bytes)?;
     if games.is_empty()
-        || games
-            .iter()
-            .any(|game| game.generation != expected_source_generation)
+        || games.iter().any(|game| {
+            game.generation != expected_source_generation || game.evaluator != expected_evaluator
+        })
     {
         return Err(PipelineError::InvalidPersistedSelfPlay {
             file_generation,
             expected_source_generation,
+            expected_evaluator,
         });
     }
     Ok(Some(games))
@@ -943,11 +995,12 @@ pub enum PipelineError {
     #[error("training split produced no examples")]
     EmptyTrainingSet,
     #[error(
-        "persisted self-play generation {file_generation} is empty or was not produced by network {expected_source_generation}"
+        "persisted self-play generation {file_generation} is empty or was not produced by network {expected_source_generation} with {expected_evaluator:?}"
     )]
     InvalidPersistedSelfPlay {
         file_generation: u32,
         expected_source_generation: u32,
+        expected_evaluator: SelfPlayEvaluator,
     },
     #[error("training pipeline I/O error: {0}")]
     Io(#[from] io::Error),

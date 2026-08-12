@@ -246,6 +246,7 @@ fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_frac
         repetition_contempt: 0.0,
         starter_draw_value: 0.0,
         cycle_restart_fraction: 0.5,
+        cycle_restart_simulations: Some(8),
     };
     assert_eq!(planned_restart_count(&config, archive.len()), 2);
     let games = generate_self_play_with_restarts(&UniformEvaluator, &config, 1, 900, &archive[..1])
@@ -352,6 +353,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.self_play.repetition_contempt.abs() < f32::EPSILON);
     assert!((config.self_play.starter_draw_value - 0.75).abs() < f32::EPSILON);
     assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
+    assert_eq!(config.self_play.cycle_restart_simulations, Some(800));
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert!(config.optimization.non_starter_draw_policy_weight.abs() < f32::EPSILON);
@@ -490,6 +492,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         repetition_contempt: 0.0,
         starter_draw_value: 0.0,
         cycle_restart_fraction: 0.0,
+        cycle_restart_simulations: None,
     };
 
     let first = generate_self_play(&UniformEvaluator, &config, 2, 500)
@@ -623,6 +626,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             repetition_contempt: 0.0,
             starter_draw_value: 0.0,
             cycle_restart_fraction: 0.0,
+            cycle_restart_simulations: None,
         },
         optimization: OptimizationConfig {
             steps_per_generation: 1,

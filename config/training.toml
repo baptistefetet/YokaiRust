@@ -28,6 +28,8 @@ starter_draw_value = 0.75
 # Once drawn replays exist, restart this share of trajectories 2-8 plies before
 # their terminal repetition. Generation zero necessarily starts with 0%.
 cycle_restart_fraction = 0.25
+# Spend a deeper internal search only on the positions where conversion failed.
+cycle_restart_simulations = 800
 
 [optimization]
 # A fixed update budget prevents later generations from receiving more gradient
@@ -81,5 +83,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v16"
-self_play = "data/alpha-zero-draw-aware-v16"
+models = "models/alpha-zero-draw-aware-v17"
+self_play = "data/alpha-zero-draw-aware-v17"

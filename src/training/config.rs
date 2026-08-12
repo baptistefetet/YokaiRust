@@ -33,6 +33,9 @@ pub struct SelfPlayConfig {
     /// Fraction of games restarted near historical repetition failures.
     #[serde(default = "default_cycle_restart_fraction")]
     pub cycle_restart_fraction: f32,
+    /// Optional larger MCTS budget for cycle-adjacent restart trajectories.
+    #[serde(default)]
+    pub cycle_restart_simulations: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -144,6 +147,7 @@ impl Default for TrainingConfig {
                 repetition_contempt: 0.0,
                 starter_draw_value: default_starter_draw_value(),
                 cycle_restart_fraction: default_cycle_restart_fraction(),
+                cycle_restart_simulations: None,
             },
             optimization: OptimizationConfig {
                 steps_per_generation: 400,
@@ -266,6 +270,15 @@ impl TrainingConfig {
         {
             return Err(TrainingConfigError::Invalid(
                 "self-play cycle restart fraction must be finite and in [0, 1]",
+            ));
+        }
+        if self
+            .self_play
+            .cycle_restart_simulations
+            .is_some_and(|simulations| simulations < self.self_play.simulations)
+        {
+            return Err(TrainingConfigError::Invalid(
+                "cycle restart simulations must be at least the regular self-play budget",
             ));
         }
         let optimization = &self.optimization;

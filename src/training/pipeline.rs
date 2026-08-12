@@ -114,6 +114,7 @@ pub enum TrainingProgress {
         search_batch_size: usize,
         repetition_contempt: f32,
         starter_draw_value: f32,
+        cycle_restart_simulations: u32,
         restart_archive: usize,
         planned_restarts: usize,
     },
@@ -319,6 +320,10 @@ where
             search_batch_size: config.self_play.search_batch_size,
             repetition_contempt: config.self_play.repetition_contempt,
             starter_draw_value: config.self_play.starter_draw_value,
+            cycle_restart_simulations: config
+                .self_play
+                .cycle_restart_simulations
+                .unwrap_or(config.self_play.simulations),
             restart_archive: restart_archive.len(),
             planned_restarts,
         });

@@ -51,10 +51,15 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         Game::new_random(&mut starting_rng)
     };
     let restart_ply = game.actions().len();
+    let simulations = trajectory_simulations(
+        config.simulations,
+        config.cycle_restart_simulations,
+        restart.is_some(),
+    );
     let mut search = Mcts::new(
         evaluator,
         SearchConfig {
-            simulations: config.simulations,
+            simulations,
             evaluation_batch_size: config.search_batch_size,
             repetition_contempt: config.repetition_contempt,
             starter_draw_value: config.starter_draw_value,
@@ -231,6 +236,29 @@ fn planned_restarts(config: &SelfPlayConfig, seed: u64, archive: &[Replay]) -> V
         starts[slot] = Some(archive[prefix_indices[offset % prefix_indices.len()]].clone());
     }
     starts
+}
+
+const fn trajectory_simulations(regular: u32, targeted: Option<u32>, is_restart: bool) -> u32 {
+    if is_restart {
+        match targeted {
+            Some(simulations) => simulations,
+            None => regular,
+        }
+    } else {
+        regular
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trajectory_simulations;
+
+    #[test]
+    fn only_targeted_restarts_receive_the_larger_search_budget() {
+        assert_eq!(trajectory_simulations(200, Some(800), false), 200);
+        assert_eq!(trajectory_simulations(200, Some(800), true), 800);
+        assert_eq!(trajectory_simulations(200, None, true), 200);
+    }
 }
 
 #[allow(

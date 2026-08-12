@@ -203,10 +203,11 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             search_batch_size,
             repetition_contempt,
             starter_draw_value,
+            cycle_restart_simulations,
             restart_archive,
             planned_restarts,
         } => eprintln!(
-            "[{elapsed}] self-play started: {games} games ({planned_restarts} targeted restarts from {restart_archive} prefixes), {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}, starter draw value={starter_draw_value:.2}"
+            "[{elapsed}] self-play started: {games} games ({planned_restarts} targeted restarts from {restart_archive} prefixes at {cycle_restart_simulations} simulations/move), {workers} workers, {simulations} regular simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}, starter draw value={starter_draw_value:.2}"
         ),
         TrainingProgress::SelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] self-play {completed}/{total} ({:.1}%)",

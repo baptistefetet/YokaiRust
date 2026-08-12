@@ -221,8 +221,13 @@ the non-starter is pushed to search for a conversion.
 
 One quarter of trajectories restart two to eight plies before a historical
 threefold repetition. The full prefix is replayed, so exact repetition state,
-starter role and encoder history remain valid. The local temperature schedule
-restarts at zero to explore alternatives near the cycle.
+starter role and encoder history remain valid. These targeted trajectories use
+800 MCTS simulations per move instead of the regular 200. The local temperature
+schedule restarts at ply zero to explore alternatives near the cycle.
+
+This is extra computation, not external knowledge. The same current network,
+rules and PUCT search produce the target; search simply gets more opportunities
+to test a longer conversion before falling back to the known repetition.
 
 ### 4. Policy weighting stops rewarding failed conversion
 

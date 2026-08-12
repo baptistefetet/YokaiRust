@@ -190,16 +190,14 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v19 through generation 15
+## Latest completed research run: v20 through generation 15
 
-This deterministic run started from random weights. Compared with v18, its only
-change was how a drawn non-starter example is supervised. Normally its policy
-loss has weight zero: copying every decision from a failed conversion would
-teach the failure. When the rules prove that one available action immediately
-causes the third repetition, v19 instead removes that action from the recorded
-MCTS distribution, renormalizes the alternatives and trains on the corrected
-target. The relative preference among the remaining moves still comes from
-MCTS.
+This deterministic run started from random weights. Compared with v19, its only
+change was the targeted-restart distance: a restart may begin one ply before an
+observed repetition draw, instead of two to eight plies before it. At that exact
+decision, the deeper 800-simulation search can explore the alternatives that
+the corrected non-starter target preserves. This remains ordinary self-play
+from an observed game prefix.
 
 `source` is the last accepted champion; `arena` is candidate/champion/draw over
 200 games; `probe` is exploratory draws out of 64. Promotion requires arena
@@ -208,43 +206,42 @@ MCTS.
 | Gen | Source | Self-play draws | Train policy | Valid policy/WDL | Valid top-1 | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
 | 1 | 0 | 7/256 | 2.253 | 2.565 / 1.065 | 31.9% | 168/32/0 | 0/4 | 1/64 | promoted |
-| 2 | 1 | 25/256 | 1.870 | 2.277 / 1.241 | 37.4% | 152/48/0 | 0/4 | 3/64 | promoted |
-| 3 | 2 | 39/256 | 1.795 | 2.089 / 0.970 | 41.9% | 75/113/12 | 0/4 | 2/64 | strength rejection |
-| 4 | 2 | 47/256 | 1.826 | 2.023 / 0.891 | 44.9% | 136/62/2 | 0/4 | 4/64 | promoted |
-| 5 | 4 | 40/256 | 1.753 | 1.932 / 0.847 | 48.6% | 147/49/4 | 0/4 | 3/64 | promoted |
-| 6 | 5 | 53/256 | 1.685 | 1.864 / 0.880 | 48.6% | 120/42/38 | 4/4 | 9/64 | draw rejection |
-| 7 | 5 | 51/256 | 1.688 | 1.837 / 0.768 | 49.5% | 160/25/15 | 0/4 | 2/64 | promoted |
-| 8 | 7 | 56/256 | 1.609 | 1.746 / 0.809 | 53.2% | 82/69/49 | 4/4 | 8/64 | strength + draw rejection |
-| 9 | 7 | 54/256 | 1.621 | 1.733 / 0.765 | 53.1% | 65/42/93 | 0/4 | 4/64 | promoted |
-| 10 | 9 | 63/256 | 1.588 | 1.710 / 0.774 | 54.3% | 56/60/84 | 4/4 | 6/64 | strength + draw rejection |
-| 11 | 9 | 66/256 | 1.581 | 1.696 / 0.755 | 55.2% | 92/17/91 | 0/4 | 9/64 | promoted |
-| 12 | 11 | 56/256 | 1.568 | 1.670 / 0.760 | 56.1% | 132/32/36 | 4/4 | 17/64 | draw rejection |
-| 13 | 11 | 68/256 | 1.573 | 1.661 / 0.752 | 55.9% | 66/40/94 | 4/4 | 13/64 | draw rejection |
-| 14 | 11 | 80/256 | 1.569 | 1.647 / 0.753 | 56.5% | 61/72/67 | 0/4 | 7/64 | strength rejection |
-| 15 | 11 | 65/256 | 1.573 | 1.637 / 0.746 | 57.5% | 90/23/87 | 4/4 | 9/64 | draw rejection |
+| 2 | 1 | 33/256 | 1.858 | 2.238 / 0.973 | 39.1% | 177/23/0 | 0/4 | 1/64 | promoted |
+| 3 | 2 | 34/256 | 1.803 | 2.063 / 0.965 | 44.0% | 148/50/2 | 0/4 | 1/64 | promoted |
+| 4 | 3 | 35/256 | 1.730 | 1.950 / 0.969 | 45.3% | 106/56/38 | 4/4 | 3/64 | draw rejection |
+| 5 | 3 | 49/256 | 1.735 | 1.908 / 0.866 | 47.7% | 161/38/1 | 0/4 | 7/64 | promoted |
+| 6 | 5 | 57/256 | 1.671 | 1.839 / 0.806 | 50.3% | 144/40/16 | 0/4 | 5/64 | promoted |
+| 7 | 6 | 63/256 | 1.646 | 1.771 / 0.816 | 51.0% | 72/46/82 | 4/4 | 15/64 | draw rejection |
+| 8 | 6 | 64/256 | 1.635 | 1.744 / 0.875 | 51.7% | 96/22/82 | 0/4 | 4/64 | promoted |
+| 9 | 8 | 46/256 | 1.560 | 1.676 / 0.859 | 53.7% | 94/38/68 | 4/4 | 7/64 | draw rejection |
+| 10 | 8 | 53/256 | 1.569 | 1.664 / 0.866 | 54.2% | 64/25/111 | 4/4 | 7/64 | draw rejection |
+| 11 | 8 | 50/256 | 1.557 | 1.647 / 0.845 | 54.9% | 107/15/78 | 4/4 | 13/64 | draw rejection |
+| 12 | 8 | 63/256 | 1.554 | 1.638 / 0.827 | 55.1% | 112/22/66 | 0/4 | 9/64 | promoted |
+| 13 | 12 | 57/256 | 1.524 | 1.603 / 0.810 | 56.7% | 84/46/70 | 0/4 | 12/64 | promoted |
+| 14 | 13 | 69/256 | 1.500 | 1.588 / 0.842 | 57.4% | 45/85/70 | 4/4 | 11/64 | strength + draw rejection |
+| 15 | 13 | 63/256 | 1.504 | 1.586 / 0.815 | 57.2% | 117/43/40 | 4/4 | 1/64 | draw rejection |
 
-Across 3,840 games and 125,670 positions, validation policy loss fell 36.2%,
-top-1 rose from 31.9% to 57.5%, and illegal probability mass fell from 46.9%
-to 10.3%. Seven candidates were promoted, reaching champion 11. That is one
-more promotion than v18, and the raw immediate-draw mass of drawn non-starter
-positions fell from v18's 63.8% to 53.8% in the final buffer. The correction
-therefore has the intended local effect.
+Across 3,840 games and 127,717 positions, validation policy loss fell 38.2%,
+policy top-1 rose from 31.9% to 57.2%, WDL top-1 rose from 58.1% to 63.3%,
+and illegal probability mass fell from 46.9% to 9.2%. Eight candidates were
+promoted. The accepted sequence is `0 -> 1 -> 2 -> 3 -> 5 -> 6 -> 8 -> 12 ->
+13`. Compared with v19, the one-ply restart therefore produced one more
+promotion and moved the final champion from 11 to 13. In particular, candidates
+12 and 13 both passed every gate after three consecutive rejections from
+champion 8.
 
-It does not solve the complete problem. Generation 15 predicts the accumulated
-dataset better than every earlier candidate and beats champion 11 by 90 wins to
-23, yet 87 arena games are draws and all four deterministic mirrors cycle. This
-is a concrete counterexample to "the loss goes down, therefore the player gets
-better": the network can increasingly imitate a replay buffer whose difficult
-positions still lack successful conversion trajectories. The mirror gate is
-what prevents this superficially strong but cyclic network from becoming the
-new self-play teacher.
+The change delays the cyclic plateau but does not remove it. Candidate 14 is
+weaker than champion 13 and cycles in all four mirrors. Candidate 15 lowers
+validation policy loss again and beats champion 13 by 117 wins to 43, with
+only 40 arena draws and one exploratory draw, yet all four deterministic
+mirrors still cycle. The final buffer's drawn non-starter immediate-draw mass
+is 55.2%, versus 53.8% in v19, so the exact-decision restarts do not produce a
+consistent reduction in that local metric. The mirror gate again prevents a
+superficially strong but cyclic network from becoming the self-play teacher.
 
-The active v20 experiment lets targeted restarts begin one ply before a known
-draw, instead of two to eight plies before it. At that exact decision, the
-deeper 800-simulation search can explore the alternatives that the corrected
-target now preserves. This remains ordinary self-play from an observed game
-prefix. Complete this run through generation 15 before changing another
-variable.
+The next action is the endgame-distance diagnostic below. Run it on the frozen
+v20 checkpoints before implementing or starting v21; training behavior must
+remain unchanged until that comparison exists.
 
 ## Handoff: next JavaScript-informed research program
 
@@ -270,19 +267,14 @@ Commit and push each implementation separately from its completed experimental
 report. A new conversation must be able to recover the current state and next
 action from this README plus the structured JSON reports alone.
 
-### 0. Finish and freeze the v20 baseline
+### 0. Frozen v20 baseline
 
-The active v20 run is the one-ply-restart experiment described above. Its
-runtime artifacts are in `data/alpha-zero-draw-aware-v20` and
-`models/alpha-zero-draw-aware-v20`; they are intentionally ignored by Git.
-Before implementing v21:
-
-1. ensure that `reports/generation-000015.json` exists for v20 and that no
-   trainer is still writing those directories;
-2. if interrupted, resume the existing paths instead of starting a second v20;
-3. replace the v19 table above with the complete v20 generation 1–15 table and
-   conclusions;
-4. retain the v20 data and checkpoints until every v21 comparison is complete.
+The one-ply-restart run is complete through candidate 15 and no trainer is
+writing its directories. Its accepted champion is generation 13, and
+`reports/generation-000015.json` records the final rejected candidate. Runtime
+artifacts remain in `data/alpha-zero-draw-aware-v20` and
+`models/alpha-zero-draw-aware-v20`; they are intentionally ignored by Git and
+must be retained until every v21 comparison is complete.
 
 The structured JSON reports are authoritative if prose and runtime files ever
 disagree.

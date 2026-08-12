@@ -194,8 +194,17 @@ evaluated separately.
 | entropy | Spread of predicted legal moves | Sudden collapse can indicate premature policy certainty. |
 | top-1 | Agreement with the largest MCTS target | Useful for tactical tests, not a complete strength score. |
 | calibration | Difference between value prediction and outcome | Low validation error means values better match observed results. |
+| WDL top-1 | Agreement with the observed win/draw/loss class | A high aggregate score can hide poor draw recognition; read with draw error. |
+| draw error | Absolute error of predicted draw probability | Rising values expose WDL miscalibration before scalar `W-L` necessarily changes. |
 | illegal mass | Raw probability assigned to illegal actions | High values waste network capacity even though MCTS masks them. |
 | W/L/D | Actual behavior | The primary health signal; always separate draws from wins. |
+
+Each generation report also derives target-only diagnostics from the self-play
+data, split between drawn and decisive games: visit-policy entropy, largest
+action probability, legal-action coverage, mass on already-seen positions, and
+mass on actions that immediately close a threefold draw. These require neither
+an oracle nor assumptions specific to the 3×4 board and are the first evidence
+to inspect when the learner stalls.
 
 Loss improvements do not prove playing-strength improvements. Diagnostic arenas
 and fixed tactical/baseline tests remain necessary.
@@ -227,10 +236,13 @@ A convincing **strong** model should satisfy all of these repeatedly:
 - progress across multiple seeds and historical checkpoints;
 - calibrated value predictions on held-out games.
 
-A **perfect** model requires an independent oracle. For a finite 3x4 game that
-normally means a complete solver/tablebase, then checking every reachable state
-or at least measuring the network/MCTS decisions against the oracle. AlphaZero
-can be an excellent player without being a proof-producing solver.
+A **perfectness claim** requires an independent proof or oracle, but that oracle
+is not part of AlphaZero. For 3×4 it may be used manually to audit a finished
+checkpoint; it must never influence examples, search, promotion or gameplay.
+The normal pipeline intentionally relies only on self-play and fixed learned or
+search baselines, so the same design remains applicable to the planned 5×6 game
+where no tablebase is expected. AlphaZero can be an excellent player without
+being a proof-producing solver.
 
 ## Can Ratatui development start now?
 

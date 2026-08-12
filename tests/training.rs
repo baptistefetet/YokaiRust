@@ -11,9 +11,10 @@ use yokai::{
     PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig,
     SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule,
     TrainingConfig, TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator,
-    bootstrap_latest, generate_self_play, generate_self_play_with_restarts, load_generation,
-    load_latest, load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
-    run_generation_with_progress, save_generation, train_candidate, validate_model,
+    bootstrap_latest, dataset_diagnostics, generate_self_play, generate_self_play_with_restarts,
+    load_generation, load_latest, load_replay_buffer, planned_restart_count, run_arena,
+    run_arena_with_progress, run_generation_with_progress, save_generation, train_candidate,
+    validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -237,6 +238,34 @@ fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_frac
 }
 
 #[test]
+fn internal_dataset_diagnostics_separate_draw_sharpness_and_repetition_mass() {
+    let decisive = recorded_game(1, 201);
+    let mut drawn = recorded_game(1, 202);
+    drawn.outcome = yokai::Outcome::Draw {
+        reason: DrawReason::ThreefoldRepetition,
+    };
+    let example = &mut drawn.examples[0];
+    let sharpest = example
+        .policy
+        .iter()
+        .enumerate()
+        .max_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(index, _)| index)
+        .expect("policy is non-empty");
+    example.action_repetition_counts[sharpest] = 3;
+
+    let diagnostics = dataset_diagnostics([&decisive, &drawn]);
+
+    assert_eq!(diagnostics.all.positions, 2);
+    assert_eq!(diagnostics.draws.positions, 1);
+    assert_eq!(diagnostics.decisive.positions, 1);
+    assert_eq!(diagnostics.draws.immediate_draw_positions, 1);
+    assert!(diagnostics.draws.mean_immediate_draw_mass > 0.0);
+    assert!(diagnostics.draws.mean_repetition_mass > 0.0);
+    assert!(diagnostics.all.mean_legal_action_coverage > 0.0);
+}
+
+#[test]
 fn terminal_window_keeps_only_the_tail_of_decisive_games() {
     let mut decisive = recorded_game(3, 100);
     let example = decisive.examples[0].clone();
@@ -378,6 +407,8 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
     assert_eq!(report.checkpoints.len(), optimization.steps_per_generation);
     assert!((final_metrics.total_loss - selected_validation.total_loss).abs() < 1.0e-5);
     assert!(final_metrics.policy_top1_accuracy >= 0.95);
+    assert!(final_metrics.wdl_top1_accuracy >= 0.95);
+    assert!(final_metrics.draw_probability_error.is_finite());
     assert!(final_metrics.policy_loss < initial.policy_loss);
 
     let nonce = SystemTime::now()

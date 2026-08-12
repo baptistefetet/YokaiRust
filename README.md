@@ -36,6 +36,8 @@ first trainable AlphaZero pipeline:
   during bootstrap;
 - explicit policy/WDL metrics, including entropy, calibration, illegal policy
   mass and top-1 accuracy;
+- outcome-split self-play diagnostics for action coverage, target sharpness and
+  policy mass assigned to repetition actions;
 - a paired, color-alternating promotion arena against the champion, using
   reproducible short openings to avoid replaying one deterministic game;
 - noise-free mirror and noisy self-play gates against repetition cycles;
@@ -497,11 +499,18 @@ that new evidence accumulate across rejected publication attempts. None of
 these changes requires a drawn trajectory to be relabelled as an official win
 or loss.
 
-#### Oracle and evaluation protocol
+#### Optional external audit, never a training dependency
 
-The solved game makes a stronger evaluation possible than a historical ladder
-alone. First validate a tablebase adapter against YokaiRust's exact Try and
-repetition semantics, then keep it outside training and report:
+The solved 3×4 game makes a stronger one-off debug audit possible than a
+historical ladder alone. Any tablebase comparison must live in a separate,
+manually invoked analysis tool. It must never provide training labels, seed
+positions, search values, policy targets, promotion decisions or runtime play,
+and the normal build and from-scratch training command must not require it. This
+boundary is essential both to preserve the AlphaZero experiment and because the
+planned 5×6 variant has no such solver.
+
+If used during diagnosis, first validate the external conventions against
+YokaiRust's exact Try and repetition semantics, then report only offline metrics:
 
 - WDL accuracy and calibration on fixed fresh positions;
 - probability mass assigned to tablebase-optimal actions;
@@ -509,12 +518,11 @@ repetition semantics, then keep it outside training and report:
 - conversion rate as non-starter from the two official orientations;
 - cycle period, draw-policy entropy and draw-origin buffer mass.
 
-The tablebase can later provide a separate solver-assisted experiment by
-reanalysing fresh, cycle-adjacent positions, but that must be labelled as
-supervised oracle assistance rather than learning from zero. Its first purpose
-is to reveal absolute progress and distinguish "fewer draws" from "closer to
-perfect play." OpenSpiel similarly keeps fixed MCTS-plus-solver evaluators
-outside its AlphaZero learner; see [OpenSpiel
+Solver-assisted reanalysis is deliberately out of scope for the primary
+project: it would no longer be learning from scratch. The only acceptable use
+is to explain after the fact whether an internally observed failure is tactical,
+calibration-related or search-related. OpenSpiel similarly keeps fixed
+MCTS-plus-solver evaluators outside its AlphaZero learner; see [OpenSpiel
 AlphaZero](https://openspiel.readthedocs.io/en/stable/alpha_zero.html).
 
 Run the recovery as controlled ablations from generation 0: scalar baseline,
@@ -523,8 +531,8 @@ context-aware scalar, context-aware neutral WDL (`c = 0`), role-aware WDL
 learner lineage as a second experimental factor, then extend the best run beyond
 15 candidates. Keep the same seeds, network trunk and simulator budget; a
 claimed improvement should reproduce across at least three
-seeds. Success is a sustained rise in tablebase agreement and non-starter
-conversion, not merely lower losses or a lower raw draw rate.
+seeds. Success is sustained improvement against internal frozen ladders and in
+non-starter conversion, not merely lower losses or a lower raw draw rate.
 
 Gumbel AlphaZero remains the next search ablation if root diagnostics show poor
 action coverage; it has strong published evidence under small simulation

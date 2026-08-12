@@ -12,10 +12,10 @@ use thiserror::Error;
 
 use crate::{
     AlphaZeroNetworkConfig, AlphaZeroTrainingState, ArenaError, ArenaProgress, ArenaResult,
-    InferenceClient, InferenceService, InferenceServiceError, InferenceStats, ModelMetadata,
-    ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig,
-    ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample, TrainingReport,
-    TrainingStepReport, generate_self_play_with_progress,
+    DatasetDiagnostics, InferenceClient, InferenceService, InferenceServiceError, InferenceStats,
+    ModelMetadata, ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer,
+    ReplayBufferConfig, ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample,
+    TrainingReport, TrainingStepReport, dataset_diagnostics, generate_self_play_with_progress,
     generate_self_play_with_restarts_and_progress, load_champion, load_generation, load_learner,
     load_training_generation, next_generation, planned_restart_count, publish_champion,
     publish_learner, run_arena_with_progress, save_generation, save_training_generation,
@@ -61,6 +61,10 @@ pub struct GenerationReport {
     pub initial_self_play_outcomes: GameOutcomeStats,
     #[serde(default)]
     pub restarted_self_play_outcomes: GameOutcomeStats,
+    #[serde(default)]
+    pub generated_dataset_diagnostics: DatasetDiagnostics,
+    #[serde(default)]
+    pub buffer_dataset_diagnostics: DatasetDiagnostics,
     pub training: TrainingReport,
     pub arena: ArenaResult,
     pub candidate_mirror: ArenaResult,
@@ -370,6 +374,7 @@ where
     let restarted_self_play_outcomes =
         outcome_stats(games.iter().filter(|game| game.restart_ply > 0));
     let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+    let generated_dataset_diagnostics = dataset_diagnostics(&games);
     for game in &games {
         if !buffer.contains(game.generation, game.seed) {
             buffer.push(game.clone());
@@ -379,6 +384,7 @@ where
         Path::new(&config.paths.self_play).join("buffer.json"),
         buffer,
     )?;
+    let buffer_dataset_diagnostics = buffer.diagnostics();
 
     let split = buffer.split(config.optimization.validation_fraction, config.seed)?;
     let terminal_window_plies = config
@@ -559,6 +565,8 @@ where
         self_play_outcomes,
         initial_self_play_outcomes,
         restarted_self_play_outcomes,
+        generated_dataset_diagnostics,
+        buffer_dataset_diagnostics,
         training,
         arena,
         candidate_mirror: candidate_diagnostics.mirror,

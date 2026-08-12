@@ -47,9 +47,9 @@ pub use training::config::{
     TerminalWindowSchedule, TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{
-    CYCLE_RESTART_MAX_PLIES, CYCLE_RESTART_MIN_PLIES, DatasetSplit, ReplayBuffer,
-    ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder, TrainingDataError, TrainingExample,
-    mirror_policy,
+    CYCLE_RESTART_MAX_PLIES, CYCLE_RESTART_MIN_PLIES, DatasetDiagnostics, DatasetSplit,
+    PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,
+    TrainingDataError, TrainingExample, dataset_diagnostics, mirror_policy,
 };
 pub use training::pipeline::{
     GameOutcomeStats, GenerationReport, PipelineError, PromotionDecision, TrainingProgress,

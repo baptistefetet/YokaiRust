@@ -30,6 +30,10 @@ pub struct LossMetrics {
     pub value_calibration_error: f32,
     pub illegal_policy_mass: f32,
     pub policy_top1_accuracy: f32,
+    #[serde(default)]
+    pub wdl_top1_accuracy: f32,
+    #[serde(default)]
+    pub draw_probability_error: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -336,16 +340,29 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
         .mean()
         .neg();
     let wdl_log_probabilities = log_softmax(output.wdl_logits.clone(), 1);
-    let value_loss = (wdl_log_probabilities * batch.wdl).sum_dim(1).mean().neg();
+    let value_loss = (wdl_log_probabilities * batch.wdl.clone())
+        .sum_dim(1)
+        .mean()
+        .neg();
     let total = policy_loss.clone() + value_loss.clone();
     let entropy = (probabilities.clone() * log_probabilities)
         .sum_dim(1)
         .mean()
         .neg();
+    let wdl_top1 = output
+        .wdl_logits
+        .clone()
+        .argmax(1)
+        .equal(batch.wdl.clone().argmax(1))
+        .float()
+        .mean();
     let wdl_probabilities = softmax(output.wdl_logits, 1);
     let predicted_value =
-        wdl_probabilities.clone().narrow(1, 0, 1) - wdl_probabilities.narrow(1, 2, 1);
+        wdl_probabilities.clone().narrow(1, 0, 1) - wdl_probabilities.clone().narrow(1, 2, 1);
     let calibration = (predicted_value - batch.value).abs().mean();
+    let draw_probability_error = (wdl_probabilities.narrow(1, 1, 1) - batch.wdl.narrow(1, 1, 1))
+        .abs()
+        .mean();
     let illegal_mass = (probabilities * batch.illegal).sum_dim(1).mean();
     let top1 = output
         .policy_logits
@@ -362,6 +379,8 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
             calibration.detach(),
             illegal_mass.detach(),
             top1.detach(),
+            wdl_top1.detach(),
+            draw_probability_error.detach(),
         ],
         0,
     );
@@ -383,6 +402,8 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
         value_calibration_error: values[4],
         illegal_policy_mass: values[5],
         policy_top1_accuracy: values[6],
+        wdl_top1_accuracy: values[7],
+        draw_probability_error: values[8],
     }
 }
 
@@ -412,6 +433,8 @@ impl MetricAccumulator {
         self.weighted.value_calibration_error += metrics.value_calibration_error * weight;
         self.weighted.illegal_policy_mass += metrics.illegal_policy_mass * weight;
         self.weighted.policy_top1_accuracy += metrics.policy_top1_accuracy * weight;
+        self.weighted.wdl_top1_accuracy += metrics.wdl_top1_accuracy * weight;
+        self.weighted.draw_probability_error += metrics.draw_probability_error * weight;
         self.examples += examples;
     }
 
@@ -428,6 +451,8 @@ impl MetricAccumulator {
             value_calibration_error: self.weighted.value_calibration_error / divisor,
             illegal_policy_mass: self.weighted.illegal_policy_mass / divisor,
             policy_top1_accuracy: self.weighted.policy_top1_accuracy / divisor,
+            wdl_top1_accuracy: self.weighted.wdl_top1_accuracy / divisor,
+            draw_probability_error: self.weighted.draw_probability_error / divisor,
         }
     }
 }

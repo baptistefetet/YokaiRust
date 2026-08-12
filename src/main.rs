@@ -276,24 +276,28 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             report,
         } => {
             eprintln!(
-                "[{elapsed}] step {}/{}: train policy={:.4} value={:.4} entropy={:.4} illegal={:.4} top1={:.3}",
+                "[{elapsed}] step {}/{}: train policy={:.4} WDL={:.4} entropy={:.4} illegal={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                 report.step,
                 total_steps,
                 report.training.policy_loss,
                 report.training.value_loss,
                 report.training.policy_entropy,
                 report.training.illegal_policy_mass,
-                report.training.policy_top1_accuracy
+                report.training.policy_top1_accuracy,
+                report.training.wdl_top1_accuracy,
+                report.training.draw_probability_error,
             );
             if let Some(validation) = report.validation {
                 eprintln!(
-                    "[{elapsed}] step {}/{}: valid policy={:.4} value={:.4} calibration={:.4} top1={:.3}",
+                    "[{elapsed}] step {}/{}: valid policy={:.4} WDL={:.4} value_calibration={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                     report.step,
                     total_steps,
                     validation.policy_loss,
                     validation.value_loss,
                     validation.value_calibration_error,
-                    validation.policy_top1_accuracy
+                    validation.policy_top1_accuracy,
+                    validation.wdl_top1_accuracy,
+                    validation.draw_probability_error,
                 );
             }
         }
@@ -453,23 +457,27 @@ fn print_generation_report(report: &yokai::GenerationReport) {
     if let Some(checkpoint) = report.training.selected() {
         println!("training metrics at step={}", checkpoint.step);
         println!(
-            "train policy_loss={:.4} value_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} top1={:.3}",
+            "train policy_loss={:.4} WDL_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
             checkpoint.training.policy_loss,
             checkpoint.training.value_loss,
             checkpoint.training.policy_entropy,
             checkpoint.training.value_calibration_error,
             checkpoint.training.illegal_policy_mass,
-            checkpoint.training.policy_top1_accuracy
+            checkpoint.training.policy_top1_accuracy,
+            checkpoint.training.wdl_top1_accuracy,
+            checkpoint.training.draw_probability_error,
         );
         if let Some(validation) = checkpoint.validation {
             println!(
-                "valid policy_loss={:.4} value_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} top1={:.3}",
+                "valid policy_loss={:.4} WDL_loss={:.4} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                 validation.policy_loss,
                 validation.value_loss,
                 validation.policy_entropy,
                 validation.value_calibration_error,
                 validation.illegal_policy_mass,
-                validation.policy_top1_accuracy
+                validation.policy_top1_accuracy,
+                validation.wdl_top1_accuracy,
+                validation.draw_probability_error,
             );
         }
     }
@@ -484,6 +492,8 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         restarted.non_starter_wins,
         restarted.draws,
     );
+    print_dataset_diagnostics("generated", report.generated_dataset_diagnostics);
+    print_dataset_diagnostics("buffer", report.buffer_dataset_diagnostics);
     println!(
         "arena candidate={} previous={} draws={} score={:.3} threshold_reached={}",
         report.arena.candidate_wins,
@@ -510,6 +520,25 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         games,
         percentage(outcomes.draws, games),
     );
+}
+
+fn print_dataset_diagnostics(label: &str, diagnostics: yokai::DatasetDiagnostics) {
+    for (bucket, metrics) in [
+        ("all", diagnostics.all),
+        ("draw", diagnostics.draws),
+        ("decisive", diagnostics.decisive),
+    ] {
+        println!(
+            "{label} {bucket}: positions={} target_entropy={:.3} max_probability={:.3} legal_coverage={:.3} repetition_mass={:.3} immediate_draw_positions={} immediate_draw_mass={:.3}",
+            metrics.positions,
+            metrics.mean_entropy,
+            metrics.mean_max_probability,
+            metrics.mean_legal_action_coverage,
+            metrics.mean_repetition_mass,
+            metrics.immediate_draw_positions,
+            metrics.mean_immediate_draw_mass,
+        );
+    }
 }
 
 fn print_arena_seats(elapsed: &str, result: &yokai::ArenaResult) {

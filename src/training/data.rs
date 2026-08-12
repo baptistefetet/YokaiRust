@@ -16,6 +16,30 @@ const POLICY_TOLERANCE: f32 = 1.0e-4;
 pub const CYCLE_RESTART_MIN_PLIES: usize = 2;
 pub const CYCLE_RESTART_MAX_PLIES: usize = 8;
 
+/// Aggregate diagnostics derived only from self-play policy targets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PolicyTargetDiagnostics {
+    pub positions: usize,
+    pub mean_entropy: f32,
+    pub mean_max_probability: f32,
+    /// Fraction of legal actions that received non-zero MCTS target mass.
+    pub mean_legal_action_coverage: f32,
+    /// Positions where at least one legal action would immediately draw.
+    pub immediate_draw_positions: usize,
+    /// Target mass assigned to immediate draws, averaged over those positions.
+    pub mean_immediate_draw_mass: f32,
+    /// Target mass assigned to actions reaching an already-seen position.
+    pub mean_repetition_mass: f32,
+}
+
+/// Policy-target health split by final official outcome.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DatasetDiagnostics {
+    pub all: PolicyTargetDiagnostics,
+    pub draws: PolicyTargetDiagnostics,
+    pub decisive: PolicyTargetDiagnostics,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingExample {
     pub position: Position,
@@ -426,6 +450,11 @@ impl ReplayBuffer {
         Ok(replays)
     }
 
+    #[must_use]
+    pub fn diagnostics(&self) -> DatasetDiagnostics {
+        dataset_diagnostics(&self.games)
+    }
+
     /// Splits whole games so positions from one game cannot leak across train
     /// and validation sets.
     ///
@@ -449,6 +478,112 @@ impl ReplayBuffer {
             validation_games,
         })
     }
+}
+
+/// Computes outcome-split policy-target diagnostics without any external oracle.
+#[must_use]
+pub fn dataset_diagnostics<'a>(
+    games: impl IntoIterator<Item = &'a SelfPlayGame>,
+) -> DatasetDiagnostics {
+    let mut all = PolicyTargetAccumulator::default();
+    let mut draws = PolicyTargetAccumulator::default();
+    let mut decisive = PolicyTargetAccumulator::default();
+    for game in games {
+        let outcome_accumulator = if matches!(game.outcome, Outcome::Draw { .. }) {
+            &mut draws
+        } else {
+            &mut decisive
+        };
+        for example in &game.examples {
+            all.add(example);
+            outcome_accumulator.add(example);
+        }
+    }
+    DatasetDiagnostics {
+        all: all.finish(),
+        draws: draws.finish(),
+        decisive: decisive.finish(),
+    }
+}
+
+#[derive(Default)]
+struct PolicyTargetAccumulator {
+    positions: usize,
+    entropy: f32,
+    max_probability: f32,
+    legal_action_coverage: f32,
+    immediate_draw_positions: usize,
+    immediate_draw_mass: f32,
+    repetition_mass: f32,
+}
+
+impl PolicyTargetAccumulator {
+    fn add(&mut self, example: &TrainingExample) {
+        self.positions += 1;
+        self.entropy += example
+            .policy
+            .iter()
+            .filter(|probability| **probability > 0.0)
+            .map(|probability| -probability * probability.ln())
+            .sum::<f32>();
+        self.max_probability += example.policy.iter().copied().fold(0.0_f32, f32::max);
+
+        let player = example.position.side_to_move();
+        let legal = example.position.legal_actions();
+        let visited = legal
+            .iter()
+            .filter_map(|action| action.policy_index(player))
+            .filter(|index| example.policy[index.as_usize()] > 0.0)
+            .count();
+        self.legal_action_coverage += ratio(visited, legal.len());
+
+        let immediate_draw_mass = example
+            .policy
+            .iter()
+            .zip(example.action_repetition_counts)
+            .filter(|(_, count)| *count >= 3)
+            .map(|(probability, _)| probability)
+            .sum::<f32>();
+        if example
+            .action_repetition_counts
+            .iter()
+            .any(|count| *count >= 3)
+        {
+            self.immediate_draw_positions += 1;
+            self.immediate_draw_mass += immediate_draw_mass;
+        }
+        self.repetition_mass += example
+            .policy
+            .iter()
+            .zip(example.action_repetition_counts)
+            .filter(|(_, count)| *count >= 2)
+            .map(|(probability, _)| probability)
+            .sum::<f32>();
+    }
+
+    fn finish(self) -> PolicyTargetDiagnostics {
+        let positions = self.positions.max(1);
+        PolicyTargetDiagnostics {
+            positions: self.positions,
+            mean_entropy: self.entropy / count_as_f32(positions),
+            mean_max_probability: self.max_probability / count_as_f32(positions),
+            mean_legal_action_coverage: self.legal_action_coverage / count_as_f32(positions),
+            immediate_draw_positions: self.immediate_draw_positions,
+            mean_immediate_draw_mass: self.immediate_draw_mass
+                / count_as_f32(self.immediate_draw_positions.max(1)),
+            mean_repetition_mass: self.repetition_mass / count_as_f32(positions),
+        }
+    }
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn ratio(numerator: usize, denominator: usize) -> f32 {
+    numerator as f32 / denominator.max(1) as f32
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn count_as_f32(count: usize) -> f32 {
+    count as f32
 }
 
 #[derive(Clone, Debug)]

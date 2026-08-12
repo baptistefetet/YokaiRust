@@ -246,28 +246,143 @@ target now preserves. This remains ordinary self-play from an observed game
 prefix. Complete this run through generation 15 before changing another
 variable.
 
-## First experiment after v20
+## Handoff: next JavaScript-informed research program
 
-The next controlled run must test the JavaScript bootstrap before any network
-redesign. Its only intentional change from v20 is generation-zero self-play:
+This section is the authoritative starting point for the next development
+conversation. Preserve one changed variable per run: the objective is to learn
+which JavaScript idea helps, not merely to produce one incomparable mixture.
 
-- until the first candidate is promoted, MCTS uses uniform priors and random
-  rule-valid rollouts instead of the randomly initialized network;
-- after the first promotion, every later generation uses neural policy and WDL
-  exactly as v20 does;
-- network size, encoder, replay sampling, optimizer, restarts, arena and random
-  seed remain unchanged.
+### 0. Finish and freeze the v20 baseline
 
-Run this bootstrap variant through generation 15 and compare policy/WDL losses,
-top-1 metrics, self-play draws, accepted champion sequence, arena W/D/L and both
-draw gates against v20. In particular, check whether rules-grounded rollout
-targets improve the first generations and delay or prevent the late cyclic
-plateau.
+The active v20 run is the one-ply-restart experiment described above. Its
+runtime artifacts are in `data/alpha-zero-draw-aware-v20` and
+`models/alpha-zero-draw-aware-v20`; they are intentionally ignored by Git.
+Before implementing v21:
 
-Do not combine this test with the proposed scalar hand input, smaller network,
-explicit recent-move planes, auxiliary scalar value loss or stronger endgame
-curriculum. Those remain later ablations: changing them now would make it
-impossible to attribute a result to the bootstrap.
+1. ensure that `reports/generation-000015.json` exists for v20 and that no
+   trainer is still writing those directories;
+2. if interrupted, resume the existing paths instead of starting a second v20;
+3. replace the v19 table above with the complete v20 generation 1–15 table and
+   conclusions;
+4. retain the v20 data and checkpoints until every v21 comparison is complete.
+
+The structured JSON reports are authoritative if prose and runtime files ever
+disagree.
+
+### 1. Add an endgame-distance diagnostic
+
+Before changing training behavior, report validation policy and WDL metrics by
+distance from the terminal result: `1`, `2–4`, `5–8`, `9–16`, and `17+` plies.
+Keep whole games on one side of the existing stable train/validation split.
+This diagnostic must not alter sampling or gradients.
+
+It answers whether the network still predicts endgames well but loses accuracy
+with a longer horizon. Run it on saved v20 checkpoints so v21 has a frozen
+comparison. Report at least example count, policy loss/top-1 and WDL loss/top-1
+for each bucket; keep drawn and decisive positions distinguishable.
+
+### 2. v21 changes only the generation-zero bootstrap
+
+The first new training run must reproduce the useful bootstrap behavior of the
+JavaScript project. Until the first candidate is accepted, self-play MCTS uses
+uniform legal-action priors and random rollouts instead of generation zero's
+random neural policy and WDL. A rejection leaves champion generation zero in
+place, so the following attempt must also use rollouts. Immediately after the
+first promotion, all self-play returns to the ordinary neural evaluator.
+
+Implement this as an explicit, validated configuration option, not as a hidden
+generation-number special case. The activation condition is the accepted
+source champion being generation zero, rather than the candidate attempt being
+generation one. Give v21 fresh paths such as
+`models/alpha-zero-draw-aware-v21` and `data/alpha-zero-draw-aware-v21`; never
+reuse the v20 buffer or weights.
+
+The intended configuration shape is explicit enough to survive resume:
+
+```toml
+[self_play.bootstrap]
+mode = "random_rollout_until_first_promotion"
+rollout_max_plies = 512
+```
+
+The rollout contract is:
+
+- start from the complete leaf `Game`, including its repetition history;
+- choose uniformly among legal actions with the search's seeded RNG;
+- stop on an official terminal outcome or the configured safety limit;
+- return `+1`, `0`, or `-1` from the leaf player-to-move's perspective, with a
+  limit reached while ongoing treated as zero;
+- expand the leaf with uniform priors and do not query the inference service;
+- omit root Dirichlet noise during this bootstrap, matching the JavaScript
+  behavior; random rollouts and the opening temperature provide exploration;
+- store the usual normalized MCTS visits as policy targets and the final
+  self-play result as the official WDL target;
+- keep candidate training, arena, mirror gate and exploratory probe neural.
+
+`UniformEvaluator` is not an implementation of this algorithm: it always
+returns value zero and has no complete `Game` from which to play. Put the
+rollout path where MCTS still owns the reconstructed leaf game, or refactor the
+leaf-evaluation boundary without sending full games through the GPU inference
+service. Preserve deterministic seed ordering and official repetition rules.
+
+Required tests cover deterministic rollouts for a fixed seed, win/loss sign
+from the leaf perspective, safety-limit draws, rollout use after a rejected
+generation-zero candidate, and the switch to neural evaluation after the first
+promotion. Progress and reports must state which bootstrap evaluator generated
+self-play, so a saved dataset is not ambiguous.
+
+Everything else remains identical to v20: seed 42, network and encoder,
+self-play and restart budgets, replay sampling, optimizer and learning-rate
+schedule, promotion threshold and both draw gates. Run 15 candidate generations
+from scratch. Compare the complete champion sequence, policy/WDL losses and
+top-1 metrics, endgame-distance buckets, illegal mass, initial/restarted draws,
+arena W/D/L, deterministic mirror draws and exploratory draws. A lower loss
+alone is not success; the main question is whether the first targets are more
+useful and the late cyclic plateau is delayed or avoided.
+
+Before the full run, execute `cargo fmt --check`, `cargo test`, and strict
+Clippy. Then build once with `cargo build --release` and launch the checked-in
+configuration with:
+
+```bash
+target/release/yokai train --config config/training.toml \
+  --generations 15 --headless
+```
+
+### 3. Later ablations, in this order
+
+Only after v21 is documented should subsequent fresh runs test these ideas one
+at a time:
+
+1. **Scalar hand branch.** A hand is an unordered count per droppable piece
+   type and player. Keep board history spatial, but move the existing normalized
+   hand counts, repetition count and starter flag out of constant board planes.
+   Concatenate these global scalars after the convolutions, as in the JavaScript
+   network, and feed the resulting shared representation to both heads. Preserve
+   the information from all existing history frames for this first comparison.
+2. **Smaller network.** Compare the current 64 filters and four residual blocks
+   with 32 filters and two blocks. The JavaScript 3×4 model had roughly 77,000
+   parameters versus roughly 410,000 currently; a smaller Rust model may learn
+   more reliably from the available number of correlated positions.
+3. **Explicit recent moves.** Encode the origin and destination of the last two
+   moves directly, then test whether some full historical board frames can be
+   removed. Do not discard repetition context: the game remains responsible
+   for exact occurrence counts.
+4. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
+   small MSE term on `P(win) - P(loss)` against `+1/0/-1`. This imports the
+   ordered scalar signal that worked well in JavaScript without making a
+   certain draw indistinguishable from a 50/50 win/loss prediction.
+5. **Stronger endgame curriculum.** Increase the early fraction of decisive
+   terminal tails and expand from `1` to `2`, `4`, `8`, `16`, then all plies.
+   Advance this schedule from the accepted source champion, not rejected
+   candidate attempt numbers. The JavaScript experiments sometimes trained
+   entirely on the last one or ten positions; the current Rust curriculum only
+   guarantees a 25% tail fraction.
+
+Any encoder or network shape change requires a checkpoint metadata/version
+bump and round-trip tests. WDL targets remain official, drawn games remain in
+the replay buffer, captured pieces remain unordered non-spatial counts, and the
+same design must stay applicable to the planned 5×6 board.
 
 ## Rules source
 

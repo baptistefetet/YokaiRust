@@ -350,7 +350,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.self_play.exploration_plies, 12);
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
     assert!(config.self_play.repetition_contempt.abs() < f32::EPSILON);
-    assert!((config.self_play.starter_draw_value - 0.25).abs() < f32::EPSILON);
+    assert!((config.self_play.starter_draw_value - 0.75).abs() < f32::EPSILON);
     assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);

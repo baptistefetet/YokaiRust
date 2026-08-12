@@ -209,12 +209,12 @@ arenas remain neutral.
 
 ### 2. Self-play gives the two roles different incentives
 
-During self-play only, the starter evaluates a draw at `+0.25` and the
-non-starter at `-0.25`:
+During self-play only, the starter evaluates a draw at `+0.75` and the
+non-starter at `-0.75`:
 
 ```text
-starter:     win - loss + 0.25 * draw
-non-starter: win - loss - 0.25 * draw
+starter:     win - loss + 0.75 * draw
+non-starter: win - loss - 0.75 * draw
 ```
 
 Both still rank win above draw above loss. The starter learns its best defence;

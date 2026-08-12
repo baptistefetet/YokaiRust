@@ -115,7 +115,7 @@ Official draws always remain draws. The stored WDL target is never rewritten.
 The pipeline attacks the feedback loop at four different points:
 
 - the WDL head distinguishes a certain draw from an uncertain win/loss mixture;
-- self-play values a draw at `+0.25` for the starter and `-0.25` for the
+- self-play values a draw at `+0.75` for the starter and `-0.75` for the
   non-starter, while official play still uses neutral `P(win) - P(loss)`;
 - cycle-adjacent restarts shorten the horizon where conversion failed;
 - policy loss does not imitate the non-starter's moves from a game it ultimately

@@ -24,7 +24,7 @@ final_temperature = 0.0
 repetition_contempt = 0.0
 # During self-play, a draw rewards the starter's defence and penalizes the
 # non-starter's failed conversion. Stored WDL outcomes and arenas stay official.
-starter_draw_value = 0.25
+starter_draw_value = 0.75
 # Once drawn replays exist, restart this share of trajectories 2-8 plies before
 # their terminal repetition. Generation zero necessarily starts with 0%.
 cycle_restart_fraction = 0.25
@@ -81,5 +81,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v14"
-self_play = "data/alpha-zero-draw-aware-v14"
+models = "models/alpha-zero-draw-aware-v15"
+self_play = "data/alpha-zero-draw-aware-v15"

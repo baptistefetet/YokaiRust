@@ -13,7 +13,7 @@ use yokai::{
     EvaluationError, EvaluationRequest, Evaluator, Game, HandPiece, INPUT_PLANES, InferenceService,
     MetalBackend, ModelMetadata, ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece,
     PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_generation,
-    load_latest, policy_context_batch_tensor, publish_latest, save_generation,
+    load_latest, policy_context_batch_tensor, publish_latest, save_generation, stored_generations,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -333,6 +333,12 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
         .expect("policy values");
 
     save_generation(&root, &metadata, &model).expect("generation save");
+    fs::create_dir(root.join("interrupted-generation-000004"))
+        .expect("interrupted checkpoint fixture");
+    assert_eq!(
+        stored_generations(&root).expect("stored model generations"),
+        vec![3]
+    );
     publish_latest(&root, 3).expect("latest publication");
     let (loaded, loaded_metadata) = load_latest::<CpuBackend>(&root, &device).expect("latest load");
     let after = loaded

@@ -266,7 +266,13 @@ pub fn validate_model<B: Backend<FloatElem = f32>>(
     validate_model_with_policy_weight(model, examples, batch_size, 1.0, device)
 }
 
-fn validate_model_with_policy_weight<B: Backend<FloatElem = f32>>(
+/// Computes validation metrics with the same draw-policy weighting as training.
+///
+/// # Panics
+///
+/// Panics when `batch_size` is zero.
+#[must_use]
+pub fn validate_model_with_policy_weight<B: Backend<FloatElem = f32>>(
     model: &AlphaZeroNetwork<B>,
     examples: &[TrainingExample],
     batch_size: usize,

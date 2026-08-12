@@ -7,14 +7,14 @@ use std::{
 
 use yokai::{
     Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
-    CpuTrainingBackend, DatasetSplit, DrawReason, Game, LearningRateStage, Mcts, ModelMetadata,
-    OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer,
-    ReplayBufferConfig, SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square,
-    TerminalWindowSchedule, TrainingConfig, TrainingConfigError, TrainingDataError,
-    TrainingProgress, UniformEvaluator, bootstrap_latest, dataset_diagnostics, generate_self_play,
-    generate_self_play_with_restarts, load_generation, load_latest, load_replay_buffer,
-    planned_restart_count, run_arena, run_arena_with_progress, run_generation_with_progress,
-    save_generation, train_candidate, validate_model,
+    CpuTrainingBackend, DatasetSplit, DrawReason, EndgameDistance, Game, LearningRateStage, Mcts,
+    ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position, Replay,
+    ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder,
+    Square, TerminalWindowSchedule, TrainingConfig, TrainingConfigError, TrainingDataError,
+    TrainingProgress, UniformEvaluator, bootstrap_latest, dataset_diagnostics,
+    endgame_distance_report, generate_self_play, generate_self_play_with_restarts, load_generation,
+    load_latest, load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
+    run_generation_with_progress, save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -337,6 +337,60 @@ fn terminal_window_keeps_only_the_tail_of_decisive_games() {
     assert!(validation[0].history[0].is_some());
     assert_eq!(split.training_examples(false).len(), 10);
     assert_eq!(split.validation_examples().len(), 10);
+}
+
+#[test]
+fn endgame_distance_diagnostic_uses_only_whole_validation_games() {
+    use burn::prelude::Backend;
+
+    let mut decisive = recorded_game(3, 300);
+    let decisive_example = decisive.examples[0].clone();
+    decisive.examples = vec![decisive_example; 20];
+
+    let mut drawn = decisive.clone();
+    drawn.seed = 301;
+    drawn.outcome = yokai::Outcome::Draw {
+        reason: DrawReason::ThreefoldRepetition,
+    };
+    for example in &mut drawn.examples {
+        example.value = 0.0;
+    }
+
+    let mut excluded_training_game = decisive.clone();
+    excluded_training_game.seed = 302;
+    excluded_training_game.examples = vec![excluded_training_game.examples[0].clone(); 25];
+    let split = DatasetSplit {
+        training_games: vec![excluded_training_game],
+        validation_games: vec![decisive, drawn],
+    };
+
+    let device = burn::backend::flex::FlexDevice;
+    CpuBackend::seed(&device, 99);
+    let model = AlphaZeroNetworkConfig::new()
+        .with_filters(4)
+        .with_residual_blocks(1)
+        .with_value_hidden(4)
+        .init::<CpuBackend>(&device);
+    let report = endgame_distance_report(&model, 7, &split, 42, 0.1, 8, 0.0, &device);
+
+    assert_eq!(report.checkpoint_generation, 7);
+    assert_eq!(report.buffer_games, 3);
+    assert_eq!(report.validation_games, 2);
+    assert_eq!(report.drawn_validation_games, 1);
+    assert_eq!(report.decisive_validation_games, 1);
+    assert_eq!(report.validation_examples, 40);
+    for (index, expected_per_outcome) in [1, 3, 4, 8, 4].into_iter().enumerate() {
+        let bucket = report.buckets[index];
+        assert_eq!(bucket.draws.examples, expected_per_outcome);
+        assert_eq!(bucket.decisive.examples, expected_per_outcome);
+        assert_eq!(bucket.all.examples, expected_per_outcome * 2);
+        assert!(bucket.all.policy_loss.is_finite());
+        assert!(bucket.all.wdl_loss.is_finite());
+    }
+    assert_eq!(report.buckets[0].distance, EndgameDistance::One);
+    assert_eq!(report.buckets[4].distance, EndgameDistance::SeventeenPlus);
+    let json = serde_json::to_value(report).expect("diagnostic report serialization");
+    assert_eq!(json["buckets"][1]["distance"], "2-4");
 }
 
 #[test]

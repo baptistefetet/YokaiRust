@@ -362,13 +362,27 @@ pub fn load_latest<B: Backend>(
 ///
 /// Returns [`ModelStoreError::Io`] when the model directory cannot be read.
 pub fn next_generation(root: impl AsRef<Path>) -> Result<u32, ModelStoreError> {
+    Ok(stored_generations(root)?
+        .last()
+        .map_or(0, |generation| generation.saturating_add(1)))
+}
+
+/// Lists every complete saved model generation in ascending order.
+///
+/// # Errors
+///
+/// Returns [`ModelStoreError::Io`] when the model directory cannot be read.
+pub fn stored_generations(root: impl AsRef<Path>) -> Result<Vec<u32>, ModelStoreError> {
     let root = root.as_ref();
     if !root.exists() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
-    let mut greatest = None;
+    let mut generations = Vec::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
             continue;
@@ -377,10 +391,12 @@ pub fn next_generation(root: impl AsRef<Path>) -> Result<u32, ModelStoreError> {
             continue;
         };
         if let Ok(generation) = raw_generation.parse::<u32>() {
-            greatest = Some(greatest.map_or(generation, |value: u32| value.max(generation)));
+            generations.push(generation);
         }
     }
-    Ok(greatest.map_or(0, |generation| generation.saturating_add(1)))
+    generations.sort_unstable();
+    generations.dedup();
+    Ok(generations)
 }
 
 fn publish_pointer(root: &Path, filename: &str, generation: u32) -> Result<(), ModelStoreError> {

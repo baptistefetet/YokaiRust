@@ -100,11 +100,18 @@ cargo run -- analyze [simulations] [seed]
 
 # Validate every action and print a versioned replay.
 cargo run -- replay path/to/game.json
+
+# Evaluate every saved checkpoint by distance from its validation result.
+cargo run --release -- diagnose-endgames --config config/training.toml
 ```
 
 `Mcts::search` is deterministic and noise-free. `Mcts::search_self_play` is the
 only entry point that injects Dirichlet noise. A fixed seed reproduces search
 and temperature-based action selection.
+
+The endgame diagnostic is read-only. It evaluates every saved checkpoint on
+the final buffer's stable whole-game validation split and writes versioned JSON
+under `data/.../diagnostics/endgame-distance/`.
 
 ## AlphaZero training
 

@@ -23,7 +23,7 @@ pub use neural::{
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
         load_latest, load_training_generation, next_generation, publish_champion, publish_latest,
-        save_generation, save_training_generation,
+        save_generation, save_training_generation, stored_generations,
     },
     encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
     evaluator::{
@@ -51,6 +51,11 @@ pub use training::data::{
     PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,
     TrainingDataError, TrainingExample, dataset_diagnostics, mirror_policy,
 };
+pub use training::diagnostics::{
+    ENDGAME_DISTANCE_REPORT_VERSION, EndgameDiagnosticError, EndgameDistance,
+    EndgameDistanceBucketReport, EndgameDistanceMetrics, EndgameDistanceReport,
+    endgame_distance_report, endgame_distance_report_path, save_endgame_distance_report,
+};
 pub use training::pipeline::{
     GameOutcomeStats, GenerationReport, PipelineError, PromotionDecision, TrainingProgress,
     bootstrap_champion, bootstrap_latest, load_replay_buffer, run_generation,
@@ -64,5 +69,5 @@ pub use training::self_play::{
 pub use training::trainer::{
     AlphaZeroOptimizer, AlphaZeroTrainingState, LossMetrics, TrainingReport, TrainingStepReport,
     new_optimizer, train_candidate, train_candidate_with_progress, train_state_with_progress,
-    validate_model,
+    validate_model, validate_model_with_policy_weight,
 };

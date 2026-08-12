@@ -13,7 +13,9 @@ use rand_chacha::ChaCha8Rng;
 use yokai::{
     BackendKind, CachedEvaluator, CpuBackend, CpuTrainingBackend, Game, Mcts, MetalBackend,
     MetalTrainingBackend, Replay, SearchConfig, TrainingConfig, TrainingProgress, UniformEvaluator,
-    bootstrap_champion, load_replay_buffer, run_generation_with_progress,
+    bootstrap_champion, endgame_distance_report, endgame_distance_report_path, load_generation,
+    load_replay_buffer, run_generation_with_progress, save_endgame_distance_report,
+    stored_generations,
 };
 
 fn main() -> ExitCode {
@@ -51,6 +53,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             let arguments = arguments.collect::<Vec<_>>();
             train(&arguments)?;
         }
+        Some("diagnose-endgames") => {
+            let arguments = arguments.collect::<Vec<_>>();
+            diagnose_endgames(&arguments)?;
+        }
         Some(command) => return Err(invalid_input(format!("unknown command `{command}`")).into()),
     }
     Ok(())
@@ -59,6 +65,36 @@ fn run() -> Result<(), Box<dyn Error>> {
 struct TrainArguments {
     config_path: String,
     generations: usize,
+}
+
+struct DiagnoseEndgamesArguments {
+    config_path: String,
+}
+
+fn parse_diagnose_endgames_arguments(
+    arguments: &[String],
+) -> Result<DiagnoseEndgamesArguments, io::Error> {
+    let mut config_path = "config/training.toml".to_owned();
+    let mut index = 0;
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "--config" => {
+                index += 1;
+                config_path.clone_from(
+                    arguments
+                        .get(index)
+                        .ok_or_else(|| invalid_input("--config requires a TOML path"))?,
+                );
+            }
+            argument => {
+                return Err(invalid_input(format!(
+                    "unexpected diagnose-endgames argument `{argument}`"
+                )));
+            }
+        }
+        index += 1;
+    }
+    Ok(DiagnoseEndgamesArguments { config_path })
 }
 
 fn parse_train_arguments(arguments: &[String]) -> Result<TrainArguments, io::Error> {
@@ -184,6 +220,106 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn diagnose_endgames(arguments: &[String]) -> Result<(), Box<dyn Error>> {
+    let DiagnoseEndgamesArguments { config_path } = parse_diagnose_endgames_arguments(arguments)?;
+    let config = TrainingConfig::load(&config_path)?;
+    let started = Instant::now();
+    eprintln!(
+        "[{}] endgame-distance diagnostic configuration={} backend={:?}",
+        elapsed_text(started.elapsed()),
+        config_path,
+        config.backend,
+    );
+    match config.backend {
+        BackendKind::Cpu => {
+            let device = burn::backend::flex::FlexDevice;
+            CpuBackend::seed(&device, config.seed);
+            diagnose_endgames_with_backend::<CpuBackend>(&config, &device, started)?;
+        }
+        BackendKind::Metal => {
+            let device = burn::backend::wgpu::WgpuDevice::default();
+            MetalBackend::seed(&device, config.seed);
+            diagnose_endgames_with_backend::<MetalBackend>(&config, &device, started)?;
+        }
+    }
+    Ok(())
+}
+
+fn diagnose_endgames_with_backend<B: Backend<FloatElem = f32>>(
+    config: &TrainingConfig,
+    device: &B::Device,
+    started: Instant,
+) -> Result<(), Box<dyn Error>> {
+    let buffer = load_replay_buffer(
+        Path::new(&config.paths.self_play).join("buffer.json"),
+        config.optimization.replay_buffer,
+    )?;
+    let split = buffer.split(config.optimization.validation_fraction, config.seed)?;
+    if split.validation_games.is_empty() {
+        return Err(invalid_input("endgame diagnostic requires validation games").into());
+    }
+    let generations = stored_generations(&config.paths.models)?;
+    if generations.is_empty() {
+        return Err(invalid_input("endgame diagnostic requires saved checkpoints").into());
+    }
+    eprintln!(
+        "[{}] frozen split: {} buffer games, {} validation games; evaluating {} checkpoints",
+        elapsed_text(started.elapsed()),
+        buffer.len(),
+        split.validation_games.len(),
+        generations.len(),
+    );
+
+    for generation in generations {
+        let (model, _) = load_generation::<B>(&config.paths.models, generation, device)?;
+        let report = endgame_distance_report(
+            &model,
+            generation,
+            &split,
+            config.seed,
+            config.optimization.validation_fraction,
+            config.optimization.batch_size,
+            config.optimization.non_starter_draw_policy_weight,
+            device,
+        );
+        let path = endgame_distance_report_path(&config.paths.self_play, generation);
+        save_endgame_distance_report(&path, &report)?;
+        eprintln!(
+            "[{}] checkpoint {} diagnostic saved to {}",
+            elapsed_text(started.elapsed()),
+            generation,
+            path.display(),
+        );
+        print_endgame_distance_report(&report);
+    }
+    Ok(())
+}
+
+fn print_endgame_distance_report(report: &yokai::EndgameDistanceReport) {
+    println!(
+        "endgame-distance generation={} validation_games={} validation_examples={}",
+        report.checkpoint_generation, report.validation_games, report.validation_examples,
+    );
+    for bucket in &report.buckets {
+        for (outcome, metrics) in [
+            ("all", bucket.all),
+            ("draw", bucket.draws),
+            ("decisive", bucket.decisive),
+        ] {
+            println!(
+                "distance={} outcome={} examples={} policy_loss={:.4} policy_top1={:.3} WDL_loss={:.4} WDL_top1={:.3}",
+                bucket.distance.label(),
+                outcome,
+                metrics.examples,
+                metrics.policy_loss,
+                metrics.policy_top1_accuracy,
+                metrics.wdl_loss,
+                metrics.wdl_top1_accuracy,
+            );
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -629,13 +765,15 @@ Commands:
   yokai analyze [simulations] [seed]  Analyze the initial position with pure MCTS
   yokai replay <file.json>             Validate and print a recorded game
   yokai train [--config FILE] [--resume latest] [--generations N] [--headless]
-                                       Run N AlphaZero generations (default: 1)"
+                                       Run N AlphaZero generations (default: 1)
+  yokai diagnose-endgames [--config FILE]
+                                       Evaluate all checkpoints by terminal distance"
     );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_train_arguments;
+    use super::{parse_diagnose_endgames_arguments, parse_train_arguments};
 
     #[test]
     fn train_arguments_default_to_one_generation() {
@@ -662,5 +800,16 @@ mod tests {
     fn train_arguments_reject_zero_generations() {
         let arguments = ["--generations".to_owned(), "0".to_owned()];
         assert!(parse_train_arguments(&arguments).is_err());
+    }
+
+    #[test]
+    fn diagnose_endgames_arguments_accept_only_a_config_path() {
+        let defaults = parse_diagnose_endgames_arguments(&[]).expect("default diagnostics");
+        assert_eq!(defaults.config_path, "config/training.toml");
+
+        let arguments = ["--config".to_owned(), "frozen.toml".to_owned()];
+        let parsed = parse_diagnose_endgames_arguments(&arguments).expect("diagnostic config");
+        assert_eq!(parsed.config_path, "frozen.toml");
+        assert!(parse_diagnose_endgames_arguments(&["--headless".to_owned()]).is_err());
     }
 }

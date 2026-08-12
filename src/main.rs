@@ -204,8 +204,10 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             search_batch_size,
             repetition_contempt,
             starter_draw_value,
+            restart_archive,
+            planned_restarts,
         } => eprintln!(
-            "[{elapsed}] self-play started: {games} games, {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}, starter draw value={starter_draw_value:.2}"
+            "[{elapsed}] self-play started: {games} games ({planned_restarts} targeted restarts from {restart_archive} prefixes), {workers} workers, {simulations} simulations/move, {search_batch_size} leaves/inference, repetition contempt={repetition_contempt:.2}, starter draw value={starter_draw_value:.2}"
         ),
         TrainingProgress::SelfPlayAdvanced { completed, total } => eprintln!(
             "[{elapsed}] self-play {completed}/{total} ({:.1}%)",
@@ -213,12 +215,13 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         ),
         TrainingProgress::SelfPlayFinished {
             games,
+            restarted_games,
             examples,
             outcomes,
             inference,
         } => {
             eprintln!(
-                "[{elapsed}] self-play finished: {games} games, {examples} examples, absolute first/second/draw={}/{}/{}, mover starter/non-starter/unclassified={}/{}/{}",
+                "[{elapsed}] self-play finished: {games} games ({restarted_games} targeted restarts), {examples} examples, absolute first/second/draw={}/{}/{}, mover starter/non-starter/unclassified={}/{}/{}",
                 outcomes.first_wins,
                 outcomes.second_wins,
                 outcomes.draws,
@@ -228,8 +231,12 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             );
             print_inference_stats(&elapsed, "self-play inference", inference);
         }
-        TrainingProgress::SelfPlayResumed { games, examples } => eprintln!(
-            "[{elapsed}] self-play resumed from {games} persisted games ({examples} examples); generation will not be duplicated"
+        TrainingProgress::SelfPlayResumed {
+            games,
+            examples,
+            restarted_games,
+        } => eprintln!(
+            "[{elapsed}] self-play resumed from {games} persisted games ({restarted_games} targeted restarts, {examples} examples); generation will not be duplicated"
         ),
         TrainingProgress::DatasetReady {
             buffer_games,
@@ -431,12 +438,13 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source_champion={} source_learner={} promoted={} games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
+        "generation={} source_champion={} source_learner={} promoted={} games={} restarted_games={} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
         report.learner_source_generation,
         report.promoted(),
         report.generated_games,
+        report.restarted_games,
         report.buffer_examples,
         report.terminal_window_plies,
         report.terminal_extra_examples,
@@ -465,6 +473,17 @@ fn print_generation_report(report: &yokai::GenerationReport) {
             );
         }
     }
+    let initial = report.initial_self_play_outcomes;
+    let restarted = report.restarted_self_play_outcomes;
+    println!(
+        "self-play initial starter/non-starter/draw={}/{}/{}; restarted starter/non-starter/draw={}/{}/{}",
+        initial.starter_wins,
+        initial.non_starter_wins,
+        initial.draws,
+        restarted.starter_wins,
+        restarted.non_starter_wins,
+        restarted.draws,
+    );
     println!(
         "arena candidate={} previous={} draws={} score={:.3} threshold_reached={}",
         report.arena.candidate_wins,

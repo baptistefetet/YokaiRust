@@ -30,6 +30,9 @@ pub struct SelfPlayConfig {
     /// Draw utility for the starter during self-play; the non-starter gets its negation.
     #[serde(default = "default_starter_draw_value")]
     pub starter_draw_value: f32,
+    /// Fraction of games restarted near historical repetition failures.
+    #[serde(default = "default_cycle_restart_fraction")]
+    pub cycle_restart_fraction: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -136,6 +139,7 @@ impl Default for TrainingConfig {
                 final_temperature: 0.0,
                 repetition_contempt: 0.0,
                 starter_draw_value: default_starter_draw_value(),
+                cycle_restart_fraction: default_cycle_restart_fraction(),
             },
             optimization: OptimizationConfig {
                 steps_per_generation: 400,
@@ -174,6 +178,10 @@ const fn default_arena_opening_plies() -> usize {
 }
 
 const fn default_starter_draw_value() -> f32 {
+    0.25
+}
+
+const fn default_cycle_restart_fraction() -> f32 {
     0.25
 }
 
@@ -242,6 +250,13 @@ impl TrainingConfig {
         if self.self_play.repetition_contempt > 0.0 && self.self_play.starter_draw_value > 0.0 {
             return Err(TrainingConfigError::Invalid(
                 "self-play repetition contempt and starter draw value are mutually exclusive",
+            ));
+        }
+        if !self.self_play.cycle_restart_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.self_play.cycle_restart_fraction)
+        {
+            return Err(TrainingConfigError::Invalid(
+                "self-play cycle restart fraction must be finite and in [0, 1]",
             ));
         }
         let optimization = &self.optimization;

@@ -72,6 +72,14 @@ Adam state initialize the next optimization attempt. Failing the strength arena
 rolls that lineage back to the champion. This preserves learning across
 draw-only rejections without publishing a cycling player.
 
+Once the replay buffer contains a drawn game, it also exposes validated ongoing
+prefixes from two to eight plies before the terminal repetition. The checked-in
+`cycle_restart_fraction = 0.25` deterministically replaces one quarter of the
+next trajectories with these prefixes. The complete action history, starter and
+seven-frame encoder context are preserved, while the exploration-temperature
+schedule restarts at local ply zero. Generation zero has no archive and therefore
+uses only official initial positions.
+
 Optimization is continuous too. Each generation performs a fixed number of
 uniformly sampled mini-batch updates instead of full passes over an ever-growing
 buffer. The checkpoint stores both the trainable model and Adam's first/second

@@ -15,9 +15,11 @@ use crate::{
     InferenceClient, InferenceService, InferenceServiceError, InferenceStats, ModelMetadata,
     ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig,
     ReplayError, SelfPlayError, SelfPlayGame, TrainingConfig, TrainingExample, TrainingReport,
-    TrainingStepReport, generate_self_play_with_progress, load_champion, load_generation,
-    load_learner, load_training_generation, next_generation, publish_champion, publish_learner,
-    run_arena_with_progress, save_generation, save_training_generation, train_state_with_progress,
+    TrainingStepReport, generate_self_play_with_progress,
+    generate_self_play_with_restarts_and_progress, load_champion, load_generation, load_learner,
+    load_training_generation, next_generation, planned_restart_count, publish_champion,
+    publish_learner, run_arena_with_progress, save_generation, save_training_generation,
+    train_state_with_progress,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -44,6 +46,8 @@ pub struct GenerationReport {
     pub learner_source_generation: u32,
     pub candidate_generation: u32,
     pub generated_games: usize,
+    #[serde(default)]
+    pub restarted_games: usize,
     pub buffer_games: usize,
     pub buffer_examples: usize,
     #[serde(default)]
@@ -53,6 +57,10 @@ pub struct GenerationReport {
     #[serde(default)]
     pub terminal_oversampling: bool,
     pub self_play_outcomes: GameOutcomeStats,
+    #[serde(default)]
+    pub initial_self_play_outcomes: GameOutcomeStats,
+    #[serde(default)]
+    pub restarted_self_play_outcomes: GameOutcomeStats,
     pub training: TrainingReport,
     pub arena: ArenaResult,
     pub candidate_mirror: ArenaResult,
@@ -103,6 +111,8 @@ pub enum TrainingProgress {
         search_batch_size: usize,
         repetition_contempt: f32,
         starter_draw_value: f32,
+        restart_archive: usize,
+        planned_restarts: usize,
     },
     SelfPlayAdvanced {
         completed: usize,
@@ -110,6 +120,7 @@ pub enum TrainingProgress {
     },
     SelfPlayFinished {
         games: usize,
+        restarted_games: usize,
         examples: usize,
         outcomes: GameOutcomeStats,
         inference: InferenceStats,
@@ -117,6 +128,7 @@ pub enum TrainingProgress {
     SelfPlayResumed {
         games: usize,
         examples: usize,
+        restarted_games: usize,
     },
     DatasetReady {
         buffer_games: usize,
@@ -290,12 +302,16 @@ where
     )?;
     let games = if let Some(games) = persisted_games {
         let examples = games.iter().map(|game| game.examples.len()).sum();
+        let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
         progress(TrainingProgress::SelfPlayResumed {
             games: games.len(),
             examples,
+            restarted_games,
         });
         games
     } else {
+        let restart_archive = buffer.cycle_restart_replays()?;
+        let planned_restarts = planned_restart_count(&config.self_play, restart_archive.len());
         progress(TrainingProgress::SelfPlayStarted {
             games: config.self_play.games_per_generation,
             workers: config.self_play.workers,
@@ -303,6 +319,8 @@ where
             search_batch_size: config.self_play.search_batch_size,
             repetition_contempt: config.self_play.repetition_contempt,
             starter_draw_value: config.self_play.starter_draw_value,
+            restart_archive: restart_archive.len(),
+            planned_restarts,
         });
         let (source_for_self_play, _) = load_champion::<B::InnerBackend>(models_root, device)?;
         let self_play_service = InferenceService::start_with_batching(
@@ -316,13 +334,14 @@ where
             Duration::from_millis(config.self_play.inference_wait_ms),
         )?;
         let self_play_client = self_play_service.client();
-        let games = generate_self_play_with_progress(
+        let games = generate_self_play_with_restarts_and_progress(
             &self_play_client,
             &config.self_play,
             source_metadata.generation,
             config
                 .seed
                 .wrapping_add(u64::from(candidate_generation) << 32),
+            &restart_archive,
             &|completed, total| {
                 if progress_checkpoint(completed, total) {
                     progress(TrainingProgress::SelfPlayAdvanced { completed, total });
@@ -333,8 +352,10 @@ where
         drop(self_play_service);
         let outcomes = outcome_stats(&games);
         let examples = games.iter().map(|game| game.examples.len()).sum();
+        let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
         progress(TrainingProgress::SelfPlayFinished {
             games: games.len(),
+            restarted_games,
             examples,
             outcomes,
             inference,
@@ -344,6 +365,11 @@ where
         games
     };
     let self_play_outcomes = outcome_stats(&games);
+    let initial_self_play_outcomes =
+        outcome_stats(games.iter().filter(|game| game.restart_ply == 0));
+    let restarted_self_play_outcomes =
+        outcome_stats(games.iter().filter(|game| game.restart_ply > 0));
+    let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
     for game in &games {
         if !buffer.contains(game.generation, game.seed) {
             buffer.push(game.clone());
@@ -524,12 +550,15 @@ where
         learner_source_generation: learner_metadata.generation,
         candidate_generation,
         generated_games: games.len(),
+        restarted_games,
         buffer_games: buffer.len(),
         buffer_examples: buffer.example_count(),
         terminal_window_plies,
         terminal_extra_examples,
         terminal_oversampling,
         self_play_outcomes,
+        initial_self_play_outcomes,
+        restarted_self_play_outcomes,
         training,
         arena,
         candidate_mirror: candidate_diagnostics.mirror,
@@ -870,7 +899,7 @@ fn temporary_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}-{}.tmp", std::process::id()))
 }
 
-fn outcome_stats(games: &[SelfPlayGame]) -> GameOutcomeStats {
+fn outcome_stats<'a>(games: impl IntoIterator<Item = &'a SelfPlayGame>) -> GameOutcomeStats {
     let mut stats = GameOutcomeStats::default();
     for game in games {
         match game.outcome {

@@ -9,10 +9,12 @@ use thiserror::Error;
 
 use crate::{
     Action, Game, HISTORY_POSITIONS, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position,
-    Replay, SearchResult,
+    Replay, ReplayError, SearchResult,
 };
 
 const POLICY_TOLERANCE: f32 = 1.0e-4;
+pub const CYCLE_RESTART_MIN_PLIES: usize = 2;
+pub const CYCLE_RESTART_MAX_PLIES: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingExample {
@@ -58,6 +60,12 @@ pub struct SelfPlayGame {
     pub generation: u32,
     pub seed: u64,
     pub outcome: Outcome,
+    /// Number of historical prefix plies replayed before this trajectory began.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub restart_ply: usize,
+    /// Seven states immediately preceding the first recorded restart example.
+    #[serde(default, skip_serializing_if = "history_is_empty")]
+    pub restart_history: [Option<Position>; HISTORY_POSITIONS],
     pub examples: Vec<TrainingExample>,
     /// Versioned game trace. Legacy buffers deserialize with no replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,6 +77,40 @@ impl SelfPlayGame {
     #[must_use]
     pub fn augmented_examples(&self, mirror: bool) -> Vec<TrainingExample> {
         self.selected_examples(mirror, None)
+    }
+
+    /// Reconstructs ongoing prefixes two to eight plies before a recorded draw.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayError`] if the stored complete replay is invalid.
+    pub fn cycle_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
+        if !matches!(self.outcome, Outcome::Draw { .. }) {
+            return Ok(Vec::new());
+        }
+        let Some(replay) = &self.replay else {
+            return Ok(Vec::new());
+        };
+        replay.to_game()?;
+        let mut prefixes =
+            Vec::with_capacity(CYCLE_RESTART_MAX_PLIES - CYCLE_RESTART_MIN_PLIES + 1);
+        for distance in CYCLE_RESTART_MIN_PLIES..=CYCLE_RESTART_MAX_PLIES {
+            let Some(prefix_len) = replay.actions.len().checked_sub(distance) else {
+                continue;
+            };
+            if prefix_len == 0 {
+                continue;
+            }
+            let prefix = Replay::from_actions(
+                replay.initial_player,
+                replay.actions[..prefix_len].to_vec(),
+                Outcome::Ongoing,
+                replay.seed,
+            );
+            prefix.to_game()?;
+            prefixes.push(prefix);
+        }
+        Ok(prefixes)
     }
 
     /// Selects the complete game, or a tactical tail from a decisive game.
@@ -101,6 +143,11 @@ impl SelfPlayGame {
             index
                 .checked_sub(offset + 1)
                 .map(|previous| self.examples[previous].position)
+                .or_else(|| {
+                    offset
+                        .checked_sub(index)
+                        .and_then(|prefix_offset| self.restart_history[prefix_offset])
+                })
         });
         example
     }
@@ -201,6 +248,74 @@ impl SelfPlayRecorder {
             .iter()
             .map(|pending| pending.action)
             .collect::<Vec<_>>();
+        let replay = (initial_position == Position::initial(initial_player))
+            .then(|| Replay::from_actions(initial_player, actions, outcome, Some(seed)));
+        self.finish_with_replay(
+            generation,
+            seed,
+            outcome,
+            0,
+            [None; HISTORY_POSITIONS],
+            replay,
+        )
+    }
+
+    /// Finishes a trajectory that may have started from a replayed game prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TrainingDataError`] if the final game is not terminal or its
+    /// suffix does not match the recorded policy targets.
+    pub fn finish_from_game(
+        self,
+        generation: u32,
+        seed: u64,
+        game: &Game,
+        restart_ply: usize,
+    ) -> Result<SelfPlayGame, TrainingDataError> {
+        if !game.outcome().is_terminal() {
+            return Err(TrainingDataError::NonTerminalGame);
+        }
+        let suffix = game
+            .actions()
+            .get(restart_ply..)
+            .ok_or(TrainingDataError::InvalidRestartTrace)?;
+        if suffix.len() != self.pending.len()
+            || suffix
+                .iter()
+                .zip(&self.pending)
+                .any(|(action, pending)| *action != pending.action)
+        {
+            return Err(TrainingDataError::InvalidRestartTrace);
+        }
+        let positions = game.position_history();
+        let restart_history = std::array::from_fn(|offset| {
+            restart_ply
+                .checked_sub(offset + 1)
+                .map(|index| positions[index])
+        });
+        self.finish_with_replay(
+            generation,
+            seed,
+            game.outcome(),
+            restart_ply,
+            restart_history,
+            Some(Replay::from_game(game, Some(seed))),
+        )
+    }
+
+    fn finish_with_replay(
+        self,
+        generation: u32,
+        seed: u64,
+        outcome: Outcome,
+        restart_ply: usize,
+        restart_history: [Option<Position>; HISTORY_POSITIONS],
+        replay: Option<Replay>,
+    ) -> Result<SelfPlayGame, TrainingDataError> {
+        if self.pending.is_empty() {
+            return Err(TrainingDataError::EmptyGame);
+        }
         let examples = self
             .pending
             .into_iter()
@@ -218,9 +333,10 @@ impl SelfPlayRecorder {
             generation,
             seed,
             outcome,
+            restart_ply,
+            restart_history,
             examples,
-            replay: (initial_position == Position::initial(initial_player))
-                .then(|| Replay::from_actions(initial_player, actions, outcome, Some(seed))),
+            replay,
         })
     }
 }
@@ -295,6 +411,19 @@ impl ReplayBuffer {
     #[must_use]
     pub fn example_count(&self) -> usize {
         self.games.iter().map(|game| game.examples.len()).sum()
+    }
+
+    /// Returns validated ongoing prefixes immediately preceding known draws.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayError`] if a stored full-game replay is invalid.
+    pub fn cycle_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
+        let mut replays = Vec::new();
+        for game in &self.games {
+            replays.extend(game.cycle_restart_replays()?);
+        }
+        Ok(replays)
     }
 
     /// Splits whole games so positions from one game cannot leak across train
@@ -380,6 +509,8 @@ pub enum TrainingDataError {
     TerminalPolicyTarget,
     #[error("self-play result must be terminal")]
     NonTerminalGame,
+    #[error("recorded self-play actions do not match the restarted game suffix")]
+    InvalidRestartTrace,
     #[error("a self-play game cannot contain zero training states")]
     EmptyGame,
     #[error("policy contains a non-finite or negative probability")]
@@ -392,6 +523,15 @@ pub enum TrainingDataError {
     InvalidBufferConfiguration,
     #[error("validation fraction must be finite and between zero and one")]
     InvalidValidationFraction,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+fn history_is_empty(history: &[Option<Position>; HISTORY_POSITIONS]) -> bool {
+    history.iter().all(Option::is_none)
 }
 
 /// Mirrors a canonical policy horizontally while preserving invalid slots.

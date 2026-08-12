@@ -11,9 +11,9 @@ use yokai::{
     PathsConfig, Piece, PieceKind, Player, Position, Replay, ReplayBuffer, ReplayBufferConfig,
     SearchConfig, SelfPlayConfig, SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule,
     TrainingConfig, TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator,
-    bootstrap_latest, generate_self_play, load_generation, load_latest, load_replay_buffer,
-    run_arena, run_arena_with_progress, run_generation_with_progress, save_generation,
-    train_candidate, validate_model,
+    bootstrap_latest, generate_self_play, generate_self_play_with_restarts, load_generation,
+    load_latest, load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
+    run_generation_with_progress, save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -52,6 +52,41 @@ fn recorded_game(generation: u32, seed: u64) -> SelfPlayGame {
     recorder
         .finish(generation, seed, game.outcome())
         .expect("terminal self-play game")
+}
+
+fn recorded_draw_replay() -> Replay {
+    serde_json::from_str(
+        r#"{
+            "format_version": 1,
+            "rules_version": 1,
+            "seed": 4294967474,
+            "initial_player": "second",
+            "actions": [
+                {"type":"move","from":0,"to":3},
+                {"type":"move","from":7,"to":4},
+                {"type":"move","from":3,"to":4},
+                {"type":"drop","piece":"kodama","to":3},
+                {"type":"drop","piece":"kodama","to":7},
+                {"type":"move","from":9,"to":7},
+                {"type":"move","from":4,"to":7},
+                {"type":"move","from":10,"to":9},
+                {"type":"move","from":1,"to":5},
+                {"type":"drop","piece":"kodama","to":8},
+                {"type":"move","from":5,"to":4},
+                {"type":"move","from":3,"to":0},
+                {"type":"move","from":7,"to":6},
+                {"type":"move","from":9,"to":10},
+                {"type":"move","from":6,"to":7},
+                {"type":"move","from":10,"to":9},
+                {"type":"move","from":7,"to":6},
+                {"type":"move","from":9,"to":10},
+                {"type":"move","from":6,"to":7},
+                {"type":"move","from":10,"to":9}
+            ],
+            "outcome": {"status":"draw","reason":"threefold_repetition"}
+        }"#,
+    )
+    .expect("checked draw replay JSON")
 }
 
 #[test]
@@ -142,6 +177,66 @@ fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
 }
 
 #[test]
+fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_fraction() {
+    let replay = recorded_draw_replay();
+    let terminal = replay.to_game().expect("draw replay must validate");
+    let mut drawn = recorded_game(1, 178);
+    drawn.outcome = terminal.outcome();
+    drawn.replay = Some(replay);
+    let archive = drawn
+        .cycle_restart_replays()
+        .expect("cycle prefixes must validate");
+
+    assert_eq!(archive.len(), 7);
+    assert_eq!(archive[0].actions.len(), 18);
+    assert!(archive.iter().all(|prefix| {
+        prefix
+            .to_game()
+            .is_ok_and(|game| !game.outcome().is_terminal())
+    }));
+
+    let config = SelfPlayConfig {
+        games_per_generation: 4,
+        workers: 2,
+        simulations: 4,
+        search_batch_size: 1,
+        max_game_plies: 256,
+        inference_batch_size: 8,
+        inference_wait_ms: 0,
+        exploration_plies: 4,
+        exploration_temperature: 1.0,
+        final_temperature: 0.0,
+        repetition_contempt: 0.0,
+        starter_draw_value: 0.0,
+        cycle_restart_fraction: 0.5,
+    };
+    assert_eq!(planned_restart_count(&config, archive.len()), 2);
+    let games = generate_self_play_with_restarts(&UniformEvaluator, &config, 1, 900, &archive[..1])
+        .expect("targeted self-play must finish");
+    let restarted = games
+        .iter()
+        .filter(|game| game.restart_ply > 0)
+        .collect::<Vec<_>>();
+
+    assert_eq!(restarted.len(), 2);
+    for game in restarted {
+        assert_eq!(game.restart_ply, archive[0].actions.len());
+        let prefix_game = archive[0].to_game().expect("restart prefix");
+        let expected_previous = prefix_game.position_history()[game.restart_ply - 1];
+        assert_eq!(game.restart_history[0], Some(expected_previous));
+        assert_eq!(
+            game.augmented_examples(false)[0].history[0],
+            Some(expected_previous)
+        );
+        assert!(
+            game.replay
+                .as_ref()
+                .is_some_and(|full| full.actions.starts_with(&archive[0].actions))
+        );
+    }
+}
+
+#[test]
 fn terminal_window_keeps_only_the_tail_of_decisive_games() {
     let mut decisive = recorded_game(3, 100);
     let example = decisive.examples[0].clone();
@@ -189,6 +284,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
     assert!(config.self_play.repetition_contempt.abs() < f32::EPSILON);
     assert!((config.self_play.starter_draw_value - 0.25).abs() < f32::EPSILON);
+    assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert_eq!(config.optimization.terminal_window_plies, None);
@@ -315,6 +411,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         final_temperature: 0.0,
         repetition_contempt: 0.0,
         starter_draw_value: 0.0,
+        cycle_restart_fraction: 0.0,
     };
 
     let first = generate_self_play(&UniformEvaluator, &config, 2, 500)
@@ -447,6 +544,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             final_temperature: 0.0,
             repetition_contempt: 0.0,
             starter_draw_value: 0.0,
+            cycle_restart_fraction: 0.0,
         },
         optimization: OptimizationConfig {
             steps_per_generation: 1,
@@ -633,7 +731,8 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
                 event,
                 TrainingProgress::SelfPlayResumed {
                     games: 2,
-                    examples: _
+                    examples: _,
+                    restarted_games: _,
                 }
             ))
     );

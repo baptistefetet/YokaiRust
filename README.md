@@ -31,6 +31,7 @@ first trainable AlphaZero pipeline:
   atomic pointers for the accepted champion and private learner lineage;
 - reproducible parallel self-play, a rolling replay buffer and whole-game
   training/validation splits;
+- deterministic cycle-adjacent restarts for a configurable share of self-play;
 - the complete AlphaZero dataset, with temporary decisive-tail oversampling
   during bootstrap;
 - explicit policy/WDL metrics, including entropy, calibration, illegal policy
@@ -427,11 +428,11 @@ failed.
 
 #### Recovery implementation: draw-aware targeted self-play
 
-The representation, WDL loss, role-aware utility and separate learner lineage
-described below are now implemented. They change the checkpoint and encoder
-formats, so the next controlled campaign must start at generation 0. Targeted
-cycle restarts and tablebase evaluation remain the next experiments; no result
-from the new pipeline is claimed yet. The checked-in configuration isolates it
+The representation, WDL loss, role-aware utility, targeted restarts and separate
+learner lineage described below are now implemented. They change the checkpoint
+and encoder formats, so the next controlled campaign must start at generation 0.
+Tablebase evaluation remains the next implementation experiment; no result from
+the new pipeline is claimed yet. The checked-in configuration isolates it
 under `models/alpha-zero-draw-aware-v11/` and
 `data/alpha-zero-draw-aware-v11/` so legacy checkpoints and examples cannot be
 loaded accidentally.
@@ -465,12 +466,13 @@ loaded accidentally.
    player that happens to close the loop: the starter should learn the strongest
    drawing defence while the non-starter is forced to find its refutation.
    Stored outcomes remain official W/D/L and all promotion searches use `c = 0`.
-4. **Restart a minority of games immediately before known cycles (next experiment).** Preserve a
+4. **Restart a minority of games immediately before known cycles (implemented).** Preserve a
    complete `Game` snapshot, including its full prefix and initial player, for
    positions two to eight plies before a repetition. Start 25% of the next
-   self-play batch from this archive and 75% from the official initial position,
-   keeping the total simulator-evaluation budget fixed. This revisits the exact
-   failure states, produces shorter and more independent value targets, and
+   self-play batch from this archive and 75% from the official initial position.
+   The implementation keeps the configured trajectory count fixed and reports
+   actual inference positions so ablations can also be normalized by compute.
+   This revisits the exact failure states, produces shorter value targets, and
    gives the non-starter repeated chances to find a conversion. Go-Exploit
    reports better value accuracy and sample efficiency from this general restart
    strategy in Connect Four and 9x9 Go; see [Targeted Search Control in

@@ -25,6 +25,9 @@ repetition_contempt = 0.0
 # During self-play, a draw rewards the starter's defence and penalizes the
 # non-starter's failed conversion. Stored WDL outcomes and arenas stay official.
 starter_draw_value = 0.25
+# Once drawn replays exist, restart this share of trajectories 2-8 plies before
+# their terminal repetition. Generation zero necessarily starts with 0%.
+cycle_restart_fraction = 0.25
 
 [optimization]
 # A fixed update budget prevents later generations from receiving more gradient

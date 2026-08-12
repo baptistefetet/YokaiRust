@@ -47,8 +47,9 @@ pub use training::config::{
     TerminalWindowSchedule, TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{
-    DatasetSplit, ReplayBuffer, ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder,
-    TrainingDataError, TrainingExample, mirror_policy,
+    CYCLE_RESTART_MAX_PLIES, CYCLE_RESTART_MIN_PLIES, DatasetSplit, ReplayBuffer,
+    ReplayBufferConfig, SelfPlayGame, SelfPlayRecorder, TrainingDataError, TrainingExample,
+    mirror_policy,
 };
 pub use training::pipeline::{
     GameOutcomeStats, GenerationReport, PipelineError, PromotionDecision, TrainingProgress,
@@ -56,7 +57,9 @@ pub use training::pipeline::{
     run_generation_with_progress, save_replay_buffer,
 };
 pub use training::self_play::{
-    SelfPlayError, generate_self_play, generate_self_play_with_progress, play_self_play_game,
+    SelfPlayError, generate_self_play, generate_self_play_with_progress,
+    generate_self_play_with_restarts, generate_self_play_with_restarts_and_progress,
+    planned_restart_count, play_self_play_game, play_self_play_game_from_restart,
 };
 pub use training::trainer::{
     AlphaZeroOptimizer, AlphaZeroTrainingState, LossMetrics, TrainingReport, TrainingStepReport,

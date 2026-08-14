@@ -18,15 +18,20 @@ The repository contains:
 - a Burn residual network with policy and Win/Draw/Loss (WDL) heads;
 - CPU tests and WGPU/Metal training on Apple Silicon;
 - parallel self-play, a rolling replay buffer and stable whole-game validation;
-- draw-aware search, cycle-adjacent restarts and guarded model promotion;
+- draw-aware search, visited-state archive restarts and guarded model promotion;
 - atomic model/optimizer checkpoints and structured JSON diagnostics.
 
-The current training line is **v25**. It is the only retained runtime dataset:
+The stable training line is **v25**:
 
 - models: `models/alpha-zero-draw-aware-v25`;
 - self-play and reports: `data/alpha-zero-draw-aware-v25`;
 - accepted champion: generation 13;
 - last evaluated candidate: generation 15, rejected on strength.
+
+The active **v26** experiment writes to
+`models/alpha-zero-visited-restarts-v26` and
+`data/alpha-zero-visited-restarts-v26`. v25 remains frozen until v26 is either
+rejected or proves a significant strength improvement.
 
 The next product milestone is the Ratatui interface. It can advance independently
 using the stable `Game`, `Action`, `Replay` and analysis contracts.
@@ -79,11 +84,11 @@ cargo run -- analyze [simulations] [seed]
 # Validate every action and print a versioned replay.
 cargo run -- replay path/to/game.json
 
-# Start or continue AlphaZero training in the configured v25 paths.
+# Start or continue AlphaZero training in the configured active paths.
 cargo run --release -- train --config config/training.toml --generations 15 --headless
 cargo run --release -- train --resume latest --generations 5 --headless
 
-# Evaluate every v25 checkpoint on the final stable validation split.
+# Evaluate every checkpoint on the active run's final stable validation split.
 cargo run --release -- diagnose-endgames --config config/training.toml
 ```
 
@@ -109,7 +114,7 @@ The checked-in Metal configuration uses a 64-channel, four-block residual
 network with 64-unit shared and value layers. Each generation runs:
 
 1. 256 self-play games at 200 MCTS simulations per regular move;
-2. 25% cycle-adjacent restarts at 800 simulations per move;
+2. 25% restarts from recent visited states at 800 simulations per move;
 3. 400 Adam updates with batch size 256;
 4. a 200-game paired strength arena at 400 simulations per move;
 5. four deterministic mirror games for diagnosis;
@@ -150,8 +155,8 @@ The pipeline handles repetition feedback at four points:
 - WDL predicts a certain draw separately from uncertain win/loss;
 - self-play values a draw at `+0.75` for the starter and `-0.75` for the
   non-starter, while official arenas use neutral `P(win) - P(loss)`;
-- one quarter of trajectories restart one to eight plies before observed
-  repetition cycles with a larger search budget;
+- one quarter of trajectories restart from uniformly sampled nonterminal states
+  visited in the recent replay buffer, with a larger search budget;
 - the starter's drawing defence remains a policy target, while unresolved
   non-starter policy targets are omitted. When the rules identify the exact
   action causing a third repetition, only that action is removed and the other
@@ -216,26 +221,26 @@ positions. Champion 13 reaches 64.7% drawn policy top-1 at distance `9–16` and
 61.6% at `17+`, but drawn WDL top-1 falls to 5.0% and 1.4%. Playing strength has
 improved significantly; long-horizon draw classification has not been solved.
 
-## Recommended next research
+## Active research: v26 visited-state restarts
 
-Do not change the network or bootstrap next. The current bootstrap promoted its
-first model immediately, and the 64×4 architecture retains adequate throughput.
-The next learning experiment should target the remaining long-horizon weakness
-with one isolated change:
+v26 changes one training behavior. v25 restarted 25% of self-play only from the
+last 1–8 plies before known repetition draws. v26 keeps the same 25% fraction
+and 800-simulation budget, but uniformly samples every non-initial, nonterminal
+state visited in the recent replay buffer. Decisive and drawn games both feed
+the archive; duplicate states remain present and naturally weight frequently
+visited regions.
 
-1. broaden cycle-only restarts into a deeper state archive, in the spirit of
-   [Go-Exploit](https://arxiv.org/abs/2302.12359), to revisit strategically
-   useful late-game positions rather than only terminal repetition failures;
-2. if that is insufficient, strengthen the decisive endgame curriculum while
-   keeping all positions and official outcomes;
-3. reserve an adaptive rollout/network blend for a future bootstrap problem.
-   [Warm-Start AlphaZero](https://arxiv.org/abs/2004.12357) and its
-   [adaptive follow-up](https://arxiv.org/abs/2105.06136) support that technique,
-   but v25 provides no evidence that bootstrap is the current bottleneck.
+This follows Go-Exploit's simple “Visited States” variant and should produce
+shorter, more independent value targets across a broader depth distribution.
+Network shape, optimizer, replay retention, promotion, self-play search and all
+other budgets remain unchanged. [Go-Exploit](https://arxiv.org/abs/2302.12359)
 
-Any new experiment should change one variable, retain champion 13 as its frozen
-reference, record self-play throughput, and require a positive paired result
-before becoming the new baseline.
+v26 must beat frozen v25 champion 13 in a paired cross-run arena before becoming
+the baseline. If it does not, the next isolated change will strengthen the
+decisive endgame curriculum. An adaptive rollout/network blend remains reserved
+for a future bootstrap problem; v25 gives no evidence that bootstrap is the
+current bottleneck. [Warm-Start AlphaZero](https://arxiv.org/abs/2004.12357),
+[adaptive follow-up](https://arxiv.org/abs/2105.06136)
 
 ## Rules source
 

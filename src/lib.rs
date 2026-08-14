@@ -50,9 +50,9 @@ pub use training::config::{
     TrainingConfig, TrainingConfigError,
 };
 pub use training::data::{
-    CYCLE_RESTART_MAX_PLIES, CYCLE_RESTART_MIN_PLIES, DatasetDiagnostics, DatasetSplit,
-    PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig, SelfPlayEvaluator, SelfPlayGame,
-    SelfPlayRecorder, TrainingDataError, TrainingExample, dataset_diagnostics, mirror_policy,
+    DatasetDiagnostics, DatasetSplit, PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig,
+    SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, TrainingDataError, TrainingExample,
+    dataset_diagnostics, mirror_policy,
 };
 pub use training::diagnostics::{
     ENDGAME_DISTANCE_REPORT_VERSION, EndgameDiagnosticError, EndgameDistance,

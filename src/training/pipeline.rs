@@ -67,6 +67,14 @@ pub struct GenerationReport {
     pub generated_games: usize,
     #[serde(default)]
     pub restarted_games: usize,
+    #[serde(default)]
+    pub restart_archive_prefixes: usize,
+    #[serde(default)]
+    pub restart_ply_min: Option<usize>,
+    #[serde(default)]
+    pub restart_ply_max: Option<usize>,
+    #[serde(default)]
+    pub mean_restart_ply: f32,
     pub buffer_games: usize,
     pub buffer_examples: usize,
     #[serde(default)]
@@ -138,7 +146,7 @@ pub enum TrainingProgress {
         search_batch_size: usize,
         repetition_contempt: f32,
         starter_draw_value: f32,
-        cycle_restart_simulations: u32,
+        restart_simulations: u32,
         restart_archive: usize,
         planned_restarts: usize,
     },
@@ -314,6 +322,8 @@ where
         .self_play
         .evaluator_for_source_generation(source_metadata.generation);
 
+    let restart_archive = buffer.visited_restart_replays()?;
+    let restart_archive_prefixes = restart_archive.len();
     let persisted_games = load_self_play_generation(
         &config.paths.self_play,
         candidate_generation,
@@ -331,7 +341,6 @@ where
         });
         games
     } else {
-        let restart_archive = buffer.cycle_restart_replays()?;
         let planned_restarts = planned_restart_count(&config.self_play, restart_archive.len());
         progress(TrainingProgress::SelfPlayStarted {
             evaluator: self_play_evaluator,
@@ -341,9 +350,9 @@ where
             search_batch_size: config.self_play.search_batch_size,
             repetition_contempt: config.self_play.repetition_contempt,
             starter_draw_value: config.self_play.starter_draw_value,
-            cycle_restart_simulations: config
+            restart_simulations: config
                 .self_play
-                .cycle_restart_simulations
+                .restart_simulations
                 .unwrap_or(config.self_play.simulations),
             restart_archive: restart_archive.len(),
             planned_restarts,
@@ -418,6 +427,7 @@ where
     let restarted_self_play_outcomes =
         outcome_stats(games.iter().filter(|game| game.restart_ply > 0));
     let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+    let (restart_ply_min, restart_ply_max, mean_restart_ply) = restart_ply_stats(&games);
     let generated_dataset_diagnostics = dataset_diagnostics(&games);
     for game in &games {
         if !buffer.contains(game.generation, game.seed) {
@@ -602,6 +612,10 @@ where
         candidate_generation,
         generated_games: games.len(),
         restarted_games,
+        restart_archive_prefixes,
+        restart_ply_min,
+        restart_ply_max,
+        mean_restart_ply,
         buffer_games: buffer.len(),
         buffer_examples: buffer.example_count(),
         terminal_window_plies,
@@ -966,6 +980,30 @@ fn outcome_stats<'a>(games: impl IntoIterator<Item = &'a SelfPlayGame>) -> GameO
         }
     }
     stats
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn restart_ply_stats(games: &[SelfPlayGame]) -> (Option<usize>, Option<usize>, f32) {
+    let mut count = 0_usize;
+    let mut total = 0_usize;
+    let mut minimum = None;
+    let mut maximum = None;
+    for ply in games
+        .iter()
+        .map(|game| game.restart_ply)
+        .filter(|&ply| ply > 0)
+    {
+        count += 1;
+        total = total.saturating_add(ply);
+        minimum = Some(minimum.map_or(ply, |current: usize| current.min(ply)));
+        maximum = Some(maximum.map_or(ply, |current: usize| current.max(ply)));
+    }
+    let mean = if count == 0 {
+        0.0
+    } else {
+        total as f32 / count as f32
+    };
+    (minimum, maximum, mean)
 }
 
 #[derive(Debug, Error)]

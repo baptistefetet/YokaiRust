@@ -258,8 +258,8 @@ fn compare_saved_champion_search_modes() {
             final_temperature: 0.0,
             repetition_contempt,
             starter_draw_value: 0.0,
-            cycle_restart_fraction: 0.0,
-            cycle_restart_simulations: None,
+            restart_fraction: 0.0,
+            restart_simulations: None,
             bootstrap: yokai::SelfPlayBootstrapConfig::default(),
         };
         let started = Instant::now();
@@ -336,8 +336,8 @@ fn benchmark_metal_self_play_case_with_config(
         final_temperature: 0.0,
         repetition_contempt: 0.0,
         starter_draw_value: 0.0,
-        cycle_restart_fraction: 0.0,
-        cycle_restart_simulations: None,
+        restart_fraction: 0.0,
+        restart_simulations: None,
         bootstrap: yokai::SelfPlayBootstrapConfig::default(),
     };
     let started = Instant::now();

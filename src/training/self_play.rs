@@ -54,7 +54,7 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
     let restart_ply = game.actions().len();
     let simulations = trajectory_simulations(
         config.simulations,
-        config.cycle_restart_simulations,
+        config.restart_simulations,
         restart.is_some(),
     );
     let self_play_evaluator = config.evaluator_for_source_generation(generation);
@@ -125,7 +125,7 @@ where
 }
 
 /// Generates self-play with a deterministic fraction of games restarted from
-/// cycle-adjacent historical prefixes.
+/// states sampled from the recent visited-state archive.
 ///
 /// # Errors
 ///
@@ -180,7 +180,7 @@ where
     )
 }
 
-/// Generates deterministic seed-ordered self-play with targeted restarts and
+/// Generates deterministic seed-ordered self-play with archive restarts and
 /// reports each completed trajectory.
 ///
 /// # Errors
@@ -229,7 +229,7 @@ pub fn planned_restart_count(config: &SelfPlayConfig, archive_len: usize) -> usi
     if archive_len == 0 {
         return 0;
     }
-    fraction_count(config.games_per_generation, config.cycle_restart_fraction)
+    fraction_count(config.games_per_generation, config.restart_fraction)
 }
 
 fn planned_restarts(config: &SelfPlayConfig, seed: u64, archive: &[Replay]) -> Vec<Option<Replay>> {
@@ -249,9 +249,9 @@ fn planned_restarts(config: &SelfPlayConfig, seed: u64, archive: &[Replay]) -> V
     starts
 }
 
-const fn trajectory_simulations(regular: u32, targeted: Option<u32>, is_restart: bool) -> u32 {
+const fn trajectory_simulations(regular: u32, restart: Option<u32>, is_restart: bool) -> u32 {
     if is_restart {
-        match targeted {
+        match restart {
             Some(simulations) => simulations,
             None => regular,
         }
@@ -265,7 +265,7 @@ mod tests {
     use super::trajectory_simulations;
 
     #[test]
-    fn only_targeted_restarts_receive_the_larger_search_budget() {
+    fn only_archive_restarts_receive_the_larger_search_budget() {
         assert_eq!(trajectory_simulations(200, Some(800), false), 200);
         assert_eq!(trajectory_simulations(200, Some(800), true), 800);
         assert_eq!(trajectory_simulations(200, None, true), 200);
@@ -291,7 +291,7 @@ pub enum SelfPlayError {
     Data(#[from] TrainingDataError),
     #[error(transparent)]
     Replay(#[from] ReplayError),
-    #[error("a targeted self-play restart must be ongoing")]
+    #[error("an archive self-play restart must be ongoing")]
     TerminalRestart,
     #[error("self-play exceeded the safety limit of {0} plies")]
     PlyLimit(usize),

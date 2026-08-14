@@ -216,18 +216,19 @@ fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
 }
 
 #[test]
-fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_fraction() {
+fn visited_state_restarts_cover_the_trajectory_and_preserve_prefix_history() {
     let replay = recorded_draw_replay();
     let terminal = replay.to_game().expect("draw replay must validate");
     let mut drawn = recorded_game(1, 178);
     drawn.outcome = terminal.outcome();
     drawn.replay = Some(replay);
     let archive = drawn
-        .cycle_restart_replays()
-        .expect("cycle prefixes must validate");
+        .visited_restart_replays()
+        .expect("visited prefixes must validate");
 
-    assert_eq!(archive.len(), 8);
-    assert_eq!(archive[0].actions.len(), 19);
+    assert_eq!(archive.len(), 19);
+    assert_eq!(archive[0].actions.len(), 1);
+    assert_eq!(archive[18].actions.len(), 19);
     assert!(archive.iter().all(|prefix| {
         prefix
             .to_game()
@@ -247,13 +248,13 @@ fn cycle_restarts_preserve_prefix_history_and_are_sampled_at_the_configured_frac
         final_temperature: 0.0,
         repetition_contempt: 0.0,
         starter_draw_value: 0.0,
-        cycle_restart_fraction: 0.5,
-        cycle_restart_simulations: Some(8),
+        restart_fraction: 0.5,
+        restart_simulations: Some(8),
         bootstrap: SelfPlayBootstrapConfig::default(),
     };
     assert_eq!(planned_restart_count(&config, archive.len()), 2);
     let games = generate_self_play_with_restarts(&UniformEvaluator, &config, 1, 900, &archive[..1])
-        .expect("targeted self-play must finish");
+        .expect("archive-restarted self-play must finish");
     let restarted = games
         .iter()
         .filter(|game| game.restart_ply > 0)
@@ -411,8 +412,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
     assert!(config.self_play.repetition_contempt.abs() < f32::EPSILON);
     assert!((config.self_play.starter_draw_value - 0.75).abs() < f32::EPSILON);
-    assert!((config.self_play.cycle_restart_fraction - 0.25).abs() < f32::EPSILON);
-    assert_eq!(config.self_play.cycle_restart_simulations, Some(800));
+    assert!((config.self_play.restart_fraction - 0.25).abs() < f32::EPSILON);
+    assert_eq!(config.self_play.restart_simulations, Some(800));
     assert_eq!(
         config.self_play.bootstrap,
         SelfPlayBootstrapConfig {
@@ -450,8 +451,14 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v25");
-    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v25");
+    assert_eq!(
+        config.paths.models,
+        "models/alpha-zero-visited-restarts-v26"
+    );
+    assert_eq!(
+        config.paths.self_play,
+        "data/alpha-zero-visited-restarts-v26"
+    );
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -656,8 +663,8 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
         final_temperature: 0.0,
         repetition_contempt: 0.0,
         starter_draw_value: 0.0,
-        cycle_restart_fraction: 0.0,
-        cycle_restart_simulations: None,
+        restart_fraction: 0.0,
+        restart_simulations: None,
         bootstrap: SelfPlayBootstrapConfig::default(),
     };
 
@@ -821,8 +828,8 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             final_temperature: 0.0,
             repetition_contempt: 0.0,
             starter_draw_value: 0.0,
-            cycle_restart_fraction: 0.0,
-            cycle_restart_simulations: None,
+            restart_fraction: 0.0,
+            restart_simulations: None,
             bootstrap: SelfPlayBootstrapConfig::default(),
         },
         optimization: OptimizationConfig {
@@ -888,6 +895,10 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     .expect("persisted buffer");
 
     assert_eq!(report.generated_games, 2);
+    assert_eq!(report.restart_archive_prefixes, 0);
+    assert_eq!(report.restart_ply_min, None);
+    assert_eq!(report.restart_ply_max, None);
+    assert!(report.mean_restart_ply.abs() < f32::EPSILON);
     assert_eq!(report.self_play_source_generation, 0);
     assert_eq!(report.self_play_evaluator, SelfPlayEvaluator::Neural);
     let selected_validation = report

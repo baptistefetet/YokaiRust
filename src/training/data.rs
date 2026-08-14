@@ -11,8 +11,6 @@ use crate::{
 };
 
 const POLICY_TOLERANCE: f32 = 1.0e-4;
-pub const CYCLE_RESTART_MIN_PLIES: usize = 1;
-pub const CYCLE_RESTART_MAX_PLIES: usize = 8;
 
 /// Aggregate diagnostics derived only from self-play policy targets.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -136,28 +134,22 @@ impl SelfPlayGame {
         self.selected_examples(mirror, None)
     }
 
-    /// Reconstructs ongoing prefixes one to eight plies before a recorded draw.
+    /// Reconstructs every non-initial, non-terminal state visited in this game.
+    ///
+    /// Multiple games may contribute the same state. Retaining those
+    /// occurrences deliberately weights frequently visited regions when the
+    /// restart archive is sampled uniformly.
     ///
     /// # Errors
     ///
     /// Returns [`ReplayError`] if the stored complete replay is invalid.
-    pub fn cycle_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
-        if !matches!(self.outcome, Outcome::Draw { .. }) {
-            return Ok(Vec::new());
-        }
+    pub fn visited_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
         let Some(replay) = &self.replay else {
             return Ok(Vec::new());
         };
         replay.to_game()?;
-        let mut prefixes =
-            Vec::with_capacity(CYCLE_RESTART_MAX_PLIES - CYCLE_RESTART_MIN_PLIES + 1);
-        for distance in CYCLE_RESTART_MIN_PLIES..=CYCLE_RESTART_MAX_PLIES {
-            let Some(prefix_len) = replay.actions.len().checked_sub(distance) else {
-                continue;
-            };
-            if prefix_len == 0 {
-                continue;
-            }
+        let mut prefixes = Vec::with_capacity(replay.actions.len().saturating_sub(1));
+        for prefix_len in 1..replay.actions.len() {
             let prefix = Replay::from_actions(
                 replay.initial_player,
                 replay.actions[..prefix_len].to_vec(),
@@ -471,15 +463,15 @@ impl ReplayBuffer {
         self.games.iter().map(|game| game.examples.len()).sum()
     }
 
-    /// Returns validated ongoing prefixes immediately preceding known draws.
+    /// Returns every validated non-initial, non-terminal visited prefix.
     ///
     /// # Errors
     ///
     /// Returns [`ReplayError`] if a stored full-game replay is invalid.
-    pub fn cycle_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
+    pub fn visited_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
         let mut replays = Vec::new();
         for game in &self.games {
-            replays.extend(game.cycle_restart_replays()?);
+            replays.extend(game.visited_restart_replays()?);
         }
         Ok(replays)
     }

@@ -162,7 +162,7 @@ while `PolicyIndex` keeps the action mapping typed and tested.
 ## One generation
 
 ```text
-accepted champion --noisy self-play + cycle restarts
+accepted champion --noisy self-play + visited-state restarts
        |
        v
 rolling replay buffer --stable game split--> validation
@@ -262,17 +262,19 @@ non-starter: win - loss - 0.75 * draw
 Both still rank win above draw above loss. The starter learns its best defence;
 the non-starter is pushed to search for a conversion.
 
-### 3. Restarts spend search near the failure
+### 3. Restarts explore recent visited states
 
-One quarter of trajectories restart one to eight plies before a historical
-threefold repetition. The full prefix is replayed, so exact repetition state,
-starter role and encoder history remain valid. These targeted trajectories use
-800 MCTS simulations per move instead of the regular 200. The local temperature
-schedule restarts at ply zero to explore alternatives near the cycle.
+One quarter of trajectories restart from a uniformly sampled non-initial,
+nonterminal state visited in the recent replay buffer. Both decisive and drawn
+games contribute states, and repeated occurrences remain in the archive so
+frequently visited regions receive proportionally more restarts. The complete
+prefix is replayed, preserving exact repetition counts, starter role and encoder
+history.
 
-The same current network, rules and PUCT search produce the target; the larger
-budget simply gives search more opportunities to test a longer conversion
-before falling back to the known repetition.
+These trajectories use 800 MCTS simulations per move instead of the regular
+200. Their local temperature schedule restarts at ply zero, adding exploration
+throughout the game tree and producing shorter, more independent value targets.
+The current network, rules and PUCT search still produce every target.
 
 ### 4. Policy supervision rejects a known repeating action
 

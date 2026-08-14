@@ -30,12 +30,12 @@ pub struct SelfPlayConfig {
     /// Draw utility for the starter during self-play; the non-starter gets its negation.
     #[serde(default = "default_starter_draw_value")]
     pub starter_draw_value: f32,
-    /// Fraction of games restarted near historical repetition failures.
-    #[serde(default = "default_cycle_restart_fraction")]
-    pub cycle_restart_fraction: f32,
-    /// Optional larger MCTS budget for cycle-adjacent restart trajectories.
+    /// Fraction of games restarted from the recent visited-state archive.
+    #[serde(default = "default_restart_fraction")]
+    pub restart_fraction: f32,
+    /// Optional larger MCTS budget for archive-restart trajectories.
     #[serde(default)]
-    pub cycle_restart_simulations: Option<u32>,
+    pub restart_simulations: Option<u32>,
     /// Optional generation-zero evaluator replacement.
     #[serde(default)]
     pub bootstrap: SelfPlayBootstrapConfig,
@@ -214,8 +214,8 @@ impl Default for TrainingConfig {
                 final_temperature: 0.0,
                 repetition_contempt: 0.0,
                 starter_draw_value: default_starter_draw_value(),
-                cycle_restart_fraction: default_cycle_restart_fraction(),
-                cycle_restart_simulations: None,
+                restart_fraction: default_restart_fraction(),
+                restart_simulations: None,
                 bootstrap: SelfPlayBootstrapConfig::default(),
             },
             optimization: OptimizationConfig {
@@ -261,7 +261,7 @@ const fn default_starter_draw_value() -> f32 {
     0.25
 }
 
-const fn default_cycle_restart_fraction() -> f32 {
+const fn default_restart_fraction() -> f32 {
     0.25
 }
 
@@ -337,20 +337,20 @@ impl TrainingConfig {
                 "self-play repetition contempt and starter draw value are mutually exclusive",
             ));
         }
-        if !self.self_play.cycle_restart_fraction.is_finite()
-            || !(0.0..=1.0).contains(&self.self_play.cycle_restart_fraction)
+        if !self.self_play.restart_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.self_play.restart_fraction)
         {
             return Err(TrainingConfigError::Invalid(
-                "self-play cycle restart fraction must be finite and in [0, 1]",
+                "self-play restart fraction must be finite and in [0, 1]",
             ));
         }
         if self
             .self_play
-            .cycle_restart_simulations
+            .restart_simulations
             .is_some_and(|simulations| simulations < self.self_play.simulations)
         {
             return Err(TrainingConfigError::Invalid(
-                "cycle restart simulations must be at least the regular self-play budget",
+                "restart simulations must be at least the regular self-play budget",
             ));
         }
         if self.self_play.bootstrap.rollout_max_plies == 0 {

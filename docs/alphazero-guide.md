@@ -116,9 +116,10 @@ head maps the same shared representation to three outcome logits. Separate
 heads keep “which move?” and “who wins?” distinct while sharing the state
 representation.
 
-The default model is deliberately small: 64 feature channels and four residual
-blocks. A 3×4 board does not justify a large image model, and small generations
-remain affordable on one workstation. These sizes are configuration, not game
+The default model is deliberately small: 32 feature channels and two residual
+blocks, followed by the 64-unit shared dense representation. A 3×4 board does
+not justify a large image model, and the roughly 136,000 parameters remain
+proportionate to the self-play corpus. These sizes are configuration, not game
 rules, so the future 5×6 version can scale them.
 
 ### Canonical orientation

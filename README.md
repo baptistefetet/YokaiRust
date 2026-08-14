@@ -533,24 +533,53 @@ self-play batches reach 26.8k–44.6k positions/s while smaller arena batches
 reach 6.8k–14.2k positions/s per evaluator, consistent with the isolated
 batch-size curve above.
 
-### 4. Next ablations, in this order
+### 4. Active experiment: v23 uses a smaller network
 
-v22 is now documented. The next fresh run should test the smaller network
-alone; later runs should continue down this list one change at a time:
+The fresh `alpha-zero-draw-aware-v23` run changes only model capacity: 32
+feature channels and two residual blocks replace v22's 64 channels and four
+blocks. The 64-unit shared dense representation, encoder, objectives, seed,
+game budgets, optimizer schedule, restart logic and promotion gates remain
+unchanged. Model format version 4 prevents checkpoints with the old shape from
+being mixed into the run.
 
-1. **Smaller network.** Compare the current 64 filters and four residual blocks
-   with 32 filters and two blocks. The JavaScript 3×4 model had roughly 77,000
-   parameters versus roughly 442,000 in v22; a smaller Rust model may learn
-   more reliably from the available number of correlated positions.
-2. **Explicit recent moves.** Encode the origin and destination of the last two
+This reduces the model from roughly 442,000 to 136,000 parameters. Measure both
+learning and speed over 15 candidates. The smaller network is a significant
+improvement only if its throughput rises without materially weakening policy,
+arena progression or the draw gates. Long-range WDL remains the main research
+criterion; a speedup alone does not establish better learning.
+
+The isolated pre-training benchmark was repeated three times on 2026-08-14 on
+the same Apple M4 Max, macOS 26.5.2 and Rust 1.97.1 setup as v22. Reducing the
+parameter count does not produce a uniform inference speedup on the 3×4 board;
+fixed Metal dispatch costs dominate most batch sizes:
+
+| Batch | v22 median positions/s | v23 median positions/s | Change |
+| ---: | ---: | ---: | ---: |
+| 1 | 443 | 451 | +1.9% |
+| 8 | 3,690 | 3,697 | +0.2% |
+| 16 | 7,371 | 7,299 | −1.0% |
+| 32 | 14,436 | 14,181 | −1.8% |
+| 64 | 28,744 | 27,134 | −5.6% |
+| 128 | 50,925 | 54,838 | +7.7% |
+
+The full pipeline remains the meaningful performance test because self-play
+creates dynamic batches while optimization exercises backward passes that this
+inference-only benchmark does not measure.
+
+### 5. Later ablations, in this order
+
+If v23 does not improve the long-range WDL failure, test these ideas one at a
+time:
+
+1. **Explicit recent moves.** Encode the origin and destination of the last two
    moves directly, then test whether some full historical board frames can be
    removed. Do not discard repetition context: the game remains responsible
    for exact occurrence counts.
-3. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
+2. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
    small MSE term on `P(win) - P(loss)` against `+1/0/-1`. This imports the
    ordered scalar signal that worked well in JavaScript without making a
    certain draw indistinguishable from a 50/50 win/loss prediction.
-4. **Stronger endgame curriculum.** Increase the early fraction of decisive
+3. **Stronger endgame curriculum.** Increase the early fraction of decisive
    terminal tails and expand from `1` to `2`, `4`, `8`, `16`, then all plies.
    Advance this schedule from the accepted source champion, not rejected
    candidate attempt numbers. The JavaScript experiments sometimes trained

@@ -308,7 +308,7 @@ fn metal_training_state_round_trip_runs_one_real_update() {
     let checked_in_config = TrainingConfig::load(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/training.toml"),
     )
-    .expect("checked-in v22 configuration");
+    .expect("checked-in v23 configuration");
     let architecture = checked_in_config.network;
     let mut optimization = checked_in_config.optimization;
     optimization.steps_per_generation = 1;
@@ -576,7 +576,7 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
 }
 
 #[test]
-fn checkpoint_rejects_incompatible_encoder_metadata() {
+fn checkpoint_rejects_incompatible_format_and_encoder_metadata() {
     let root = unique_test_directory();
     let device = burn::backend::flex::FlexDevice;
     let config = AlphaZeroNetworkConfig::new()
@@ -586,7 +586,20 @@ fn checkpoint_rejects_incompatible_encoder_metadata() {
     let model = config.init::<CpuBackend>(&device);
     let metadata = ModelMetadata::new(1, config);
     let directory = save_generation(&root, &metadata, &model).expect("generation save");
-    let mut incompatible = metadata;
+
+    let mut incompatible = metadata.clone();
+    incompatible.format_version = 999;
+    fs::write(
+        directory.join("metadata.json"),
+        serde_json::to_vec_pretty(&incompatible).expect("metadata serialization"),
+    )
+    .expect("metadata rewrite");
+
+    let error = load_generation::<CpuBackend>(&root, 1, &device)
+        .expect_err("format mismatch must be rejected");
+    assert!(matches!(error, ModelStoreError::Incompatible(_)));
+
+    incompatible = metadata;
     incompatible.encoder_version = 999;
     fs::write(
         directory.join("metadata.json"),

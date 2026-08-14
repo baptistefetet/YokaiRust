@@ -400,8 +400,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/training.toml");
     let config = TrainingConfig::load(path).expect("checked-in config must be valid");
 
-    assert_eq!(config.network.filters, 64);
-    assert_eq!(config.network.residual_blocks, 4);
+    assert_eq!(config.network.filters, 32);
+    assert_eq!(config.network.residual_blocks, 2);
     assert_eq!(config.network.shared_hidden, 64);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
@@ -447,8 +447,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v22");
-    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v22");
+    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v23");
+    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v23");
 
     let mut invalid = config;
     invalid.arena.games = 199;

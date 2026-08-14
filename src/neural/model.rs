@@ -21,9 +21,9 @@ const BOARD_VALUES: usize = 12;
 /// Serializable architecture metadata stored next to every checkpoint.
 #[derive(Config, Debug, PartialEq, Eq)]
 pub struct AlphaZeroNetworkConfig {
-    #[config(default = 64)]
+    #[config(default = 32)]
     pub filters: usize,
-    #[config(default = 4)]
+    #[config(default = 2)]
     pub residual_blocks: usize,
     #[config(default = 64)]
     pub shared_hidden: usize,

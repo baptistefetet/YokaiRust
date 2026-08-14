@@ -4,12 +4,15 @@
 //! or a replay cursor, which keeps future CPU thinking outside the rendering
 //! loop and lets both modes share the same board, history and analysis panels.
 
+mod ai;
+
 use std::{
     cmp::Ordering,
+    error::Error,
     fmt::{self, Write as _},
     io,
     str::FromStr,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use ratatui::{
@@ -22,10 +25,14 @@ use ratatui::{
 };
 use yokai::{
     Action, ActionAnalysis, DrawReason, Game, HandPiece, Outcome, Piece, PieceKind, Player, Replay,
-    Square, WinReason,
+    SearchResult, Square, TrainingConfig, WinReason,
 };
 
+use self::ai::{AiEvent, AiWorker};
+
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const AI_MOVE_DELAY: Duration = Duration::from_millis(800);
+const ACTIVE_TRAINING_CONFIG: &str = "config/training.toml";
 const MINIMUM_WIDTH: u16 = 70;
 const MINIMUM_HEIGHT: u16 = 24;
 
@@ -35,7 +42,7 @@ pub(crate) enum PlayMode {
     /// Two people alternate on the same terminal.
     #[default]
     HumanVsHuman,
-    /// Reserved controller layout: the human is First, at the bottom.
+    /// The human is First at the bottom; the latest champion is Second.
     HumanVsCpu,
 }
 
@@ -55,8 +62,16 @@ impl FromStr for PlayMode {
 }
 
 /// Starts the fullscreen interface for a local match.
-pub(crate) fn play(mode: PlayMode) -> io::Result<()> {
-    run(App::for_match(mode)?)
+pub(crate) fn play(mode: PlayMode) -> Result<(), Box<dyn Error>> {
+    let app = match mode {
+        PlayMode::HumanVsHuman => App::for_human_match(),
+        PlayMode::HumanVsCpu => {
+            let config = TrainingConfig::load(ACTIVE_TRAINING_CONFIG)?;
+            App::for_cpu_match(AiWorker::spawn(config)?)
+        }
+    };
+    run(app)?;
+    Ok(())
 }
 
 /// Starts the fullscreen replay viewer for an already validated replay.
@@ -68,6 +83,7 @@ pub(crate) fn watch(replay: Replay) -> io::Result<()> {
 fn run(mut app: App) -> io::Result<()> {
     ratatui::run(|terminal| {
         while !app.should_quit {
+            app.tick();
             terminal.draw(|frame| render(frame, &app))?;
             if event::poll(EVENT_POLL_INTERVAL)?
                 && let Event::Key(key) = event::read()?
@@ -102,37 +118,241 @@ struct PredictionSnapshot {
     actions: Vec<ActionAnalysis>,
 }
 
-#[derive(Clone, Debug)]
 struct MatchSession {
     game: Game,
     controllers: [Controller; 2],
     predictions: Option<PredictionSnapshot>,
+    ai: Option<AiRuntime>,
 }
 
 impl MatchSession {
-    fn new(mode: PlayMode) -> io::Result<Self> {
-        let controllers = match mode {
-            PlayMode::HumanVsHuman => [Controller::Human, Controller::Human],
-            // Absolute First is always drawn at the bottom, so this assignment
-            // already encodes the product requirement for the future mode.
-            PlayMode::HumanVsCpu => [Controller::Human, Controller::Cpu],
-        };
-        if controllers.contains(&Controller::Cpu) {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "human-vs-cpu is reserved but not available yet; use human-vs-human",
-            ));
-        }
-        Ok(Self {
+    fn human_vs_human() -> Self {
+        Self {
             game: Game::new(Player::First),
-            controllers,
+            controllers: [Controller::Human, Controller::Human],
             predictions: None,
-        })
+            ai: None,
+        }
+    }
+
+    fn human_vs_cpu(worker: AiWorker) -> Self {
+        Self {
+            game: Game::new(Player::First),
+            // Absolute First is always drawn at the bottom, which keeps the
+            // human's orientation stable in every single-player game.
+            controllers: [Controller::Human, Controller::Cpu],
+            predictions: None,
+            ai: Some(AiRuntime {
+                worker,
+                state: AiState::Loading,
+                generation: None,
+                simulations: None,
+                next_request_id: 0,
+            }),
+        }
     }
 
     fn reset(&mut self) {
         self.game = Game::new(Player::First);
         self.predictions = None;
+        if let Some(ai) = &mut self.ai {
+            ai.next_request_id = ai.next_request_id.wrapping_add(1);
+            ai.worker.reset();
+            ai.state = if ai.generation.is_some() {
+                AiState::Idle
+            } else {
+                AiState::Loading
+            };
+        }
+    }
+
+    const fn controller(&self, player: Player) -> Controller {
+        self.controllers[player.index()]
+    }
+
+    fn request_ai_turn(&mut self, now: Instant) -> Result<(), String> {
+        if self.game.outcome().is_terminal()
+            || self.controller(self.game.position().side_to_move()) != Controller::Cpu
+        {
+            return Ok(());
+        }
+        let Some(ai) = &mut self.ai else {
+            return Err("CPU controller has no worker".to_owned());
+        };
+        let request_id = ai.next_request_id;
+        ai.next_request_id = ai.next_request_id.wrapping_add(1);
+        ai.worker.think(request_id, &self.game)?;
+        ai.state = AiState::Thinking {
+            request_id,
+            requested_at: now,
+        };
+        self.predictions = None;
+        Ok(())
+    }
+
+    fn tick(&mut self, now: Instant) -> Option<MatchUpdate> {
+        let ai = self.ai.as_mut()?;
+        let mut update = None;
+        while let Some(event) = ai.worker.try_event() {
+            match event {
+                AiEvent::Ready {
+                    generation,
+                    simulations,
+                } => {
+                    ai.generation = Some(generation);
+                    ai.simulations = Some(simulations);
+                    if matches!(ai.state, AiState::Loading) {
+                        ai.state = AiState::Idle;
+                    }
+                    update = Some(MatchUpdate::notice(format!(
+                        "Champion generation {generation} loaded"
+                    )));
+                }
+                AiEvent::MoveReady {
+                    request_id,
+                    result,
+                    search_started,
+                    search_finished,
+                } if ai.state.matches_request(request_id) => {
+                    self.predictions = Some(PredictionSnapshot {
+                        root_value: Some(result.root_value),
+                        wdl: None,
+                        actions: result.analysis.clone(),
+                    });
+                    let action = result.best_action;
+                    ai.state = AiState::WaitingToPlay {
+                        request_id,
+                        result,
+                        apply_at: now + AI_MOVE_DELAY,
+                        search_duration: search_finished.saturating_duration_since(search_started),
+                    };
+                    update = Some(MatchUpdate::notice(format!(
+                        "CPU selected {action}; move reveal in {:.1}s",
+                        AI_MOVE_DELAY.as_secs_f32()
+                    )));
+                }
+                AiEvent::Failed {
+                    request_id,
+                    message,
+                } if request_id.is_none_or(|id| ai.state.matches_request(id)) => {
+                    ai.state = AiState::Failed(message.clone());
+                    update = Some(MatchUpdate::notice(format!("CPU error: {message}")));
+                }
+                AiEvent::MoveReady { .. } | AiEvent::Failed { .. } => {}
+            }
+        }
+
+        let move_is_due = matches!(
+            ai.state,
+            AiState::WaitingToPlay { apply_at, .. } if now >= apply_at
+        );
+        if move_is_due {
+            let state = std::mem::replace(&mut ai.state, AiState::Idle);
+            let AiState::WaitingToPlay {
+                result,
+                search_duration,
+                ..
+            } = state
+            else {
+                return update;
+            };
+            let action = result.best_action;
+            match self.game.apply(action) {
+                Ok(transition) => {
+                    ai.worker.advance(action, &self.game);
+                    update = Some(MatchUpdate {
+                        notice: format!(
+                            "{} · CPU search {:.2}s",
+                            transition_message(transition),
+                            search_duration.as_secs_f32()
+                        ),
+                        action: Some(action),
+                    });
+                }
+                Err(error) => {
+                    let message = format!("CPU produced an illegal move: {error}");
+                    ai.state = AiState::Failed(message.clone());
+                    update = Some(MatchUpdate::notice(message));
+                }
+            }
+        }
+        update
+    }
+
+    fn ai_status(&self, now: Instant) -> Option<String> {
+        let ai = self.ai.as_ref()?;
+        Some(match &ai.state {
+            AiState::Loading => "Loading latest champion…".to_owned(),
+            AiState::Idle => format!(
+                "CPU ready{}",
+                ai.generation
+                    .map_or_else(String::new, |generation| format!(" · g{generation}"))
+            ),
+            AiState::Thinking { requested_at, .. } if ai.generation.is_none() => format!(
+                "Loading latest champion… · move queued {:.1}s",
+                now.saturating_duration_since(*requested_at).as_secs_f32()
+            ),
+            AiState::Thinking { requested_at, .. } => format!(
+                "CPU thinking… {:.1}s",
+                now.saturating_duration_since(*requested_at).as_secs_f32()
+            ),
+            AiState::WaitingToPlay {
+                result, apply_at, ..
+            } => format!(
+                "CPU plays {} in {:.1}s",
+                result.best_action,
+                apply_at.saturating_duration_since(now).as_secs_f32()
+            ),
+            AiState::Failed(message) => format!("CPU unavailable: {message}"),
+        })
+    }
+}
+
+struct AiRuntime {
+    worker: AiWorker,
+    state: AiState,
+    generation: Option<u32>,
+    simulations: Option<u32>,
+    next_request_id: u64,
+}
+
+enum AiState {
+    Loading,
+    Idle,
+    Thinking {
+        request_id: u64,
+        requested_at: Instant,
+    },
+    WaitingToPlay {
+        request_id: u64,
+        result: Box<SearchResult>,
+        apply_at: Instant,
+        search_duration: Duration,
+    },
+    Failed(String),
+}
+
+impl AiState {
+    const fn matches_request(&self, expected: u64) -> bool {
+        matches!(
+            self,
+            Self::Thinking { request_id, .. } | Self::WaitingToPlay { request_id, .. }
+                if *request_id == expected
+        )
+    }
+}
+
+struct MatchUpdate {
+    notice: String,
+    action: Option<Action>,
+}
+
+impl MatchUpdate {
+    fn notice(notice: String) -> Self {
+        Self {
+            notice,
+            action: None,
+        }
     }
 }
 
@@ -173,7 +393,6 @@ impl ReplaySession {
     }
 }
 
-#[derive(Clone, Debug)]
 enum Session {
     Match(MatchSession),
     Replay(ReplaySession),
@@ -191,7 +410,6 @@ enum Selection {
     Drop(HandPiece),
 }
 
-#[derive(Clone, Debug)]
 struct App {
     session: Session,
     cursor: Square,
@@ -204,9 +422,17 @@ struct App {
 }
 
 impl App {
-    fn for_match(mode: PlayMode) -> io::Result<Self> {
-        Ok(Self {
-            session: Session::Match(MatchSession::new(mode)?),
+    fn for_human_match() -> Self {
+        Self::for_match_session(MatchSession::human_vs_human())
+    }
+
+    fn for_cpu_match(worker: AiWorker) -> Self {
+        Self::for_match_session(MatchSession::human_vs_cpu(worker))
+    }
+
+    fn for_match_session(session: MatchSession) -> Self {
+        Self {
+            session: Session::Match(session),
             cursor: initial_cursor(),
             focus: Focus::Board,
             selection: None,
@@ -214,7 +440,7 @@ impl App {
             analysis_offset: 0,
             notice: "Select a piece, then its destination".to_owned(),
             should_quit: false,
-        })
+        }
     }
 
     fn for_replay(replay: Replay) -> Result<Self, yokai::ReplayError> {
@@ -234,6 +460,25 @@ impl App {
         match &self.session {
             Session::Match(session) => &session.game,
             Session::Replay(session) => &session.game,
+        }
+    }
+
+    fn tick(&mut self) {
+        self.tick_at(Instant::now());
+    }
+
+    fn tick_at(&mut self, now: Instant) {
+        let update = match &mut self.session {
+            Session::Match(session) => session.tick(now),
+            Session::Replay(_) => None,
+        };
+        if let Some(update) = update {
+            if let Some(action) = update.action {
+                self.cursor = action.destination();
+                self.selection = None;
+                self.focus = Focus::Board;
+            }
+            self.notice = update.notice;
         }
     }
 
@@ -386,6 +631,16 @@ impl App {
             "The game is over — press N to start a new game".clone_into(&mut self.notice);
             return;
         }
+        let cpu_turn = match &self.session {
+            Session::Match(session) => {
+                session.controller(session.game.position().side_to_move()) == Controller::Cpu
+            }
+            Session::Replay(_) => false,
+        };
+        if cpu_turn {
+            "Wait for the CPU to finish its move".clone_into(&mut self.notice);
+            return;
+        }
         match self.focus {
             Focus::Hand => self.activate_hand(),
             Focus::Board => self.activate_board(),
@@ -466,6 +721,9 @@ impl App {
                 self.focus = Focus::Board;
                 self.cursor = action.destination();
                 self.notice = transition_message(transition);
+                if let Err(error) = session.request_ai_turn(Instant::now()) {
+                    self.notice = format!("{} · CPU error: {error}", self.notice);
+                }
             }
             Err(error) => self.notice = format!("Move rejected: {error}"),
         }
@@ -493,15 +751,15 @@ impl App {
         }
     }
 
-    fn replay_last_action(&self) -> Option<Action> {
-        let Session::Replay(session) = &self.session else {
-            return None;
-        };
-        session
-            .ply
-            .checked_sub(1)
-            .and_then(|index| session.replay.actions.get(index))
-            .copied()
+    fn last_action(&self) -> Option<Action> {
+        match &self.session {
+            Session::Match(session) => session.game.actions().last().copied(),
+            Session::Replay(session) => session
+                .ply
+                .checked_sub(1)
+                .and_then(|index| session.replay.actions.get(index))
+                .copied(),
+        }
     }
 }
 
@@ -548,11 +806,22 @@ fn render(frame: &mut Frame<'_>, app: &App) {
 
 fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let mode = match &app.session {
-        Session::Match(session) => format!(
-            "P1 {} vs P2 {}",
-            session.controllers[0].label(),
-            session.controllers[1].label()
-        ),
+        Session::Match(session) => {
+            let mut label = format!(
+                "P1 {} vs P2 {}",
+                session.controllers[0].label(),
+                session.controllers[1].label()
+            );
+            if let Some(ai) = &session.ai
+                && let Some(generation) = ai.generation
+            {
+                let _ = write!(label, " g{generation}");
+                if let Some(simulations) = ai.simulations {
+                    let _ = write!(label, "/{simulations}");
+                }
+            }
+            label
+        }
         Session::Replay(session) => {
             format!("Replay {}/{}", session.ply, session.replay.actions.len())
         }
@@ -562,7 +831,14 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
             format!("before {}", session.replay.actions[session.ply])
         }
         Session::Replay(_) => outcome_text(app.game().outcome()),
-        Session::Match(_) => match app.game().outcome() {
+        Session::Match(session) => match app.game().outcome() {
+            Outcome::Ongoing
+                if session.controller(app.game().position().side_to_move()) == Controller::Cpu =>
+            {
+                session
+                    .ai_status(Instant::now())
+                    .unwrap_or_else(|| "CPU turn".to_owned())
+            }
             Outcome::Ongoing => format!(
                 "Turn: {}",
                 short_player_label(app.game().position().side_to_move())
@@ -686,21 +962,21 @@ fn render_square(frame: &mut Frame<'_>, app: &App, square: Square, area: Rect) {
     let cursor = matches!(app.session, Session::Match(_))
         && app.focus == Focus::Board
         && app.cursor == square;
-    let replay_action = app.replay_last_action();
-    let replay_destination = replay_action.is_some_and(|action| action.destination() == square);
-    let replay_source = replay_action
+    let last_action = app.last_action();
+    let last_destination = last_action.is_some_and(|action| action.destination() == square);
+    let last_source = last_action
         .is_some_and(|action| matches!(action, Action::Move { from, .. } if from == square));
 
     let (border_color, border_type) = if selected_source {
         (Color::Yellow, BorderType::Double)
     } else if legal_destination {
         (Color::Green, BorderType::Thick)
+    } else if last_destination {
+        (Color::Yellow, BorderType::Thick)
+    } else if last_source {
+        (Color::DarkGray, BorderType::Thick)
     } else if cursor {
         (Color::Cyan, BorderType::Double)
-    } else if replay_destination {
-        (Color::Yellow, BorderType::Thick)
-    } else if replay_source {
-        (Color::DarkGray, BorderType::Thick)
     } else {
         (Color::Gray, BorderType::Plain)
     };
@@ -833,13 +1109,13 @@ fn render_analysis(frame: &mut Frame<'_>, app: &App, area: Rect) {
         [
             Constraint::Min(8),
             Constraint::Length(5),
-            Constraint::Length(4),
-            Constraint::Length(5),
+            Constraint::Length(6),
+            Constraint::Length(6),
             Constraint::Length(5),
         ],
     )
     .header(
-        Row::new(["Move", "Prior", "Visits", "Pol.", "Q"])
+        Row::new(["Move", "Prior", "Visits", "Policy", "Q"])
             .style(Style::default().fg(Color::Cyan).bold()),
     );
     frame.render_widget(table, table_area);
@@ -859,7 +1135,11 @@ fn analysis_view(app: &App) -> AnalysisView<'_> {
                 root_value: None,
                 wdl: None,
                 actions: None,
-                note: "Reserved for human/CPU play. No search runs in human/human mode.",
+                note: if session.ai.is_some() {
+                    "Champion analysis will appear after the CPU searches."
+                } else {
+                    "Reserved for human/CPU play. No search runs in human/human mode."
+                },
             },
             |predictions| AnalysisView {
                 root_value: predictions.root_value,
@@ -1029,7 +1309,7 @@ mod tests {
 
     #[test]
     fn human_match_selects_and_applies_only_a_legal_move() {
-        let mut app = App::for_match(PlayMode::HumanVsHuman).expect("human match");
+        let mut app = App::for_human_match();
         app.handle_key(key(KeyCode::Up));
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(
@@ -1047,7 +1327,7 @@ mod tests {
 
     #[test]
     fn illegal_destination_keeps_the_selected_piece() {
-        let mut app = App::for_match(PlayMode::HumanVsHuman).expect("human match");
+        let mut app = App::for_human_match();
         app.cursor = "b2".parse().unwrap();
         app.activate_board();
         app.cursor = "a2".parse().unwrap();
@@ -1063,7 +1343,7 @@ mod tests {
 
     #[test]
     fn captured_piece_can_be_selected_from_the_hand_and_dropped() {
-        let mut app = App::for_match(PlayMode::HumanVsHuman).expect("human match");
+        let mut app = App::for_human_match();
         app.apply_action("b2-b3".parse().unwrap());
         app.apply_action("a4-a3".parse().unwrap());
 
@@ -1083,10 +1363,70 @@ mod tests {
     }
 
     #[test]
-    fn future_cpu_mode_places_the_human_at_the_bottom_but_is_not_active() {
-        let error = MatchSession::new(PlayMode::HumanVsCpu).expect_err("CPU mode is future work");
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-        assert!(error.to_string().contains("not available yet"));
+    fn cpu_mode_places_the_human_at_the_bottom() {
+        let (worker, _events, _commands) = AiWorker::stub();
+        let app = App::for_cpu_match(worker);
+        let Session::Match(session) = &app.session else {
+            panic!("expected match session");
+        };
+        assert_eq!(session.controller(Player::First), Controller::Human);
+        assert_eq!(session.controller(Player::Second), Controller::Cpu);
+    }
+
+    #[test]
+    fn cpu_result_waits_for_the_reveal_timer_before_being_applied() {
+        let (worker, events, _commands) = AiWorker::stub();
+        let mut app = App::for_cpu_match(worker);
+        let now = Instant::now();
+        events
+            .send(AiEvent::Ready {
+                generation: 16,
+                simulations: 400,
+            })
+            .unwrap();
+        app.tick_at(now);
+
+        app.apply_action("b2-b3".parse().unwrap());
+        let cpu_action = app.game().legal_actions()[0];
+        let analysis = ActionAnalysis {
+            action: cpu_action,
+            prior: 0.5,
+            q_value: 0.25,
+            visits: 400,
+            visit_probability: 1.0,
+        };
+        events
+            .send(AiEvent::MoveReady {
+                request_id: 0,
+                result: Box::new(SearchResult {
+                    best_action: cpu_action,
+                    selected_action: cpu_action,
+                    root_value: 0.25,
+                    policy: [0.0; yokai::POLICY_ACTIONS],
+                    analysis: vec![analysis],
+                }),
+                search_started: now,
+                search_finished: now + Duration::from_millis(20),
+            })
+            .unwrap();
+
+        let result_received = now + Duration::from_millis(20);
+        app.tick_at(result_received);
+        assert_eq!(app.game().actions().len(), 1);
+        assert_eq!(analysis_view(&app).actions, Some([analysis].as_slice()));
+
+        app.tick_at(
+            (result_received + AI_MOVE_DELAY)
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
+        );
+        assert_eq!(app.game().actions().len(), 1);
+        app.tick_at(result_received + AI_MOVE_DELAY);
+        assert_eq!(
+            app.game().actions(),
+            &["b2-b3".parse().unwrap(), cpu_action]
+        );
+        assert!(app.notice.contains("CPU search 0.02s"));
     }
 
     #[test]
@@ -1119,7 +1459,7 @@ mod tests {
 
     #[test]
     fn minimum_supported_terminal_renders_every_primary_panel() {
-        let app = App::for_match(PlayMode::HumanVsHuman).expect("human match");
+        let app = App::for_human_match();
         let backend = TestBackend::new(MINIMUM_WIDTH, MINIMUM_HEIGHT);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal.draw(|frame| render(frame, &app)).expect("render");

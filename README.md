@@ -19,6 +19,7 @@ The repository contains:
 - CPU tests and WGPU/Metal training on Apple Silicon;
 - parallel self-play, a rolling replay buffer and stable whole-game validation;
 - draw-aware search, visited-state archive restarts and guarded model promotion;
+- a Ratatui interface for local play, champion play and replay analysis;
 - atomic model/optimizer checkpoints and structured JSON diagnostics.
 
 The stable training line is **v26**:
@@ -32,21 +33,21 @@ The former v25 runtime files were retired after v26/g14 beat v25/g13 by a
 57.1% score over 400 paired games. Only the current v26 line remains in the
 workspace.
 
-The learning baseline is now frozen at v26/g16 while the first interface is
-built. Product work can advance independently using the stable `Game`,
-`Action`, `Replay` and analysis contracts.
+The learning baseline is now frozen at v26/g16. The Ratatui interface supports
+local human play, human-versus-champion play and replay viewing using the stable
+`Game`, `Action`, `Replay` and analysis contracts.
 
 ## Development roadmap
 
 The next work is intentionally product-first rather than another blind sequence
 of training generations:
 
-1. build a Ratatui MVP that displays the board and hands, accepts only legal
-   actions, shows move history, and opens stored replays;
-2. add human-versus-g16 play, with neural inference and MCTS running outside the
-   rendering/input loop so the terminal remains responsive;
-3. expose analysis already produced by search (best action, root value, priors,
-   visits and Q values), then extend it with root WDL and useful depth data;
+1. ~~Build a Ratatui MVP that displays the board and hands, accepts only legal
+   actions, shows move history, and opens stored replays.~~
+2. ~~Add human-versus-g16 play, with neural inference and MCTS running outside
+   the rendering/input loop so the terminal remains responsive.~~
+3. Extend the visible root value, priors, visits and Q values with root WDL and
+   useful depth data;
 4. polish navigation, errors and game/replay workflows before considering the
    planned 5×6 variant;
 5. resume learning only as an isolated experiment against the frozen g16
@@ -106,6 +107,9 @@ ignored by Git and stay inside `data/` and `models/`.
 # Play a local two-human match in the Ratatui interface.
 cargo run -- play
 
+# Play as First at the bottom against the latest accepted champion.
+cargo run --release -- play human-vs-cpu
+
 # Open a validated replay and step through it with the arrow keys.
 cargo run -- watch path/to/game.json
 
@@ -123,24 +127,28 @@ cargo run --release -- train --resume latest --generations 5 --headless
 cargo run --release -- diagnose-endgames --config config/training.toml
 ```
 
-### Ratatui MVP
+### Ratatui interface
 
-The first interface deliberately enables only human-versus-human play. First is
-always displayed at the bottom and Second at the top. Use the arrow keys or
-WASD to move on the board, Enter to select and play, Tab to move between the
-board and the current player's hand, Escape to cancel, `N` to restart and `Q`
-to quit. Number keys 1–3 select Tanuki, Kitsune and Kodama from the hand.
+First is always displayed at the bottom and Second at the top. Use the arrow
+keys or WASD to move on the board, Enter to select and play, Tab to move between
+the board and the current player's hand, Escape to cancel, `N` to restart and
+`Q` to quit. Number keys 1–3 select Tanuki, Kitsune and Kodama from the hand.
 
-The right-hand side keeps move history and prediction panels visible. Human
-play does not run inference, so prediction values remain empty; stored replay
-analyses populate the same action/prior/visit/policy/Q table. The session model
-already reserves human-versus-CPU with the human as First (bottom), but the
-command rejects that mode until inference and MCTS run outside the input and
-rendering loop.
+`human-vs-cpu` loads the accepted generation referenced by `latest` under the
+model path in `config/training.toml`. Model loading and deterministic MCTS run
+on a background worker, leaving rendering and input responsive. The human is
+First at the bottom. Once search finishes, the interface exposes its root value,
+priors, visits, policy and Q values, waits briefly before applying the CPU move,
+then highlights the move on the board.
 
-`--headless` disables the future TUI, not textual progress. Generation-boundary
-writes are atomic. `latest` points to the accepted champion; rejected candidates
-remain available for diagnostics but never become self-play sources.
+The same right-hand panels show move history and stored replay analyses. Local
+human-versus-human play does not run inference, so its prediction values remain
+empty.
+
+Training remains a textual-progress workflow; `--headless` is accepted for
+explicit non-interactive runs. Generation-boundary writes are atomic. `latest`
+points to the accepted champion; rejected candidates remain available for
+diagnostics but never become self-play sources.
 
 The ignored Metal arena probe can compare two retained generations:
 

@@ -345,7 +345,7 @@ that process into a proof.
 A convincing strong model should repeatedly show:
 
 - improving stable validation metrics;
-- positive paired results against the champion and retained v25 checkpoints;
+- positive paired results against the champion and a frozen previous baseline;
 - recorded deterministic draw behavior and controlled exploratory draw rates;
 - balanced results across absolute colors and starter roles;
 - reproducibility across several random seeds.

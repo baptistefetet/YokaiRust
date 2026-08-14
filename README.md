@@ -21,17 +21,16 @@ The repository contains:
 - draw-aware search, visited-state archive restarts and guarded model promotion;
 - atomic model/optimizer checkpoints and structured JSON diagnostics.
 
-The stable training line is **v25**:
+The stable training line is **v26**:
 
-- models: `models/alpha-zero-draw-aware-v25`;
-- self-play and reports: `data/alpha-zero-draw-aware-v25`;
-- accepted champion: generation 13;
+- models: `models/alpha-zero-visited-restarts-v26`;
+- self-play, reports and diagnostics: `data/alpha-zero-visited-restarts-v26`;
+- accepted champion: generation 14;
 - last evaluated candidate: generation 15, rejected on strength.
 
-The active **v26** experiment writes to
-`models/alpha-zero-visited-restarts-v26` and
-`data/alpha-zero-visited-restarts-v26`. v25 remains frozen until v26 is either
-rejected or proves a significant strength improvement.
+The former v25 runtime files were retired after v26/g14 beat v25/g13 by a
+57.1% score over 400 paired games. Only the current v26 line remains in the
+workspace.
 
 The next product milestone is the Ratatui interface. It can advance independently
 using the stable `Game`, `Action`, `Replay` and analysis contracts.
@@ -99,9 +98,9 @@ remain available for diagnostics but never become self-play sources.
 The ignored Metal arena probe can compare two retained generations:
 
 ```bash
-YOKAI_CANDIDATE_MODELS=models/alpha-zero-draw-aware-v25 \
-YOKAI_CANDIDATE_GENERATION=15 \
-YOKAI_REFERENCE_MODELS=models/alpha-zero-draw-aware-v25 \
+YOKAI_CANDIDATE_MODELS=models/alpha-zero-visited-restarts-v26 \
+YOKAI_CANDIDATE_GENERATION=14 \
+YOKAI_REFERENCE_MODELS=models/alpha-zero-visited-restarts-v26 \
 YOKAI_REFERENCE_GENERATION=13 \
 YOKAI_ARENA_GAMES=200 \
 cargo test --release --test performance \
@@ -177,70 +176,85 @@ calibration, draw error, policy weighting, repetition behavior, self-play
 outcomes and arena results by seat. Loss alone is not a strength measurement:
 the paired arena and noisy draw probe remain the publication criteria.
 
-## Latest training result
+## Latest training result: v26
 
-The completed 15-generation v25 run took 1 h 17 min 14 s. The accepted sequence
-was:
+The completed 15-generation v26 run took 1 h 20 min 03 s. It changed one
+behavior from v25: the 25% deeper-search restarts now sample all recently
+visited nonterminal states instead of only the last 1–8 plies before a known
+repetition draw. The accepted sequence was:
 
 ```text
-0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 11 → 13
+0 → 1 → 2 → 3 → 4 → 5 → 7 → 8 → 9 → 11 → 13 → 14
 ```
 
-Champion 13 was promoted with:
+Champion 14 was promoted with:
 
 | Measurement | Result |
 | --- | ---: |
-| self-play | 97 First wins / 93 Second wins / 66 draws |
-| validation policy loss / top-1 | 1.564 / 57.0% |
-| validation WDL loss / top-1 | 0.808 / 65.4% |
-| validation scalar MSE | 0.800 |
-| strength arena | 131 wins / 26 losses / 43 draws, score 76.2% |
+| self-play | 94 First wins / 125 Second wins / 37 draws |
+| validation policy loss / top-1 | 1.544 / 55.6% |
+| validation WDL loss / top-1 | 0.746 / 66.3% |
+| validation scalar MSE | 0.752 |
+| strength arena vs g13 | 73 wins / 27 losses / 100 draws, score 61.5% |
 | deterministic mirror | 4/4 draws, diagnostic only |
-| noisy productivity probe | 7/64 draws |
+| noisy productivity probe | 8/64 draws |
 
-Candidates 14 and 15 were rejected only because their arena scores were 53.3%
-and 54.0%. Their noisy probes remained healthy at 4/64 and 7/64 draws. The
-champion therefore stopped for measured strength, not because of the mirror
-diagnostic.
+Candidate 15 improved validation policy top-1 to 57.1%, but scored only 50.5%
+against champion 14 with 156/200 arena draws. It was correctly rejected. Loss
+and top-1 therefore remain learning diagnostics, not publication criteria.
 
-Before obsolete checkpoints were removed, two frozen cross-run arenas measured
-champion 13 at 65.9% over the former accepted baseline across 400 games and
-66.5% over the strongest rejected baseline across 200 games. Both seat splits
-were positive. The promotion change therefore produced a real strength gain,
-not merely more accepted generation numbers.
+### Significant cross-run result
 
-Neural self-play for generations 2–15 evaluated 21,894,924 positions in about
-592.3 backend seconds: approximately **36,966 positions/s**. Keep this as the
-current speed reference; the architecture did not change during the promotion
-experiment, so small differences should be treated as runtime variation.
+In a frozen 400-game paired arena at 400 simulations per move, v26/g14 beat the
+former v25/g13 baseline:
 
-### Remaining weakness
+| Candidate / reference / draws | Score | Candidate as First | Candidate as Second |
+| ---: | ---: | ---: | ---: |
+| 172 / 115 / 113 | **57.125%** | 54.75% | 59.50% |
 
-The frozen v25 endgame split contains 400 games, including 88 draws, and 13,786
-positions. Champion 13 reaches 64.7% drawn policy top-1 at distance `9–16` and
-61.6% at `17+`, but drawn WDL top-1 falls to 5.0% and 1.4%. Playing strength has
-improved significantly; long-horizon draw classification has not been solved.
+The approximate 95% interval for the per-game score is 53.0–61.2%. Both seats
+are positive, and the interval excludes 50%; visited-state restarts therefore
+produced the significant playing-strength improvement required to replace v25.
 
-## Active research: v26 visited-state restarts
+### Restart behavior and speed
 
-v26 changes one training behavior. v25 restarted 25% of self-play only from the
-last 1–8 plies before known repetition draws. v26 keeps the same 25% fraction
-and 800-simulation budget, but uniformly samples every non-initial, nonterminal
-state visited in the recent replay buffer. Decisive and drawn games both feed
-the archive; duplicate states remain present and naturally weight frequently
-visited regions.
+Across the run, 896 games restarted at depths 1–226, with a mean depth of 32.4
+plies. Restarted games drew 46/896 times (5.1%), versus 165/2,944 (5.6%) for
+games starting from the initial position. The broader archive did not make its
+own trajectories less productive.
 
-This follows Go-Exploit's simple “Visited States” variant and should produce
-shorter, more independent value targets across a broader depth distribution.
-Network shape, optimizer, replay retention, promotion, self-play search and all
-other budgets remain unchanged. [Go-Exploit](https://arxiv.org/abs/2302.12359)
+Neural self-play for generations 2–15 evaluated 37,236,950 positions in about
+1,088.9 backend seconds: **34,197 positions/s**. The comparable v25 measurement
+was 36,966 positions/s, so v26 throughput is 7.5% lower. It also evaluated about
+70% more positions because deeper restarts begin much earlier in games. Despite
+that larger inference workload, the complete 15-generation wall time increased
+only 2 min 49 s (3.6%).
 
-v26 must beat frozen v25 champion 13 in a paired cross-run arena before becoming
-the baseline. If it does not, the next isolated change will strengthen the
-decisive endgame curriculum. An adaptive rollout/network blend remains reserved
-for a future bootstrap problem; v25 gives no evidence that bootstrap is the
-current bottleneck. [Warm-Start AlphaZero](https://arxiv.org/abs/2004.12357),
-[adaptive follow-up](https://arxiv.org/abs/2105.06136)
+### Endgame diagnosis
+
+The frozen v26 split contains 409 games, including 19 draws, and 17,104
+positions. Champion 14 reaches drawn WDL top-1 of 9.9% at distance `9–16` and
+4.4% at `17+`, versus 5.0% and 1.4% for v25/g13 on its own frozen split. Scalar
+MSE on those drawn buckets also falls from 0.430/0.289 to 0.204/0.167.
+
+Drawn policy top-1 moves the other way: 54.2%/55.4% for v26 versus 64.7%/61.6%
+for v25. These are not controlled comparisons because the v25 split contained
+88 drawn games. The WDL trend is promising, but only the direct paired arena is
+strong enough to support a cross-version conclusion.
+
+## Research conclusion
+
+Visited-state restarts are now the stable baseline. They follow Go-Exploit's
+simple “Visited States” variant: decisive and drawn games both feed the archive,
+and duplicate states naturally weight frequently visited regions. Network
+shape, optimizer, replay retention, promotion and all other budgets remained
+unchanged. [Go-Exploit](https://arxiv.org/abs/2302.12359)
+
+The next learning change should not be another architecture rewrite. If
+optimization resumes, first add a controlled same-split cross-version endgame
+evaluation, then isolate the late-run draw plateau or strengthen decisive
+endgame sampling. An adaptive rollout/network blend remains reserved for a
+future bootstrap problem; v26 promoted generation 1 immediately.
 
 ## Rules source
 

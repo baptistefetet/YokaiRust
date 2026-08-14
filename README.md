@@ -1,9 +1,10 @@
 # YokaiRust
 
-YokaiRust is a fast, testable Rust implementation of the official 3×4 rules of
-**Yōkaï no Mori**, with a complete AlphaZero-style training loop. A 5×6 variant
-is planned, so learning depends only on game rules, self-play and the project's
-own checkpoints.
+YokaiRust is a fast, testable Rust implementation of the 3×4 rules of
+**Yōkaï no Mori**—the French yōkai-themed edition of *Dōbutsu shōgi* (“animal
+shogi”), a beginner-friendly mini-shogi variant. It includes a complete
+AlphaZero-style training loop. A 5×6 variant is planned. Training depends only
+on game rules, self-play and the project's own checkpoints.
 
 ## Current state
 
@@ -26,12 +27,7 @@ The stable training line is **v26**:
 
 - models: `models/alpha-zero-visited-restarts-v26`;
 - self-play, reports and diagnostics: `data/alpha-zero-visited-restarts-v26`;
-- accepted champion: generation 16;
-- last completed candidate: generation 16, promoted on strength and productivity.
-
-The former v25 runtime files were retired after v26/g14 beat v25/g13 by a
-57.1% score over 400 paired games. Only the current v26 line remains in the
-workspace.
+- accepted champion: generation 16.
 
 The learning baseline is now frozen at v26/g16. The Ratatui interface supports
 local human play, human-versus-champion play and replay viewing using the stable
@@ -39,33 +35,20 @@ local human play, human-versus-champion play and replay viewing using the stable
 
 ## Development roadmap
 
-The next work is intentionally product-first rather than another blind sequence
-of training generations:
+The Ratatui interface is complete for its current scope. The next planned
+feature is the 5×6 game variant. Learning will resume only as an isolated
+experiment against the frozen v26/g16 baseline, targeting long-horizon draw WDL
+through loss weighting or decisive endgame sampling before considering another
+architecture change.
 
-1. ~~Build a Ratatui MVP that displays the board and hands, accepts only legal
-   actions, shows move history, and opens stored replays.~~
-2. ~~Add human-versus-g16 play, with neural inference and MCTS running outside
-   the rendering/input loop so the terminal remains responsive.~~
-3. Extend the visible root value, priors, visits and Q values with root WDL and
-   useful depth data;
-4. polish navigation, errors and game/replay workflows before considering the
-   planned 5×6 variant;
-5. resume learning only as an isolated experiment against the frozen g16
-   baseline, targeting long-horizon draw WDL through loss weighting or decisive
-   endgame sampling before considering another architecture change.
-
-Generation 16 remains the publication and regression reference throughout the
-interface work. A learning experiment will replace it only after a paired arena
-shows a statistically credible strength improvement and the noisy productivity
-gate still passes.
+Generation 16 remains the publication and regression reference. A learning
+experiment will replace it only after a paired arena shows a statistically
+credible strength improvement and the noisy productivity gate still passes.
 
 ## Guides
 
 - [Reading YokaiRust as a C++ developer learning Rust](docs/reading-guide.md)
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md)
-
-The earlier browser project remains a useful visual reference for the future
-interface: [`baptistefetet/yokai`](https://github.com/baptistefetet/yokai).
 
 ## Board coordinates
 
@@ -146,22 +129,10 @@ The same right-hand panels show move history and stored replay analyses. Local
 human-versus-human play does not run inference, so its prediction values remain
 empty.
 
-Training remains a textual-progress workflow; `--headless` is accepted for
-explicit non-interactive runs. Generation-boundary writes are atomic. `latest`
-points to the accepted champion; rejected candidates remain available for
-diagnostics but never become self-play sources.
-
-The ignored Metal arena probe can compare two retained generations:
-
-```bash
-YOKAI_CANDIDATE_MODELS=models/alpha-zero-visited-restarts-v26 \
-YOKAI_CANDIDATE_GENERATION=14 \
-YOKAI_REFERENCE_MODELS=models/alpha-zero-visited-restarts-v26 \
-YOKAI_REFERENCE_GENERATION=13 \
-YOKAI_ARENA_GAMES=200 \
-cargo test --release --test performance \
-  compare_saved_generations_from_environment -- --ignored --nocapture
-```
+Training reports progress as text; `--headless` is accepted for explicit
+non-interactive runs. Generation-boundary writes are atomic. `latest` points to
+the accepted champion; rejected candidates remain available for diagnostics but
+never become self-play sources.
 
 ## Current AlphaZero pipeline
 
@@ -199,7 +170,7 @@ empty sample: its scalar value is neutral, but every retained position still
 teaches the MCTS visit policy.
 
 - [AlphaGo Zero](https://dsbrown1331.github.io/advanced-ai/readings/alphaGoZero.pdf)
-- [AlphaZero](https://www.davidsilver.uk/wp-content/uploads/2020/03/alphazero-science_compressed.pdf)
+- [AlphaZero](https://storage.googleapis.com/deepmind-media/DeepMind.com/Blog/alphazero-shedding-new-light-on-chess-shogi-and-go/alphazero_preprint.pdf)
 - [KataGo self-play training](https://github.com/lightvector/KataGo/blob/master/SelfplayTraining.md)
 
 ### Draw-aware learning
@@ -234,17 +205,9 @@ the paired arena and noisy draw probe remain the publication criteria.
 
 ## Latest training result: v26
 
-The initial 15-generation v26 run took 1 h 20 min 03 s. It changed one behavior
-from v25: the 25% deeper-search restarts now sample all recently visited
-nonterminal states instead of only the last 1–8 plies before a known repetition
-draw. After one additional resumed attempt, the accepted sequence is:
-
-```text
-0 → 1 → 2 → 3 → 4 → 5 → 7 → 8 → 9 → 11 → 13 → 14 → 16
-```
-
-After candidate 15 was rejected, one unchanged resumed generation produced
-champion 16 in 6 min 53 s. It was promoted with:
+The v26 training run took 1 h 20 min 03 s on an Apple M4 Max. Its 25%
+deeper-search restarts sample all recently visited nonterminal states. The
+accepted champion is generation 16, with these final measurements:
 
 | Measurement | Result |
 | --- | ---: |
@@ -252,62 +215,36 @@ champion 16 in 6 min 53 s. It was promoted with:
 | validation policy loss / top-1 | 1.508 / 57.2% |
 | validation WDL loss / top-1 | 0.770 / 64.9% |
 | validation scalar MSE | 0.734 |
-| strength arena vs g14 | 79 wins / 31 losses / 90 draws, score 62.0% |
+| paired strength arena | 79 wins / 31 losses / 90 draws, score 62.0% |
 | deterministic mirror | 0/4 draws |
 | noisy productivity probe | 6/64 draws |
 
-Candidate 15 improved validation policy top-1 to 57.1%, but scored only 50.5%
-against champion 14 with 156/200 arena draws. It was correctly rejected. Loss
-and top-1 therefore remain learning diagnostics, not publication criteria.
-
-### New significant improvement
-
-An independent 400-game paired arena at 400 simulations per move confirmed
-champion 16 against champion 14:
+An independent 400-game paired arena at 400 simulations per move confirmed the
+promotion result against its reference:
 
 | Candidate / reference / draws | Score | Candidate as First | Candidate as Second |
 | ---: | ---: | ---: | ---: |
 | 170 / 66 / 164 | **63.0%** | 62.5% | 63.5% |
 
-The approximate 95% interval is 59.5–66.5%. This is a second significant gain,
-obtained with one additional generation and no architecture or configuration
-change. The previous rejection enriched the replay buffer enough for the next
-update to make a large strength step.
-
-### Original v26 cross-run result
-
-In a frozen 400-game paired arena at 400 simulations per move, v26/g14 beat the
-former v25/g13 baseline:
-
-| Candidate / reference / draws | Score | Candidate as First | Candidate as Second |
-| ---: | ---: | ---: | ---: |
-| 172 / 115 / 113 | **57.125%** | 54.75% | 59.50% |
-
-The approximate 95% interval for the per-game score is 53.0–61.2%. Both seats
-are positive, and the interval excludes 50%; visited-state restarts therefore
-produced the significant playing-strength improvement required to replace v25.
+The approximate 95% interval is 59.5–66.5%. Both seats are positive, and the
+interval excludes 50%.
 
 ### Restart behavior and speed
 
-Across the 16 completed generations, 960 games restarted at depths 1–232, with
-a mean depth of 33.3 plies. Restarted games drew 60/960 times (6.2%), versus
-197/3,136 (6.3%) for games starting from the initial position. The broader
-archive did not make its own trajectories less productive.
+Across v26, 960 games restarted at depths 1–232, with a mean depth of 33.3
+plies. Restarted games drew 60/960 times (6.2%), versus 197/3,136 (6.3%) for
+games starting from the initial position. The broader archive did not make its
+own trajectories less productive.
 
-Neural self-play for generations 2–16 evaluated 40,217,309 positions in about
-1,188.4 backend seconds: **33,842 positions/s**. Generation 16 itself ran at
-29,961 positions/s. The comparable v25 measurement was 36,966 positions/s, so
-the cumulative v26 throughput is 8.5% lower. The original 15-generation v26
-campaign still finished only 2 min 49 s (3.6%) slower than v25 despite
-evaluating about 70% more positions.
+Neural self-play evaluated 40,217,309 positions in about 1,188.4 backend
+seconds: **33,842 positions/s** on the Apple M4 Max. The accepted champion's run
+reached 29,961 positions/s.
 
 ### Endgame diagnosis
 
 The current frozen v26 split contains 438 games, including 24 draws, and 18,271
-positions. It permits a controlled g16/g14 comparison on identical examples.
-At distance `17+`, drawn policy top-1 improves from 56.4% to 61.8%; at `9–16`,
-it falls from 58.5% to 55.6%. Drawn WDL top-1 also falls from 7.6% to 7.0% and
-from 3.7% to 1.3% in those two buckets.
+positions. At distance `17+`, drawn policy top-1 is 61.8%; at `9–16`, it is
+55.6%. Drawn WDL top-1 is 7.0% and 1.3% in those two buckets.
 
 The strength gain therefore does not solve long-horizon draw classification.
 It comes from better play as measured directly, while the WDL draw head remains
@@ -321,13 +258,12 @@ and duplicate states naturally weight frequently visited regions. Network
 shape, optimizer, replay retention, promotion and all other budgets remained
 unchanged. [Go-Exploit](https://arxiv.org/abs/2302.12359)
 
-The next learning change should not be another architecture rewrite. Continued
-training alone produced g16, and the now-controlled endgame comparison isolates
-the remaining problem: long-horizon draw WDL. If optimization resumes, target
-that head or strengthen decisive endgame sampling with one isolated change.
+The next learning change should not be another architecture rewrite. The
+endgame diagnosis isolates the remaining problem: long-horizon draw WDL. If
+optimization resumes, target that head or strengthen decisive endgame sampling
+with one isolated change.
 
 ## Rules source
 
-The engine follows the official 3×4 rulebook:
-
-<https://cdn.1j1ju.com/medias/b8/2f/eb-yokai-no-mori-rulebook.pdf>
+The engine follows the [official 3×4
+rulebook](https://cdn.1j1ju.com/medias/b8/2f/eb-yokai-no-mori-rulebook.pdf).

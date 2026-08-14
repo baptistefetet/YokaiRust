@@ -204,7 +204,7 @@ by the next one. Read its trend beside top-1, illegal mass, arena score and draw
 behavior. Arena progress is completion-ordered, so only the final paired result
 is meaningful.
 
-## Latest completed research run: v21 through generation 15
+## Previous completed research run: v21 through generation 15
 
 This deterministic run started from random weights. Compared with v20, its only
 change was the generation-zero bootstrap: until candidate 1 was accepted,
@@ -287,14 +287,15 @@ action from this README plus the structured JSON reports alone.
 
 ### 0. Frozen comparison artifacts
 
-The v20 and v21 runs are both complete through candidate 15 and no trainer is
-writing their directories. v20's accepted champion is generation 13; v21's is
-generation 14. In both runs `reports/generation-000015.json` records the final
-rejected candidate. Retain all four ignored runtime directories for subsequent
-comparisons:
+The v20, v21 and v22 runs are complete through candidate 15 and no trainer is
+writing their directories. Their accepted champions are generations 13, 14 and
+13 respectively. In all three runs `reports/generation-000015.json` records the
+final rejected candidate. Retain all six ignored runtime directories for
+subsequent comparisons:
 
 - `data/alpha-zero-draw-aware-v20` and `models/alpha-zero-draw-aware-v20`;
-- `data/alpha-zero-draw-aware-v21` and `models/alpha-zero-draw-aware-v21`.
+- `data/alpha-zero-draw-aware-v21` and `models/alpha-zero-draw-aware-v21`;
+- `data/alpha-zero-draw-aware-v22` and `models/alpha-zero-draw-aware-v22`.
 
 The structured JSON reports are authoritative if prose and runtime files ever
 disagree.
@@ -361,13 +362,13 @@ mid-run mirror rejections nor teaches the WDL head to recognize distant draws.
 The result supports keeping rollout bootstrap as the baseline while changing a
 different variable next; it does not justify relaxing either draw gate.
 
-### 3. Active experiment: v22 changes only the global representation
+### 3. Completed experiment: v22 separates global features
 
-The v22 implementation and fresh `alpha-zero-draw-aware-v22` model/data paths
-are active. The 15-generation run is paused after five complete candidates. It
-keeps v21's rollout bootstrap, seed 42, game budgets, replay sampling,
-optimizer schedule, restart logic, promotion threshold and draw gates
-unchanged. The sole ablation is the encoder/network boundary:
+The v22 implementation and 15-generation run are complete in the
+`alpha-zero-draw-aware-v22` model/data paths. The experiment kept v21's rollout
+bootstrap, seed 42, game budgets, replay sampling, optimizer schedule, restart
+logic, promotion threshold and draw gates unchanged. Its sole ablation was the
+encoder/network boundary:
 
 - a hand is an unordered count per droppable piece type and player;
 - keep every board-history feature spatial;
@@ -378,31 +379,16 @@ unchanged. The sole ablation is the encoder/network boundary:
   shared representation to both policy and WDL heads, as in the JavaScript
   network.
 
-Encoder version 4 now supplies 80 spatial planes and 50 global scalars. Model
+Encoder version 4 supplies 80 spatial planes and 50 global scalars. Model
 format version 3 adds a 64-unit dense shared representation after the residual
 tower. CPU tests cover tensor shapes, historical scalar preservation, both-head
 connectivity and exact checkpoint round trips. The strict Metal preflight also
 passes: it performs one real autodiff update, saves the model and Adam state,
 reloads both and checks the policy logits exactly.
 
-The accepted sequence so far is `0 -> 1 -> 3 -> 4 -> 5`. Candidate 2 won its
-arena 117/23/60 but was correctly rejected because all four deterministic
-mirrors cycled. Candidate 6 completed self-play and optimization, then its arena
-was manually interrupted at 40/200. Its 256 games remain persisted, while its
-unpublished checkpoint is retained as
-`models/alpha-zero-draw-aware-v22/interrupted-generation-000006` so it cannot
-make the next attempt skip a number. On resume, generation 6 will reuse those
-games, deterministically repeat its short optimization phase, and restart the
-arena. Ten completed attempts remain:
-
-```bash
-cargo run --release -- train --resume latest --generations 10 --headless
-```
-
-Report both policy and WDL train/validation losses and top-1 values explicitly
-beside arena and draw-gate results. In particular, test whether separating
-non-spatial state improves the stalled long-horizon WDL head without
-sacrificing policy learning.
+`source` is the last accepted champion; `arena` is candidate/champion/draw over
+200 games; `probe` is exploratory draws out of 64. `P/V` means policy/value
+(WDL). Promotion requires arena ≥55%, mirror 0/4 and probe ≤12/64.
 
 | Gen | Source | Self-play draws | Train loss P/V | Valid loss P/V | Valid top-1 P/V | Arena | Mirror | Probe | Result |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
@@ -411,6 +397,69 @@ sacrificing policy learning.
 | 3 | 1 | 40/256 | 1.758 / 0.469 | 2.073 / 0.762 | 43.0% / 63.2% | 171/11/18 | 0/4 | 3/64 | promoted |
 | 4 | 3 | 59/256 | 1.708 / 0.541 | 1.926 / 0.762 | 44.7% / 62.7% | 129/67/4 | 0/4 | 2/64 | promoted |
 | 5 | 4 | 47/256 | 1.649 / 0.531 | 1.860 / 0.830 | 47.6% / 62.8% | 137/39/24 | 0/4 | 4/64 | promoted |
+| 6 | 5 | 68/256 | 1.629 / 0.548 | 1.806 / 0.814 | 48.3% / 62.9% | 115/44/41 | 0/4 | 3/64 | promoted |
+| 7 | 6 | 55/256 | 1.584 / 0.567 | 1.752 / 0.818 | 48.3% / 62.3% | 115/26/59 | 4/4 | 6/64 | draw rejection |
+| 8 | 6 | 61/256 | 1.575 / 0.597 | 1.708 / 0.759 | 51.6% / 63.6% | 93/46/61 | 4/4 | 3/64 | draw rejection |
+| 9 | 6 | 56/256 | 1.558 / 0.644 | 1.682 / 0.724 | 51.6% / 65.3% | 94/19/87 | 4/4 | 5/64 | draw rejection |
+| 10 | 6 | 55/256 | 1.557 / 0.650 | 1.630 / 0.713 | 54.3% / 65.1% | 106/18/76 | 4/4 | 3/64 | draw rejection |
+| 11 | 6 | 48/256 | 1.547 / 0.660 | 1.614 / 0.715 | 55.4% / 65.9% | 157/14/29 | 0/4 | 12/64 | promoted |
+| 12 | 11 | 69/256 | 1.446 / 0.642 | 1.531 / 0.722 | 58.8% / 65.6% | 123/55/22 | 0/4 | 6/64 | promoted |
+| 13 | 12 | 68/256 | 1.441 / 0.640 | 1.515 / 0.768 | 59.1% / 63.6% | 83/23/94 | 0/4 | 9/64 | promoted |
+| 14 | 13 | 75/256 | 1.424 / 0.658 | 1.489 / 0.780 | 60.0% / 64.0% | 76/74/50 | 4/4 | 13/64 | strength + both draw gates |
+| 15 | 13 | 65/256 | 1.417 / 0.678 | 1.478 / 0.749 | 60.8% / 64.9% | 138/19/43 | 4/4 | 11/64 | draw rejection |
+
+Across 3,840 games and 147,819 positions, validation policy loss fell 43.9%
+from candidate 1 to 15, policy top-1 rose from 26.0% to 60.8%, and illegal
+policy mass fell from 24.0% to 4.8%. Validation WDL loss fell 36.3% and WDL
+top-1 rose from 54.6% to 64.9%, but the best WDL top-1 was already 65.9% at
+candidate 11. The accepted sequence is `0 -> 1 -> 3 -> 4 -> 5 -> 6 -> 11 ->
+12 -> 13`: eight candidates were promoted and generation 13 is the final
+champion.
+
+The scalar branch materially helped policy learning but did not remove the
+cyclic feedback loop. Directionally, candidate 15 improves over v21 candidate
+15 from 1.659 to 1.478 validation policy loss and from 54.7% to 60.8% policy
+top-1. Its WDL result is slightly worse: 0.749 versus 0.743 loss and 64.9%
+versus 66.9% top-1. These are different self-generated validation sets, so the
+cross-run comparison is not paired. Behaviorally, candidates 7 through 10 all
+beat champion 6 in the arena but cycled in every deterministic mirror;
+candidate 11 finally escaped and was promoted. Candidate 15 later beat
+champion 13 by 138/19/43 but again cycled in all four mirrors.
+
+#### v22 frozen endgame-distance diagnostic
+
+Every v22 checkpoint from 0 through 15 was evaluated against the same final
+buffer split. The 405 complete validation games contain 89 draws and 316
+decisive results, with 15,395 positions. Reports are in
+`data/alpha-zero-draw-aware-v22/diagnostics/endgame-distance/`. The final
+candidate 15 result is:
+
+| Distance | Outcome | Examples | Policy loss | Policy top-1 | WDL loss | WDL top-1 |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| 1 | all | 405 | 1.364 | 79.3% | 0.180 | 95.1% |
+| 1 | draw | 89 | 1.837 | 86.5% | 0.493 | 85.4% |
+| 1 | decisive | 316 | 1.231 | 77.2% | 0.092 | 97.8% |
+| 2–4 | all | 1,156 | 1.412 | 65.9% | 0.325 | 88.3% |
+| 2–4 | draw | 222 | 0.310 | 90.5% | 0.553 | 83.3% |
+| 2–4 | decisive | 934 | 1.568 | 60.1% | 0.271 | 89.5% |
+| 5–8 | all | 1,360 | 1.631 | 56.3% | 0.424 | 85.1% |
+| 5–8 | draw | 176 | 0.644 | 89.8% | 0.990 | 64.8% |
+| 5–8 | decisive | 1,184 | 1.704 | 51.4% | 0.340 | 88.1% |
+| 9–16 | all | 2,324 | 1.603 | 54.9% | 0.608 | 75.9% |
+| 9–16 | draw | 130 | 1.416 | 56.9% | 2.780 | 0.8% |
+| 9–16 | decisive | 2,194 | 1.610 | 54.8% | 0.479 | 80.3% |
+| 17+ | all | 10,150 | 1.444 | 61.4% | 0.896 | 55.8% |
+| 17+ | draw | 517 | 1.145 | 68.1% | 2.741 | 0.2% |
+| 17+ | decisive | 9,633 | 1.455 | 61.0% | 0.797 | 58.8% |
+
+From candidate 1 to 15 on this frozen split, policy loss improves by 41.1%,
+43.9%, 37.5%, 37.1% and 41.0% across the five distance buckets. WDL loss
+improves by 82.9%, 73.0%, 59.7%, 45.0% and only 29.7% as the horizon grows.
+The intended long-range draw improvement did not occur: draw WDL top-1 falls
+to 0.8% at 9–16 plies and 0.2% at 17+. Compared directionally with v21
+candidate 15, the 17+ draw loss is lower (2.741 versus 3.434), but top-1 is
+also lower (0.2% versus 2.0%); the frozen splits contain different games and
+cannot support a paired claim.
 
 #### v22 speed baseline before training
 
@@ -436,28 +485,58 @@ Reproduce the microbenchmark with:
 cargo test --release --test performance benchmark_metal_inference_batches -- --ignored --exact --nocapture
 ```
 
-The completed v22 run should additionally record wall time per generation and
-the self-play/arena inference throughput and average batch sizes printed by the
-pipeline. Those end-to-end figures include search, scheduling and game length,
-which this isolated network benchmark intentionally excludes.
+Generation 1 used rollout search and therefore performed no neural inference.
+The neural self-play stages processed 26,350,089 positions at a
+backend-time-weighted 36,458 positions/s. These end-to-end figures include the
+batching behavior created by concurrent search; unlike the isolated benchmark,
+they are affected by game length and worker availability.
 
-The first neural self-play batches already provide an interim end-to-end
-baseline. Generation 1 used rollout search and therefore performed no neural
-inference. Generation 6 is included because self-play completed before the
-pause, even though its arena did not.
+| Gen | Total elapsed | Inference positions | Average batch | Backend positions/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 2 | not preserved | 1,769,053 | 91.3 | 38,349 |
+| 3 | not preserved | 1,393,378 | 84.5 | 34,885 |
+| 4 | not preserved | 1,458,090 | 91.7 | 36,885 |
+| 5 | not preserved | 1,566,943 | 61.9 | 26,820 |
+| 6 | 3:17 (resumed) | 1,674,344 | 97.6 | 39,755 |
+| 7 | 8:02 | 2,074,804 | 92.5 | 38,013 |
+| 8 | 5:59 | 1,846,660 | 96.3 | 39,329 |
+| 9 | 4:08 | 1,984,307 | 97.2 | 39,461 |
+| 10 | 4:24 | 1,970,321 | 79.2 | 33,978 |
+| 11 | 6:33 | 2,098,732 | 71.1 | 30,484 |
+| 12 | 6:21 | 2,098,025 | 73.6 | 31,427 |
+| 13 | 5:35 | 2,044,663 | 99.1 | 39,807 |
+| 14 | 5:18 | 2,387,947 | 108.5 | 44,558 |
+| 15 | 5:32 | 1,982,822 | 104.2 | 42,881 |
 
-| Gen | Inference positions | Average batch | Backend positions/s |
-| ---: | ---: | ---: | ---: |
-| 2 | 1,769,053 | 91.3 | 38,349 |
-| 3 | 1,393,378 | 84.5 | 34,885 |
-| 4 | 1,458,090 | 91.7 | 36,885 |
-| 5 | 1,566,943 | 61.9 | 26,820 |
-| 6 | 1,674,344 | 97.6 | 39,755 |
+The resumed candidate 6–15 segment took 55:10 in the pipeline. Candidate 6
+reused its persisted self-play, so its elapsed time is not a full-generation
+measurement. Wall times for candidates 2–5 were not preserved. Arena inference
+measurements were preserved for the resumed segment; each cell is
+candidate/champion:
 
-### 4. Later ablations, in this order
+| Gen | Average batch | Backend positions/s |
+| ---: | ---: | ---: |
+| 6 | 24.6 / 24.7 | 9,107 / 9,156 |
+| 7 | 17.8 / 17.8 | 6,849 / 6,840 |
+| 8 | 23.1 / 23.1 | 8,857 / 8,937 |
+| 9 | 27.4 / 28.7 | 10,086 / 10,597 |
+| 10 | 22.8 / 23.2 | 8,653 / 8,798 |
+| 11 | 33.1 / 33.2 | 12,086 / 12,288 |
+| 12 | 33.6 / 34.1 | 12,192 / 12,351 |
+| 13 | 23.3 / 23.5 | 8,905 / 8,969 |
+| 14 | 36.2 / 36.8 | 13,530 / 13,589 |
+| 15 | 39.2 / 40.3 | 13,962 / 14,249 |
 
-Only after v22 is documented should subsequent fresh runs test these ideas one
-at a time:
+There is still no preserved v21 runtime baseline, so none of these figures
+establishes a cross-version speedup or regression. Within v22, the large
+self-play batches reach 26.8k–44.6k positions/s while smaller arena batches
+reach 6.8k–14.2k positions/s per evaluator, consistent with the isolated
+batch-size curve above.
+
+### 4. Next ablations, in this order
+
+v22 is now documented. The next fresh run should test the smaller network
+alone; later runs should continue down this list one change at a time:
 
 1. **Smaller network.** Compare the current 64 filters and four residual blocks
    with 32 filters and two blocks. The JavaScript 3×4 model had roughly 77,000

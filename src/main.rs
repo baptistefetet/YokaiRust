@@ -512,7 +512,7 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             draw_rate,
             within_configured_limit,
         } => eprintln!(
-            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), gate_passed={within_configured_limit}",
+            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), diagnostic_limit_met={within_configured_limit}",
             result.draws,
             result.candidate_wins + result.reference_wins + result.draws,
             draw_rate * 100.0,
@@ -551,9 +551,9 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             decision,
         } => {
             eprintln!(
-                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_gate={} exploratory_draw_gate={}; champion unchanged",
+                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_limit={} exploratory_draw_gate={}; champion unchanged",
                 decision.arena_passed,
-                decision.mirror_draw_gate_passed,
+                decision.mirror_draw_limit_met,
                 decision.exploratory_draw_gate_passed,
             );
         }

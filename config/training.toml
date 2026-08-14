@@ -89,18 +89,19 @@ search_batch_size = 1
 # colors. This provides diverse, reproducible games without search noise.
 opening_plies = 4
 score_threshold = 0.55
-# The candidate must pass both draw gates as well as the official 55% arena to
-# become champion. Any rejection leaves the champion unchanged; the next
+# The candidate must pass the official 55% arena and the exploratory draw gate
+# to become champion. Any rejection leaves the champion unchanged; the next
 # attempt starts from that accepted checkpoint and an enriched replay buffer.
 # Four games cover two color-swapped pairs and both absolute starting players.
 # More games would repeat identical temperature-zero trajectories.
 mirror_games = 4
-# A solved game is decisive, so either absolute starting orientation cycling is
-# enough to reject the candidate.
+# Keep the original zero-draw limit as a diagnostic. Deterministic mirror draws
+# no longer veto promotion because identical players can settle into a stable
+# line even when their noisy self-play remains productive.
 max_mirror_draw_rate = 0.0
 candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v24"
-self_play = "data/alpha-zero-draw-aware-v24"
+models = "models/alpha-zero-draw-aware-v25"
+self_play = "data/alpha-zero-draw-aware-v25"

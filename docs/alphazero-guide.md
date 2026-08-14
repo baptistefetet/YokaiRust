@@ -172,17 +172,17 @@ rolling replay buffer --stable game split--> validation
 resume champion + Adam, then optimize
        |
        v
-candidate --versus champion + draw gates--> publish champion
+candidate --versus champion + exploratory draw gate--> publish champion
        |
-       +-- any failed gate: discard candidate as a future data source
+       +-- failed strength/productivity check: keep champion as data source
 ```
 
 One accepted checkpoint is deliberately used for all three roles: self-play
-source, optimization source and arena reference. This makes rejection easy to
-reason about: a candidate that cycles cannot poison later self-play. The next
-attempt still differs because the replay buffer grew and its random seed
-changed. This conservative rule was adopted after an experiment showed a
-strong-but-cycling private branch amplifying repetitions every generation.
+source, optimization source and arena reference. The next attempt still differs
+after a rejection because the replay buffer grew and its random seed changed.
+Promotion protects playing strength and actual noisy self-play productivity;
+deterministic candidate-versus-itself cycles are retained as a diagnostic, not
+as a veto.
 
 Each generation uses a fixed optimizer-step budget. Buffer growth therefore
 does not silently increase training work. Checkpoints preserve both model
@@ -295,18 +295,20 @@ non-starter is still learned normally from every decisive game.
 
 ## Promotion measurements
 
-A candidate must pass three independent checks:
+A candidate must pass two independent checks:
 
 1. score at least 55% against the champion in 200 paired games;
-2. produce no draw in four deterministic initial-position mirror games;
-3. stay at or below 20% draws in 64 noisy self-play games.
+2. stay at or below 20% draws in 64 noisy self-play games.
 
 Each arena pair shares a random legal 0–4 ply opening and swaps candidate color.
 This avoids counting one deterministic trajectory hundreds of times. Mirror
 games stay on the official initial positions because they answer a different
-question: does the candidate deterministically enter a repetition cycle?
+question: does the candidate deterministically enter a repetition cycle? Four
+mirror games are recorded, but they do not veto a candidate that is strong and
+still produces decisive exploratory games.
 
-The gates protect publication; they are not training labels.
+The strength and exploratory checks protect publication; none of these
+measurements is a training label.
 
 ## Reading the metrics
 
@@ -343,7 +345,7 @@ A convincing strong model should repeatedly show:
 
 - improving stable validation metrics;
 - positive paired results against current and frozen historical champions;
-- controlled deterministic and exploratory draw rates;
+- recorded deterministic draw behavior and controlled exploratory draw rates;
 - balanced results across absolute colors and starter roles;
 - reproducibility across several random seeds.
 

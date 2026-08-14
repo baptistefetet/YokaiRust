@@ -308,7 +308,7 @@ fn metal_training_state_round_trip_runs_one_real_update() {
     let checked_in_config = TrainingConfig::load(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/training.toml"),
     )
-    .expect("checked-in v24 configuration");
+    .expect("checked-in v25 configuration");
     let architecture = checked_in_config.network;
     let mut optimization = checked_in_config.optimization;
     optimization.steps_per_generation = 1;

@@ -148,11 +148,13 @@ under the configured data path. Generation-boundary writes are atomic.
 3. Resume the champion's weights and Adam moments for a fixed 400 updates.
 4. Compare the candidate with the champion on paired random 0–4 ply openings.
 5. Measure deterministic initial-position cycles and noisy self-play draws.
-6. Promote only when strength and both draw gates pass.
+6. Promote only when strength and the noisy self-play draw gate pass; keep the
+   deterministic mirror result as a diagnostic.
 
 The champion is the sole source of weights, optimizer state and self-play. A
-candidate becomes the new champion only after all three checks pass. A rejected
-candidate is kept as an experiment report but never generates training data.
+candidate becomes the new champion only after both promotion checks pass. A
+rejected candidate is kept as an experiment report but never generates
+training data.
 The next attempt starts from the same safe checkpoint with a larger replay
 buffer and a different deterministic seed.
 
@@ -597,7 +599,7 @@ is not a significant project improvement when neither runtime nor learning
 progress improves. The next run restores v22 capacity and targets the WDL
 objective directly with an auxiliary scalar value loss.
 
-### 5. Active experiment: v24 adds an ordered value signal
+### 5. Completed experiment: v24 adds an ordered value signal
 
 The fresh `alpha-zero-draw-aware-v24` run restores v22's 64 feature channels
 and four residual blocks. It changes one learning objective: the original WDL
@@ -607,21 +609,102 @@ ordered value signal without making a certain draw equivalent to a balanced
 win/loss prediction. Model format version 5 and fresh model/data paths isolate
 the optimizer state and reports from earlier runs.
 
-The reports now record the unweighted scalar MSE alongside WDL loss. Inference
-speed should match v22 because the architecture and forward pass are identical;
-full-pipeline timings will reveal the smaller extra cost of this training-only
-loss. The ablation succeeds only if distant WDL prediction and accepted
-champion progress improve without a material policy or throughput regression.
+The 15-generation run completed in 1 h 18 min 51 s. `P/V/S` below means policy
+loss, WDL loss and unweighted scalar MSE. Promotion still used all three v24
+checks: arena score at least 55%, mirror `0/4`, and exploratory probe at most
+`12/64` draws.
 
-### 6. Later ablations, in this order
+| Gen | Source | Self-play draws | Valid loss P/V/S | Valid top-1 P/V | Arena | Mirror | Probe | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0 | 2/256 | 2.588 / 1.117 / 1.240 | 25.1% / 57.8% | 175/25/0 | 0/4 | 1/64 | promoted |
+| 2 | 1 | 30/256 | 2.133 / 1.053 / 1.058 | 38.4% / 61.1% | 176/19/5 | 0/4 | 0/64 | promoted |
+| 3 | 2 | 44/256 | 2.005 / 1.096 / 1.136 | 42.5% / 57.8% | 127/71/2 | 0/4 | 1/64 | promoted |
+| 4 | 3 | 48/256 | 1.898 / 0.966 / 0.982 | 45.2% / 60.3% | 148/48/4 | 0/4 | 4/64 | promoted |
+| 5 | 4 | 56/256 | 1.854 / 1.016 / 1.013 | 46.7% / 59.7% | 119/79/2 | 0/4 | 2/64 | promoted |
+| 6 | 5 | 53/256 | 1.781 / 0.899 / 0.961 | 48.8% / 61.0% | 94/63/43 | 4/4 | 0/64 | mirror rejection |
+| 7 | 5 | 45/256 | 1.769 / 0.830 / 0.893 | 49.3% / 61.3% | 80/46/74 | 0/4 | 2/64 | promoted |
+| 8 | 7 | 53/256 | 1.672 / 0.857 / 0.867 | 52.3% / 63.2% | 157/27/16 | 0/4 | 3/64 | promoted |
+| 9 | 8 | 54/256 | 1.647 / 0.877 / 0.848 | 52.8% / 63.0% | 90/42/68 | 4/4 | 5/64 | mirror rejection |
+| 10 | 8 | 53/256 | 1.622 / 0.832 / 0.826 | 53.9% / 64.2% | 110/32/58 | 4/4 | 7/64 | mirror rejection |
+| 11 | 8 | 50/256 | 1.609 / 0.813 / 0.795 | 53.8% / 65.0% | 44/88/68 | 0/4 | 7/64 | strength rejection |
+| 12 | 8 | 53/256 | 1.577 / 0.773 / 0.776 | 55.0% / 66.1% | 119/20/61 | 4/4 | 6/64 | mirror rejection |
+| 13 | 8 | 58/256 | 1.555 / 0.766 / 0.745 | 56.6% / 66.6% | 65/22/113 | 4/4 | 4/64 | mirror rejection |
+| 14 | 8 | 48/256 | 1.536 / 0.758 / 0.753 | 57.6% / 66.6% | 149/26/25 | 4/4 | 0/64 | mirror rejection |
+| 15 | 8 | 61/256 | 1.527 / 0.765 / 0.752 | 58.0% / 66.7% | 118/22/60 | 4/4 | 10/64 | mirror rejection |
+
+The accepted sequence was `0 → 1 → 2 → 3 → 4 → 5 → 7 → 8`. The auxiliary
+objective accelerated early promotions and raised final validation WDL top-1
+to 66.7%, versus 64.9% in v22. It did not produce a better final champion:
+attempts 9–15 remained anchored to champion 8, six solely because of the
+deterministic mirror check. Those six candidates all passed the strength arena
+and produced only 0–10 draws in 64 noisy games. Candidate 14, for example,
+beat champion 8 by `149/26/25` and then produced `0/64` exploratory draws, but
+was rejected because identical deterministic copies drew four times.
+
+The frozen endgame diagnostic also rules out a significant long-range value
+improvement. Candidate 15 raises drawn top-1 at distance `9–16` from v22's
+0.8% to 12.8%, but its draw loss worsens from 2.780 to 3.544; at `17+`, both
+runs remain at 0.2% top-1 while loss worsens from 2.741 to 3.289. Accepted
+champion 8 is weaker still on those distant draws. The scalar term improves
+some global value metrics without solving the mature cyclic policy.
+
+The architecture retained v22 inference performance. Across neural self-play
+for generations 2–15, v24 evaluated 21,736,183 positions in 616.9 backend
+seconds, or 35,235 positions/s weighted by positions. That is within 0.5% of
+v22's 35,396 positions/s and confirms that the auxiliary term is effectively
+training-only.
+
+### 6. Active experiment: v25 makes mirror play diagnostic
+
+The promotion rule had become more conservative than the algorithms it was
+modelled after:
+
+- [AlphaGo Zero](https://dsbrown1331.github.io/advanced-ai/readings/alphaGoZero.pdf)
+  compared a checkpoint only against the current best player and promoted it
+  above a 55% winning margin; it did not add candidate-versus-itself vetoes.
+- [AlphaZero](https://www.davidsilver.uk/wp-content/uploads/2020/03/alphazero-science_compressed.pdf)
+  removed checkpoint gating altogether, always generated self-play with the
+  latest parameters, and trained drawn outcomes as value `0` while retaining
+  the MCTS policy target.
+- [KataGo's training loop](https://github.com/lightvector/KataGo/blob/master/SelfplayTraining.md)
+  makes its gatekeeper optional and states that accepting every model is faster
+  and works normally; gating is mainly useful early for debugging.
+
+A draw is therefore not an empty sample: its value target is neutral, but every
+position still teaches the searched policy. Repeated identical trajectories
+are the real concern. AlphaZero's supplementary experiments report a chess
+match with more than 90% draws and low diversity; sampling among near-equal
+moves increased its win rate from 5.8% to 14%.
+
+v25 changes only the promotion decision. The four deterministic mirror games
+and their zero-draw diagnostic limit remain recorded, but no longer veto a
+candidate. Promotion requires the diversified paired arena and at most 20%
+draws in 64 games generated with the actual noisy self-play settings. Fresh
+`alpha-zero-draw-aware-v25` paths isolate the new trajectory; network format,
+v24's scalar loss, data budgets and all search settings remain unchanged.
+
+### 7. Later ablations, in this order
 
 Test these ideas one at a time:
 
-1. **Explicit recent moves.** Encode the origin and destination of the last two
+1. **Adaptive rollout warm-start.** The current bootstrap switches abruptly
+   from uniform-prior random-rollout MCTS to the full network after the first
+   promotion. [Warm-Start AlphaZero](https://arxiv.org/abs/2004.12357) instead
+   blends leaf values as `v = (1-w) v_network + w v_rollout`, reducing `w`
+   linearly over the first iterations; its three small-board experiments found
+   moderate but game-dependent gains. A [follow-up](https://arxiv.org/abs/2105.06136)
+   switches adaptively when neural MCTS beats the rollout-assisted player. Test
+   this only if v25 still needs a better bootstrap, because v24's observed
+   bottleneck starts after its rapid early promotions.
+2. **Deeper-state restarts.** [Go-Exploit](https://arxiv.org/abs/2302.12359)
+   samples self-play starting states from an archive and improved sample
+   efficiency in Connect Four and 9×9 Go. Generalize the current cycle-only
+   restart archive if v25 needs more late-game diversity.
+3. **Explicit recent moves.** Encode the origin and destination of the last two
    moves directly, then test whether some full historical board frames can be
    removed. Do not discard repetition context: the game remains responsible
    for exact occurrence counts.
-2. **Stronger endgame curriculum.** Increase the early fraction of decisive
+4. **Stronger endgame curriculum.** Increase the early fraction of decisive
    terminal tails and expand from `1` to `2`, `4`, `8`, `16`, then all plies.
    Advance this schedule from the accepted source champion, not rejected
    candidate attempt numbers. The JavaScript experiments sometimes trained

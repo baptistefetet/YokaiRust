@@ -8,14 +8,15 @@ use std::{
 use yokai::{
     Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
     CpuTrainingBackend, DatasetSplit, DrawReason, EndgameDistance, Game, LearningRateStage, Mcts,
-    ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position, Replay,
-    ReplayBuffer, ReplayBufferConfig, SearchConfig, SelfPlayBootstrapConfig, SelfPlayBootstrapMode,
-    SelfPlayConfig, SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, Square,
-    TerminalWindowSchedule, TrainingConfig, TrainingConfigError, TrainingDataError,
-    TrainingProgress, UniformEvaluator, bootstrap_latest, dataset_diagnostics,
-    endgame_distance_report, generate_self_play, generate_self_play_with_restarts, load_generation,
-    load_latest, load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
-    run_generation_with_progress, save_generation, train_candidate, validate_model,
+    ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position,
+    PromotionDecision, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig,
+    SelfPlayBootstrapConfig, SelfPlayBootstrapMode, SelfPlayConfig, SelfPlayEvaluator,
+    SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule, TrainingConfig,
+    TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_latest,
+    dataset_diagnostics, endgame_distance_report, generate_self_play,
+    generate_self_play_with_restarts, load_generation, load_latest, load_replay_buffer,
+    planned_restart_count, run_arena, run_arena_with_progress, run_generation_with_progress,
+    save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -449,8 +450,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v24");
-    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v24");
+    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v25");
+    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v25");
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -486,6 +487,32 @@ fn checked_in_training_configuration_is_valid_and_strict() {
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
+}
+
+#[test]
+fn deterministic_mirror_draws_are_diagnostic_not_a_promotion_veto() {
+    let productive_candidate = PromotionDecision {
+        arena_passed: true,
+        mirror_draw_limit_met: false,
+        exploratory_draw_gate_passed: true,
+    };
+    assert!(productive_candidate.promoted());
+
+    let unproductive_candidate = PromotionDecision {
+        exploratory_draw_gate_passed: false,
+        ..productive_candidate
+    };
+    assert!(!unproductive_candidate.promoted());
+
+    let legacy: PromotionDecision = serde_json::from_str(
+        r#"{
+            "arena_passed": true,
+            "mirror_draw_gate_passed": false,
+            "exploratory_draw_gate_passed": true
+        }"#,
+    )
+    .expect("legacy promotion report");
+    assert_eq!(legacy, productive_candidate);
 }
 
 #[test]
@@ -914,9 +941,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     assert_eq!(persisted_report.promotion, report.promotion);
     assert_eq!(
         report.promoted(),
-        report.promotion.arena_passed
-            && report.promotion.mirror_draw_gate_passed
-            && report.promotion.exploratory_draw_gate_passed
+        report.promotion.arena_passed && report.promotion.exploratory_draw_gate_passed
     );
     let replay_directory = self_play.join("replays/generation-000001");
     assert_eq!(

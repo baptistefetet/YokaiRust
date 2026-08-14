@@ -104,18 +104,22 @@ impl GenerationReport {
     }
 }
 
-/// Every independent condition that protects the published champion.
+/// Strength and self-play-productivity checks for the published champion.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PromotionDecision {
     pub arena_passed: bool,
-    pub mirror_draw_gate_passed: bool,
+    /// Whether the deterministic mirror draw rate stayed within its configured
+    /// diagnostic limit. This is deliberately not a promotion veto: identical
+    /// deterministic players can draw even when noisy self-play is productive.
+    #[serde(default, alias = "mirror_draw_gate_passed")]
+    pub mirror_draw_limit_met: bool,
     pub exploratory_draw_gate_passed: bool,
 }
 
 impl PromotionDecision {
     #[must_use]
     pub const fn promoted(self) -> bool {
-        self.arena_passed && self.mirror_draw_gate_passed && self.exploratory_draw_gate_passed
+        self.arena_passed && self.exploratory_draw_gate_passed
     }
 }
 
@@ -274,7 +278,8 @@ pub fn bootstrap_latest<B: Backend>(
 ///
 /// # Errors
 ///
-/// Official strength and both draw gates must pass before the champion changes.
+/// Official strength and the exploratory draw gate must pass before the
+/// champion changes. Deterministic mirror draws remain diagnostic.
 /// A rejected candidate never becomes a training or self-play source.
 pub fn run_generation<B>(
     config: &TrainingConfig,
@@ -652,13 +657,13 @@ fn promotion_decision(
         + diagnostics.exploratory.second_wins
         + diagnostics.exploratory.draws;
     let arena_passed = arena.threshold_reached;
-    let mirror_draw_gate_passed =
+    let mirror_draw_limit_met =
         ratio(diagnostics.mirror.draws, mirror_games) <= config.arena.max_mirror_draw_rate;
     let exploratory_draw_gate_passed = ratio(diagnostics.exploratory.draws, exploratory_games)
         <= config.arena.max_candidate_self_play_draw_rate;
     PromotionDecision {
         arena_passed,
-        mirror_draw_gate_passed,
+        mirror_draw_limit_met,
         exploratory_draw_gate_passed,
     }
 }

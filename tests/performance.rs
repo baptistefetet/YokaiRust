@@ -144,57 +144,80 @@ fn benchmark_metal_default_arena() {
 
 #[test]
 #[ignore = "manual saved-generation arena diagnostic"]
-fn compare_saved_generations_in_both_argument_orders() {
+fn compare_saved_generations_from_environment() {
+    let candidate_models = env::var("YOKAI_CANDIDATE_MODELS")
+        .expect("YOKAI_CANDIDATE_MODELS must name the candidate model directory");
+    let candidate_generation = env::var("YOKAI_CANDIDATE_GENERATION")
+        .expect("YOKAI_CANDIDATE_GENERATION must name the candidate generation")
+        .parse::<u32>()
+        .expect("candidate generation must be an unsigned integer");
+    let reference_models = env::var("YOKAI_REFERENCE_MODELS")
+        .expect("YOKAI_REFERENCE_MODELS must name the reference model directory");
+    let reference_generation = env::var("YOKAI_REFERENCE_GENERATION")
+        .expect("YOKAI_REFERENCE_GENERATION must name the reference generation")
+        .parse::<u32>()
+        .expect("reference generation must be an unsigned integer");
+    let games = env::var("YOKAI_ARENA_GAMES").map_or(200, |value| {
+        value
+            .parse::<usize>()
+            .expect("arena games must be an unsigned integer")
+    });
+    assert!(games > 0 && games.is_multiple_of(2));
+
     let device = burn::backend::wgpu::WgpuDevice::default();
-    let (generation_3, _) = load_generation::<MetalBackend>(Path::new("models"), 3, &device)
-        .expect("generation 3 checkpoint");
-    let (generation_4, _) = load_generation::<MetalBackend>(Path::new("models"), 4, &device)
-        .expect("generation 4 checkpoint");
-    let older = InferenceService::start_with_batching(
-        NetworkEvaluator::new(generation_3, device.clone()),
-        8,
+    let (candidate_model, _) = load_generation::<MetalBackend>(
+        Path::new(&candidate_models),
+        candidate_generation,
+        &device,
+    )
+    .expect("candidate checkpoint");
+    let (reference_model, _) = load_generation::<MetalBackend>(
+        Path::new(&reference_models),
+        reference_generation,
+        &device,
+    )
+    .expect("reference checkpoint");
+    let workers = games.min(128);
+    let candidate = InferenceService::start_with_batching(
+        NetworkEvaluator::new(candidate_model, device.clone()),
+        workers,
         128,
         Duration::from_millis(1),
     )
-    .expect("older inference service");
-    let newer = InferenceService::start_with_batching(
-        NetworkEvaluator::new(generation_4, device),
-        8,
+    .expect("candidate inference service");
+    let reference = InferenceService::start_with_batching(
+        NetworkEvaluator::new(reference_model, device),
+        workers,
         128,
         Duration::from_millis(1),
     )
-    .expect("newer inference service");
+    .expect("reference inference service");
     let config = ArenaConfig {
-        games: 20,
-        workers: 16,
-        simulations: 100,
+        games,
+        workers,
+        simulations: 400,
         search_batch_size: 1,
         opening_plies: 4,
         score_threshold: 0.55,
-        mirror_games: 20,
+        mirror_games: 4,
         max_mirror_draw_rate: 1.0,
-        candidate_self_play_games: 2,
+        candidate_self_play_games: 64,
         max_candidate_self_play_draw_rate: 1.0,
     };
-    let newer_as_candidate = run_arena(
-        &newer.client(),
-        &older.client(),
+    let started = Instant::now();
+    let result = run_arena(
+        &candidate.client(),
+        &reference.client(),
         &config,
         config.workers,
         512,
         30_000,
     )
-    .expect("newer candidate arena");
-    let older_as_candidate = run_arena(
-        &older.client(),
-        &newer.client(),
-        &config,
-        config.workers,
-        512,
-        40_000,
-    )
-    .expect("older candidate arena");
-    println!("newer-as-candidate={newer_as_candidate:?} older-as-candidate={older_as_candidate:?}");
+    .expect("cross-version arena");
+    println!(
+        "candidate={candidate_models}/generation-{candidate_generation:06} reference={reference_models}/generation-{reference_generation:06} games={games} elapsed={:.1?} result={result:?}",
+        started.elapsed(),
+    );
 }
 
 #[test]

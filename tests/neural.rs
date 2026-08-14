@@ -588,6 +588,17 @@ fn checkpoint_rejects_incompatible_format_and_encoder_metadata() {
     let metadata = ModelMetadata::new(1, config);
     let directory = save_generation(&root, &metadata, &model).expect("generation save");
 
+    let mut compatible = metadata.clone();
+    compatible.format_version = 3;
+    fs::write(
+        directory.join("metadata.json"),
+        serde_json::to_vec_pretty(&compatible).expect("metadata serialization"),
+    )
+    .expect("metadata rewrite");
+    let (_, loaded_metadata) = load_generation::<CpuBackend>(&root, 1, &device)
+        .expect("inference-compatible historical format");
+    assert_eq!(loaded_metadata.format_version, 3);
+
     let mut incompatible = metadata.clone();
     incompatible.format_version = 999;
     fs::write(

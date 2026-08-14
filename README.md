@@ -289,15 +289,17 @@ action from this README plus the structured JSON reports alone.
 
 ### 0. Frozen comparison artifacts
 
-The v20, v21 and v22 runs are complete through candidate 15 and no trainer is
-writing their directories. Their accepted champions are generations 13, 14 and
-13 respectively. In all three runs `reports/generation-000015.json` records the
-final rejected candidate. Retain all six ignored runtime directories for
-subsequent comparisons:
+The v20, v21, v22, v24 and v25 runs are complete through candidate 15 and no
+trainer is writing their directories. Their accepted champions are generations
+13, 14, 13, 8 and 13 respectively. In every run,
+`reports/generation-000015.json` records the final rejected candidate. Retain
+all ten ignored runtime directories for subsequent comparisons:
 
 - `data/alpha-zero-draw-aware-v20` and `models/alpha-zero-draw-aware-v20`;
 - `data/alpha-zero-draw-aware-v21` and `models/alpha-zero-draw-aware-v21`;
-- `data/alpha-zero-draw-aware-v22` and `models/alpha-zero-draw-aware-v22`.
+- `data/alpha-zero-draw-aware-v22` and `models/alpha-zero-draw-aware-v22`;
+- `data/alpha-zero-draw-aware-v24` and `models/alpha-zero-draw-aware-v24`;
+- `data/alpha-zero-draw-aware-v25` and `models/alpha-zero-draw-aware-v25`.
 
 The structured JSON reports are authoritative if prose and runtime files ever
 disagree.
@@ -654,7 +656,7 @@ seconds, or 35,235 positions/s weighted by positions. That is within 0.5% of
 v22's 35,396 positions/s and confirms that the auxiliary term is effectively
 training-only.
 
-### 6. Active experiment: v25 makes mirror play diagnostic
+### 6. Completed experiment: v25 makes mirror play diagnostic
 
 The promotion rule had become more conservative than the algorithms it was
 modelled after:
@@ -669,6 +671,10 @@ modelled after:
 - [KataGo's training loop](https://github.com/lightvector/KataGo/blob/master/SelfplayTraining.md)
   makes its gatekeeper optional and states that accepting every model is faster
   and works normally; gating is mainly useful early for debugging.
+- The widely used
+  [alpha-zero-general](https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py)
+  implementation gates against the previous network, ignores draws when
+  computing its decisive win ratio, and has no candidate-versus-itself veto.
 
 A draw is therefore not an empty sample: its value target is neutral, but every
 position still teaches the searched policy. Repeated identical trajectories
@@ -683,6 +689,69 @@ draws in 64 games generated with the actual noisy self-play settings. Fresh
 `alpha-zero-draw-aware-v25` paths isolate the new trajectory; network format,
 v24's scalar loss, data budgets and all search settings remain unchanged.
 
+The 15-generation run completed in 1 h 17 min 14 s. `P/V/S` below means policy
+loss, WDL loss and unweighted scalar MSE. `Mirror` is now diagnostic only;
+promotion requires arena score at least 55% and probe at most `12/64` draws.
+
+| Gen | Source | Self-play draws | Valid loss P/V/S | Valid top-1 P/V | Arena | Mirror | Probe | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0 | 2/256 | 2.588 / 1.117 / 1.240 | 25.1% / 57.8% | 175/25/0 | 0/4 | 1/64 | promoted |
+| 2 | 1 | 30/256 | 2.133 / 1.053 / 1.058 | 38.4% / 61.1% | 176/19/5 | 0/4 | 0/64 | promoted |
+| 3 | 2 | 44/256 | 2.005 / 1.096 / 1.136 | 42.5% / 57.8% | 127/71/2 | 0/4 | 1/64 | promoted |
+| 4 | 3 | 48/256 | 1.898 / 0.966 / 0.982 | 45.2% / 60.3% | 148/48/4 | 0/4 | 4/64 | promoted |
+| 5 | 4 | 56/256 | 1.854 / 1.016 / 1.013 | 46.7% / 59.7% | 119/79/2 | 0/4 | 2/64 | promoted |
+| 6 | 5 | 53/256 | 1.781 / 0.899 / 0.961 | 48.8% / 61.0% | 94/63/43 | 4/4 | 0/64 | promoted |
+| 7 | 6 | 44/256 | 1.751 / 0.844 / 0.865 | 49.8% / 63.6% | 157/37/6 | 4/4 | 1/64 | promoted |
+| 8 | 7 | 52/256 | 1.670 / 0.891 / 0.911 | 52.5% / 63.7% | 149/42/9 | 0/4 | 6/64 | promoted |
+| 9 | 8 | 56/256 | 1.639 / 0.892 / 0.888 | 54.5% / 64.2% | 96/73/31 | 0/4 | 4/64 | promoted |
+| 10 | 9 | 66/256 | 1.621 / 0.885 / 0.872 | 55.0% / 63.3% | 83/102/15 | 4/4 | 3/64 | strength rejection |
+| 11 | 9 | 57/256 | 1.600 / 0.854 / 0.828 | 55.7% / 64.3% | 114/18/68 | 0/4 | 4/64 | promoted |
+| 12 | 11 | 52/256 | 1.582 / 0.860 / 0.835 | 56.5% / 64.4% | 29/46/125 | 4/4 | 4/64 | strength rejection |
+| 13 | 11 | 66/256 | 1.564 / 0.808 / 0.800 | 57.0% / 65.4% | 131/26/43 | 4/4 | 7/64 | promoted |
+| 14 | 13 | 65/256 | 1.552 / 0.811 / 0.788 | 57.3% / 66.1% | 69/56/75 | 4/4 | 4/64 | strength rejection |
+| 15 | 13 | 67/256 | 1.528 / 0.806 / 0.767 | 58.2% / 65.7% | 66/50/84 | 4/4 | 7/64 | strength rejection |
+
+The accepted sequence is
+`0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 11 → 13`. Candidate 6 is the
+controlled divergence from v24: both runs produced the same `94/63/43`
+strength arena, `4/4` mirror draws and `0/64` exploratory draws. v24 rejected
+it; v25 promoted it. The following self-play stayed productive at 44–67 draws
+per 256 games, and every exploratory probe stayed between 0 and 7 draws. The
+feared collapse into all-draw data did not occur.
+
+Two frozen cross-version arenas establish a real strength improvement:
+
+- v25 champion 13 versus v22 champion 13, 400 paired games:
+  `258/131/11`, score 65.9%; candidate score 64.5% as First and 67.3% as Second;
+- v25 champion 13 versus rejected v24 candidate 15, 200 paired games:
+  `111/45/44`, score 66.5%; candidate score 64.0% as First and 69.0% as Second.
+
+The second reference is intentionally harder than v24's accepted champion 8:
+candidate 15 had beaten champion 8 at 74.0% and passed its noisy draw probe,
+but the old mirror veto rejected it. The v25 lineage still beats it clearly.
+This confirms that deterministic self-draws diagnose one narrow behavior but
+are not a reliable strength or self-play-productivity test.
+
+The frozen v25 endgame split contains 400 complete games, including 88 draws,
+and 13,786 positions. Champion 13 reaches 64.7% drawn policy top-1 at distance
+`9–16` and 61.6% at `17+`, but drawn WDL top-1 is still only 5.0% and 1.4%.
+Thus v25 is a significant playing-strength improvement, not a solution to
+long-horizon draw classification.
+
+Speed remained healthy. Neural self-play for generations 2–15 evaluated
+21,894,924 positions in approximately 592.3 backend seconds, or 36,966
+positions/s weighted by positions. This is 4.9% above v24's 35,235 and 4.4%
+above v22's 35,396 positions/s, but the architecture and search are unchanged,
+so treat the difference as run-to-run throughput variation rather than a speed
+claim caused by the promotion rule.
+
+For historical arenas, inference checkpoints from model formats 3 through 5
+are now load-compatible because those formats share the same stored network
+schema. Saving and resumable optimizer loading remain strict at format 5. The
+manual Metal arena diagnostic accepts candidate/reference directories,
+generations and game count through `YOKAI_CANDIDATE_*`, `YOKAI_REFERENCE_*`
+and `YOKAI_ARENA_GAMES`.
+
 ### 7. Later ablations, in this order
 
 Test these ideas one at a time:
@@ -694,12 +763,12 @@ Test these ideas one at a time:
    linearly over the first iterations; its three small-board experiments found
    moderate but game-dependent gains. A [follow-up](https://arxiv.org/abs/2105.06136)
    switches adaptively when neural MCTS beats the rollout-assisted player. Test
-   this only if v25 still needs a better bootstrap, because v24's observed
-   bottleneck starts after its rapid early promotions.
+   this only if a future run needs a better bootstrap: v25 shows that the
+   immediate bottleneck was promotion, not the first-generation transition.
 2. **Deeper-state restarts.** [Go-Exploit](https://arxiv.org/abs/2302.12359)
    samples self-play starting states from an archive and improved sample
    efficiency in Connect Four and 9×9 Go. Generalize the current cycle-only
-   restart archive if v25 needs more late-game diversity.
+   restart archive when targeting the remaining late-game value weakness.
 3. **Explicit recent moves.** Encode the origin and destination of the last two
    moves directly, then test whether some full historical board frames can be
    removed. Do not discard repetition context: the game remains responsible

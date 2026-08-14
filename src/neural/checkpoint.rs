@@ -26,6 +26,7 @@ use crate::{
 };
 
 pub const MODEL_FORMAT_VERSION: u16 = 5;
+const MIN_INFERENCE_MODEL_FORMAT_VERSION: u16 = 3;
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";
@@ -63,6 +64,22 @@ impl ModelMetadata {
                 self.format_version, MODEL_FORMAT_VERSION
             )));
         }
+        self.validate_schema()
+    }
+
+    fn validate_for_inference(&self) -> Result<(), ModelStoreError> {
+        if !(MIN_INFERENCE_MODEL_FORMAT_VERSION..=MODEL_FORMAT_VERSION)
+            .contains(&self.format_version)
+        {
+            return Err(ModelStoreError::Incompatible(format!(
+                "model format {} is not supported for inference (expected {} through {})",
+                self.format_version, MIN_INFERENCE_MODEL_FORMAT_VERSION, MODEL_FORMAT_VERSION
+            )));
+        }
+        self.validate_schema()
+    }
+
+    fn validate_schema(&self) -> Result<(), ModelStoreError> {
         if self.encoder_version != ENCODER_VERSION {
             return Err(ModelStoreError::Incompatible(format!(
                 "encoder version {} does not match {}",
@@ -272,7 +289,7 @@ pub fn load_generation<B: Backend>(
     }
     let metadata: ModelMetadata =
         serde_json::from_slice(&fs::read(directory.join(METADATA_FILE))?)?;
-    metadata.validate()?;
+    metadata.validate_for_inference()?;
     if metadata.generation != generation {
         return Err(ModelStoreError::Incompatible(format!(
             "directory generation {generation} contains generation {}",

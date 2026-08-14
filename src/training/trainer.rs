@@ -27,6 +27,9 @@ pub struct LossMetrics {
     pub total_loss: f32,
     pub policy_loss: f32,
     pub value_loss: f32,
+    /// Unweighted MSE between `P(win) - P(loss)` and the scalar result.
+    #[serde(default)]
+    pub scalar_value_loss: f32,
     pub policy_entropy: f32,
     pub value_calibration_error: f32,
     pub illegal_policy_mass: f32,
@@ -211,7 +214,7 @@ where
             })
             .collect::<Vec<_>>();
         let tensors = BatchTensors::<B>::new(&batch, config.non_starter_draw_policy_weight, device);
-        let losses = forward_losses(&state.model, tensors);
+        let losses = forward_losses(&state.model, tensors, config.scalar_value_loss_weight);
         accumulator.add(read_metrics(&losses), batch.len());
         let gradients = GradientsParams::from_grads(losses.total.backward(), &state.model);
         state.model = state
@@ -224,11 +227,12 @@ where
             let validation = if validation_examples.is_empty() {
                 None
             } else {
-                Some(validate_model_with_policy_weight(
+                Some(validate_model_with_objective_weights(
                     &state.model.valid(),
                     validation_examples,
                     config.batch_size,
                     config.non_starter_draw_policy_weight,
+                    config.scalar_value_loss_weight,
                     device,
                 ))
             };
@@ -280,12 +284,31 @@ pub fn validate_model_with_policy_weight<B: Backend<FloatElem = f32>>(
     non_starter_draw_policy_weight: f32,
     device: &B::Device,
 ) -> LossMetrics {
+    validate_model_with_objective_weights(
+        model,
+        examples,
+        batch_size,
+        non_starter_draw_policy_weight,
+        0.0,
+        device,
+    )
+}
+
+fn validate_model_with_objective_weights<B: Backend<FloatElem = f32>>(
+    model: &AlphaZeroNetwork<B>,
+    examples: &[TrainingExample],
+    batch_size: usize,
+    non_starter_draw_policy_weight: f32,
+    scalar_value_loss_weight: f32,
+    device: &B::Device,
+) -> LossMetrics {
     assert!(batch_size > 0, "validation batch size must be positive");
     let mut accumulator = MetricAccumulator::default();
     for batch in examples.chunks(batch_size) {
         let losses = forward_losses(
             model,
             BatchTensors::<B>::new(batch, non_starter_draw_policy_weight, device),
+            scalar_value_loss_weight,
         );
         accumulator.add(read_metrics(&losses), batch.len());
     }
@@ -382,6 +405,7 @@ struct BatchLosses<B: Backend> {
 fn forward_losses<B: Backend<FloatElem = f32>>(
     model: &AlphaZeroNetwork<B>,
     batch: BatchTensors<B>,
+    scalar_value_loss_weight: f32,
 ) -> BatchLosses<B> {
     let output = model.forward(batch.input, batch.global_features, batch.policy_context);
 
@@ -405,7 +429,14 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
         .sum_dim(1)
         .mean()
         .neg();
-    let total = policy_loss.clone() + value_loss.clone();
+    let wdl_probabilities = softmax(output.wdl_logits.clone(), 1);
+    let predicted_value =
+        wdl_probabilities.clone().narrow(1, 0, 1) - wdl_probabilities.clone().narrow(1, 2, 1);
+    let value_error = predicted_value - batch.value;
+    let scalar_value_loss = (value_error.clone() * value_error.clone()).mean();
+    let total = policy_loss.clone()
+        + value_loss.clone()
+        + scalar_value_loss.clone() * scalar_value_loss_weight;
     let entropy = (probabilities.clone() * log_probabilities)
         .sum_dim(1)
         .mean()
@@ -417,10 +448,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
         .equal(batch.wdl.clone().argmax(1))
         .float()
         .mean();
-    let wdl_probabilities = softmax(output.wdl_logits, 1);
-    let predicted_value =
-        wdl_probabilities.clone().narrow(1, 0, 1) - wdl_probabilities.clone().narrow(1, 2, 1);
-    let calibration = (predicted_value - batch.value).abs().mean();
+    let calibration = value_error.abs().mean();
     let draw_probability_error = (wdl_probabilities.narrow(1, 1, 1) - batch.wdl.narrow(1, 1, 1))
         .abs()
         .mean();
@@ -437,6 +465,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
             total.clone().detach(),
             policy_loss.detach(),
             value_loss.detach(),
+            scalar_value_loss.detach(),
             entropy.detach(),
             calibration.detach(),
             illegal_mass.detach(),
@@ -461,13 +490,14 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
         total_loss: values[0],
         policy_loss: values[1],
         value_loss: values[2],
-        policy_entropy: values[3],
-        value_calibration_error: values[4],
-        illegal_policy_mass: values[5],
-        policy_top1_accuracy: values[6],
-        wdl_top1_accuracy: values[7],
-        draw_probability_error: values[8],
-        mean_policy_weight: values[9],
+        scalar_value_loss: values[3],
+        policy_entropy: values[4],
+        value_calibration_error: values[5],
+        illegal_policy_mass: values[6],
+        policy_top1_accuracy: values[7],
+        wdl_top1_accuracy: values[8],
+        draw_probability_error: values[9],
+        mean_policy_weight: values[10],
     }
 }
 
@@ -522,6 +552,7 @@ impl MetricAccumulator {
         self.weighted.total_loss += metrics.total_loss * weight;
         self.weighted.policy_loss += metrics.policy_loss * weight;
         self.weighted.value_loss += metrics.value_loss * weight;
+        self.weighted.scalar_value_loss += metrics.scalar_value_loss * weight;
         self.weighted.policy_entropy += metrics.policy_entropy * weight;
         self.weighted.value_calibration_error += metrics.value_calibration_error * weight;
         self.weighted.illegal_policy_mass += metrics.illegal_policy_mass * weight;
@@ -541,6 +572,7 @@ impl MetricAccumulator {
             total_loss: self.weighted.total_loss / divisor,
             policy_loss: self.weighted.policy_loss / divisor,
             value_loss: self.weighted.value_loss / divisor,
+            scalar_value_loss: self.weighted.scalar_value_loss / divisor,
             policy_entropy: self.weighted.policy_entropy / divisor,
             value_calibration_error: self.weighted.value_calibration_error / divisor,
             illegal_policy_mass: self.weighted.illegal_policy_mass / divisor,

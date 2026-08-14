@@ -309,7 +309,7 @@ fn print_endgame_distance_report(report: &yokai::EndgameDistanceReport) {
             ("decisive", bucket.decisive),
         ] {
             println!(
-                "distance={} outcome={} examples={} policy_loss={:.4} policy_top1={:.3} WDL_loss={:.4} WDL_top1={:.3}",
+                "distance={} outcome={} examples={} policy_loss={:.4} policy_top1={:.3} WDL_loss={:.4} WDL_top1={:.3} scalar_value_MSE={:.4}",
                 bucket.distance.label(),
                 outcome,
                 metrics.examples,
@@ -317,6 +317,7 @@ fn print_endgame_distance_report(report: &yokai::EndgameDistanceReport) {
                 metrics.policy_top1_accuracy,
                 metrics.wdl_loss,
                 metrics.wdl_top1_accuracy,
+                metrics.scalar_value_loss,
             );
         }
     }
@@ -420,11 +421,12 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             report,
         } => {
             eprintln!(
-                "[{elapsed}] step {}/{}: train policy={:.4} WDL={:.4} policy_weight={:.3} entropy={:.4} illegal={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                "[{elapsed}] step {}/{}: train policy={:.4} WDL={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} illegal={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                 report.step,
                 total_steps,
                 report.training.policy_loss,
                 report.training.value_loss,
+                report.training.scalar_value_loss,
                 report.training.mean_policy_weight,
                 report.training.policy_entropy,
                 report.training.illegal_policy_mass,
@@ -434,11 +436,12 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             );
             if let Some(validation) = report.validation {
                 eprintln!(
-                    "[{elapsed}] step {}/{}: valid policy={:.4} WDL={:.4} policy_weight={:.3} value_calibration={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                    "[{elapsed}] step {}/{}: valid policy={:.4} WDL={:.4} scalar_MSE={:.4} policy_weight={:.3} value_calibration={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                     report.step,
                     total_steps,
                     validation.policy_loss,
                     validation.value_loss,
+                    validation.scalar_value_loss,
                     validation.mean_policy_weight,
                     validation.value_calibration_error,
                     validation.policy_top1_accuracy,
@@ -606,9 +609,10 @@ fn print_generation_report(report: &yokai::GenerationReport) {
             checkpoint.step, report.training.learning_rate
         );
         println!(
-            "train policy_loss={:.4} WDL_loss={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+            "train policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
             checkpoint.training.policy_loss,
             checkpoint.training.value_loss,
+            checkpoint.training.scalar_value_loss,
             checkpoint.training.mean_policy_weight,
             checkpoint.training.policy_entropy,
             checkpoint.training.value_calibration_error,
@@ -619,9 +623,10 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         );
         if let Some(validation) = checkpoint.validation {
             println!(
-                "valid policy_loss={:.4} WDL_loss={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                "valid policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
                 validation.policy_loss,
                 validation.value_loss,
+                validation.scalar_value_loss,
                 validation.mean_policy_weight,
                 validation.policy_entropy,
                 validation.value_calibration_error,

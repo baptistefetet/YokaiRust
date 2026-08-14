@@ -191,7 +191,7 @@ while preventing positions from one game leaking across both sets.
 
 Reports include:
 
-- policy and WDL cross-entropy;
+- policy and WDL cross-entropy plus scalar value MSE;
 - policy entropy, top-1 agreement and illegal probability mass;
 - WDL top-1, value calibration and draw-probability error;
 - the mean policy weight after omitting unresolved drawn non-starter targets;
@@ -594,22 +594,34 @@ Only 20 validation games are draws, all of whose retained examples lie within
 eight plies of the result, so it cannot answer the long-range draw question.
 The smaller network is rejected as the next baseline: lower memory use alone
 is not a significant project improvement when neither runtime nor learning
-progress improves. The next run should restore v22 capacity and target the WDL
+progress improves. The next run restores v22 capacity and targets the WDL
 objective directly with an auxiliary scalar value loss.
 
-### 5. Later ablations, in this order
+### 5. Active experiment: v24 adds an ordered value signal
+
+The fresh `alpha-zero-draw-aware-v24` run restores v22's 64 feature channels
+and four residual blocks. It changes one learning objective: the original WDL
+cross-entropy is retained at full weight, while a `0.25`-weighted MSE term
+compares `P(win) - P(loss)` with the scalar result `+1/0/-1`. This adds an
+ordered value signal without making a certain draw equivalent to a balanced
+win/loss prediction. Model format version 5 and fresh model/data paths isolate
+the optimizer state and reports from earlier runs.
+
+The reports now record the unweighted scalar MSE alongside WDL loss. Inference
+speed should match v22 because the architecture and forward pass are identical;
+full-pipeline timings will reveal the smaller extra cost of this training-only
+loss. The ablation succeeds only if distant WDL prediction and accepted
+champion progress improve without a material policy or throughput regression.
+
+### 6. Later ablations, in this order
 
 Test these ideas one at a time:
 
-1. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
-   small MSE term on `P(win) - P(loss)` against `+1/0/-1`. This imports the
-   ordered scalar signal that worked well in JavaScript without making a
-   certain draw indistinguishable from a 50/50 win/loss prediction.
-2. **Explicit recent moves.** Encode the origin and destination of the last two
+1. **Explicit recent moves.** Encode the origin and destination of the last two
    moves directly, then test whether some full historical board frames can be
    removed. Do not discard repetition context: the game remains responsible
    for exact occurrence counts.
-3. **Stronger endgame curriculum.** Increase the early fraction of decisive
+2. **Stronger endgame curriculum.** Increase the early fraction of decisive
    terminal tails and expand from `1` to `2`, `4`, `8`, `16`, then all plies.
    Advance this schedule from the accepted source champion, not rejected
    candidate attempt numbers. The JavaScript experiments sometimes trained

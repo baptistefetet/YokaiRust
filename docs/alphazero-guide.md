@@ -66,6 +66,11 @@ The WDL target is the official final result:
 - loss if that player lost;
 - draw after an official repetition.
 
+Training retains categorical WDL cross-entropy and adds a small auxiliary loss:
+`0.25 × (P(win) - P(loss) - result)²`, where the result is `+1`, `0` or `-1`.
+The auxiliary term supplies an ordered value signal; WDL cross-entropy still
+forces a certain draw to differ from balanced win/loss uncertainty.
+
 Official search converts WDL to `P(win) - P(loss)`. A certain draw is therefore
 different from an uncertain 50/50 win/loss mixture. Terminal states have no
 policy example because they have no legal move distribution.
@@ -116,11 +121,11 @@ head maps the same shared representation to three outcome logits. Separate
 heads keep “which move?” and “who wins?” distinct while sharing the state
 representation.
 
-The default model is deliberately small: 32 feature channels and two residual
-blocks, followed by the 64-unit shared dense representation. A 3×4 board does
-not justify a large image model, and the roughly 136,000 parameters remain
-proportionate to the self-play corpus. These sizes are configuration, not game
-rules, so the future 5×6 version can scale them.
+The current model uses 64 feature channels and four residual blocks, followed by
+the 64-unit shared dense representation. A 32-channel, two-block ablation was
+slower on the real self-play pipeline despite using roughly 69% fewer
+parameters, so the roughly 442,000-parameter baseline was restored. These sizes
+are configuration, not game rules, so the future 5×6 version can scale them.
 
 ### Canonical orientation
 
@@ -199,7 +204,7 @@ buffer grows. This prevents leakage and makes losses more comparable over time.
 | Batch requests | [`neural/service.rs`](../src/neural/service.rs) | `InferenceClient`, then `InferenceService` |
 | Search a move | [`search.rs`](../src/search.rs) | `Mcts::search_internal` and `Node` |
 | Record targets | [`training/data.rs`](../src/training/data.rs) | `SelfPlayRecorder::record`, then `finish_from_game` |
-| Compute losses | [`training/trainer.rs`](../src/training/trainer.rs) | `BatchTensors::new`, `forward_losses`, `policy_loss_weight` |
+| Compute losses | [`training/trainer.rs`](../src/training/trainer.rs) | `BatchTensors::new`, `forward_losses`, `scalar_value_loss_weight` |
 | Orchestrate | [`training/pipeline.rs`](../src/training/pipeline.rs) | `run_generation_with_progress` |
 
 Burn's `Tensor<B, 4>` means a rank-four tensor on backend `B`, close to a C++
@@ -310,6 +315,7 @@ The gates protect publication; they are not training labels.
 | policy loss | Weighted cross-entropy against MCTS visits | Training falls while stable validation rises. |
 | policy weight | Mean multiplier after unresolved drawn non-starter examples are omitted | A drop means unsolved draws occupy more of the buffer. |
 | WDL loss | Cross-entropy against final W/D/L | Persistent high validation loss means weak result prediction. |
+| scalar value MSE | Squared error of `P(win) - P(loss)` against `+1/0/-1` | Measures the ordered auxiliary objective; it must improve without hiding poor draw classification. |
 | policy top-1 | Agreement with the largest visit target | Useful learning signal, not a strength score. |
 | WDL top-1 | Agreement with observed result class | Can hide poor draw calibration if read alone. |
 | draw error | Error in predicted draw probability | Rising values expose draw miscalibration. |

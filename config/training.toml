@@ -2,8 +2,8 @@ seed = 42
 backend = "metal"
 
 [network]
-filters = 32
-residual_blocks = 2
+filters = 64
+residual_blocks = 4
 shared_hidden = 64
 value_hidden = 64
 
@@ -54,6 +54,9 @@ mirror_augmentation = true
 # rules identify an immediate third repetition, training removes that action
 # and renormalizes MCTS's remaining alternatives instead.
 non_starter_draw_policy_weight = 0.0
+# Keep the categorical WDL objective, and add a small ordered-value signal.
+# A draw still differs from a balanced win/loss mixture in the WDL loss.
+scalar_value_loss_weight = 0.25
 # Every position remains in the dataset. During bootstrap, decisive tails are
 # temporarily oversampled; the extra sampling stops automatically at attempt 11.
 
@@ -99,5 +102,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v23"
-self_play = "data/alpha-zero-draw-aware-v23"
+models = "models/alpha-zero-draw-aware-v24"
+self_play = "data/alpha-zero-draw-aware-v24"

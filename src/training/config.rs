@@ -101,6 +101,10 @@ pub struct OptimizationConfig {
     /// Value/WDL supervision always stays fully weighted.
     #[serde(default = "default_non_starter_draw_policy_weight")]
     pub non_starter_draw_policy_weight: f32,
+    /// Multiplier for MSE between `P(win) - P(loss)` and the scalar result.
+    /// The three-class WDL cross-entropy always remains fully weighted.
+    #[serde(default)]
+    pub scalar_value_loss_weight: f32,
     /// When set, train only on this many final positions from decisive games.
     /// `None` restores the regular `AlphaZero` dataset containing every position.
     pub terminal_window_plies: Option<usize>,
@@ -224,6 +228,7 @@ impl Default for TrainingConfig {
                 validation_fraction: 0.1,
                 mirror_augmentation: true,
                 non_starter_draw_policy_weight: 1.0,
+                scalar_value_loss_weight: 0.0,
                 terminal_window_plies: None,
                 terminal_window_schedule: None,
                 replay_buffer: ReplayBufferConfig::default(),
@@ -394,6 +399,13 @@ impl TrainingConfig {
         {
             return Err(TrainingConfigError::Invalid(
                 "non-starter draw policy weight must be in [0, 1]",
+            ));
+        }
+        if !optimization.scalar_value_loss_weight.is_finite()
+            || !(0.0..=1.0).contains(&optimization.scalar_value_loss_weight)
+        {
+            return Err(TrainingConfigError::Invalid(
+                "scalar value loss weight must be in [0, 1]",
             ));
         }
         validate_terminal_window(optimization)?;

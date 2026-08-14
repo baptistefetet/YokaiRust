@@ -25,7 +25,7 @@ use crate::{
     },
 };
 
-pub const MODEL_FORMAT_VERSION: u16 = 4;
+pub const MODEL_FORMAT_VERSION: u16 = 5;
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";

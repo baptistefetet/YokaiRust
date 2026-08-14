@@ -14,7 +14,7 @@ use crate::{
     validate_model_with_policy_weight,
 };
 
-pub const ENDGAME_DISTANCE_REPORT_VERSION: u16 = 1;
+pub const ENDGAME_DISTANCE_REPORT_VERSION: u16 = 2;
 
 /// Remaining plies between a recorded position and its official result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -81,6 +81,7 @@ pub struct EndgameDistanceMetrics {
     pub policy_top1_accuracy: f32,
     pub wdl_loss: f32,
     pub wdl_top1_accuracy: f32,
+    pub scalar_value_loss: f32,
 }
 
 impl EndgameDistanceMetrics {
@@ -91,6 +92,7 @@ impl EndgameDistanceMetrics {
             policy_top1_accuracy: metrics.policy_top1_accuracy,
             wdl_loss: metrics.value_loss,
             wdl_top1_accuracy: metrics.wdl_top1_accuracy,
+            scalar_value_loss: metrics.scalar_value_loss,
         }
     }
 }

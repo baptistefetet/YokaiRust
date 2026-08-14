@@ -393,6 +393,7 @@ fn endgame_distance_diagnostic_uses_only_whole_validation_games() {
     assert_eq!(report.buckets[4].distance, EndgameDistance::SeventeenPlus);
     let json = serde_json::to_value(report).expect("diagnostic report serialization");
     assert_eq!(json["buckets"][1]["distance"], "2-4");
+    assert!(json["buckets"][1]["all"]["scalar_value_loss"].is_number());
 }
 
 #[test]
@@ -400,8 +401,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/training.toml");
     let config = TrainingConfig::load(path).expect("checked-in config must be valid");
 
-    assert_eq!(config.network.filters, 32);
-    assert_eq!(config.network.residual_blocks, 2);
+    assert_eq!(config.network.filters, 64);
+    assert_eq!(config.network.residual_blocks, 4);
     assert_eq!(config.network.shared_hidden, 64);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
@@ -421,6 +422,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert_eq!(config.optimization.steps_per_generation, 400);
     assert_eq!(config.optimization.validation_interval_steps, 100);
     assert!(config.optimization.non_starter_draw_policy_weight.abs() < f32::EPSILON);
+    assert!((config.optimization.scalar_value_loss_weight - 0.25).abs() < f32::EPSILON);
     assert_eq!(config.optimization.terminal_window_plies, None);
     assert_eq!(
         config.optimization.learning_rate_schedule,
@@ -447,8 +449,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v23");
-    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v23");
+    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v24");
+    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v24");
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -472,6 +474,13 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     ));
 
     invalid.optimization.non_starter_draw_policy_weight = 0.0;
+    invalid.optimization.scalar_value_loss_weight = -0.1;
+    assert!(matches!(
+        invalid.validate(),
+        Err(TrainingConfigError::Invalid(_))
+    ));
+
+    invalid.optimization.scalar_value_loss_weight = 0.25;
     invalid.network.shared_hidden = 0;
     assert!(matches!(
         invalid.validate(),
@@ -577,6 +586,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         validation_fraction: 0.5,
         mirror_augmentation: true,
         non_starter_draw_policy_weight: 1.0,
+        scalar_value_loss_weight: 0.0,
         terminal_window_plies: None,
         terminal_window_schedule: None,
         replay_buffer: ReplayBufferConfig::default(),
@@ -808,6 +818,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             validation_fraction: 0.5,
             mirror_augmentation: true,
             non_starter_draw_policy_weight: 1.0,
+            scalar_value_loss_weight: 0.25,
             terminal_window_plies: None,
             terminal_window_schedule: None,
             replay_buffer: ReplayBufferConfig {
@@ -862,6 +873,15 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     assert_eq!(report.generated_games, 2);
     assert_eq!(report.self_play_source_generation, 0);
     assert_eq!(report.self_play_evaluator, SelfPlayEvaluator::Neural);
+    let selected_validation = report
+        .training
+        .selected()
+        .and_then(|checkpoint| checkpoint.validation)
+        .expect("short generation validation metrics");
+    let expected_total = selected_validation.policy_loss
+        + selected_validation.value_loss
+        + config.optimization.scalar_value_loss_weight * selected_validation.scalar_value_loss;
+    assert!((selected_validation.total_loss - expected_total).abs() < 1.0e-5);
     assert_eq!(
         report.self_play_outcomes.starter_wins
             + report.self_play_outcomes.non_starter_wins

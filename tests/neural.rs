@@ -308,7 +308,7 @@ fn metal_training_state_round_trip_runs_one_real_update() {
     let checked_in_config = TrainingConfig::load(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/training.toml"),
     )
-    .expect("checked-in v23 configuration");
+    .expect("checked-in v24 configuration");
     let architecture = checked_in_config.network;
     let mut optimization = checked_in_config.optimization;
     optimization.steps_per_generation = 1;
@@ -363,9 +363,10 @@ fn metal_training_state_round_trip_runs_one_real_update() {
 
     assert!(report.selected().is_some_and(|checkpoint| {
         checkpoint.training.total_loss.is_finite()
-            && checkpoint
-                .validation
-                .is_some_and(|validation| validation.total_loss.is_finite())
+            && checkpoint.training.scalar_value_loss.is_finite()
+            && checkpoint.validation.is_some_and(|validation| {
+                validation.total_loss.is_finite() && validation.scalar_value_loss.is_finite()
+            })
     }));
     save_training_generation(&root, &metadata, &state).expect("training state save");
     let (loaded, loaded_metadata) =

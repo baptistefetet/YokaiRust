@@ -5,9 +5,10 @@ use std::sync::{Arc, Mutex};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use yokai::{
-    Action, BOARD_SQUARES, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest,
-    Evaluator, Game, LeafEvaluation, Mcts, POLICY_ACTIONS, Piece, PieceKind, Player, Position,
-    Replay, SearchConfig, Square, TemperatureSchedule, UniformEvaluator, random_rollout_value,
+    Action, AsyncEvaluator, BOARD_SQUARES, CachedEvaluator, Evaluation, EvaluationError,
+    EvaluationRequest, Evaluator, Game, LeafEvaluation, Mcts, POLICY_ACTIONS, Piece, PieceKind,
+    Player, Position, Replay, SearchConfig, Square, TemperatureSchedule, UniformEvaluator,
+    random_rollout_value,
 };
 
 #[derive(Clone)]
@@ -19,6 +20,27 @@ struct BatchRecordingEvaluator {
 
 #[derive(Clone, Copy, Debug)]
 struct CertainDrawEvaluator;
+
+#[derive(Clone, Copy, Debug)]
+struct AsyncUniformEvaluator;
+
+impl Evaluator for AsyncUniformEvaluator {
+    fn evaluate_batch(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        Ok(vec![Evaluation::uniform(0.0); requests.len()])
+    }
+}
+
+impl AsyncEvaluator for AsyncUniformEvaluator {
+    async fn evaluate_batch_async(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        Ok(vec![Evaluation::uniform(0.0); requests.len()])
+    }
+}
 
 impl Evaluator for CertainDrawEvaluator {
     fn evaluate_batch(
@@ -76,6 +98,26 @@ fn search_config(simulations: u32) -> SearchConfig {
         simulations,
         ..SearchConfig::default()
     }
+}
+
+#[test]
+fn asynchronous_search_matches_the_synchronous_algorithm() {
+    let game = Game::new(Player::First);
+    let config = SearchConfig {
+        simulations: 64,
+        evaluation_batch_size: 8,
+        ..SearchConfig::default()
+    };
+    let mut synchronous =
+        Mcts::new(AsyncUniformEvaluator, config, 91).expect("valid synchronous search");
+    let mut asynchronous =
+        Mcts::new(AsyncUniformEvaluator, config, 91).expect("valid asynchronous search");
+
+    let expected = synchronous.search(&game, 0.0).expect("synchronous result");
+    let actual = futures_lite::future::block_on(asynchronous.search_async(&game, 0.0))
+        .expect("asynchronous result");
+
+    assert_eq!(actual, expected);
 }
 
 #[test]

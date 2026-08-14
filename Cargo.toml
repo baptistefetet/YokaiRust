@@ -6,20 +6,51 @@ rust-version = "1.97.1"
 description = "A fast, testable Rust implementation of Yokai No Mori 3x4"
 license = "MIT"
 
+[workspace]
+members = ["web/crate"]
+resolver = "2"
+
+[features]
+default = ["native"]
+native = [
+    "burn/autotune",
+    "burn/flex",
+    "burn/fusion",
+    "burn/metal",
+    "burn/store",
+    "burn/train",
+    "dep:crossbeam-channel",
+    "dep:ratatui",
+    "dep:rayon",
+    "dep:toml",
+]
+web = []
+
+[[bin]]
+name = "yokai"
+path = "src/main.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "export-web-model"
+path = "src/bin/export_web_model.rs"
+required-features = ["native"]
+
 [dependencies]
-burn = { version = "=0.21.0", default-features = false, features = ["std", "train", "store", "metal", "flex", "fusion", "autotune"] }
-crossbeam-channel = "=0.5.16"
+burn = { version = "=0.21.0", default-features = false, features = ["std"] }
+crossbeam-channel = { version = "=0.5.16", optional = true }
 rand = "=0.10.2"
 rand_chacha = "=0.10.0"
 rand_distr = "=0.6.0"
-ratatui = "=0.30.2"
-rayon = "=1.12.0"
+ratatui = { version = "=0.30.2", optional = true }
+rayon = { version = "=1.12.0", optional = true }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 thiserror = "=2.0.19"
-toml = "=1.1.4"
+toml = { version = "=1.1.4", optional = true }
 
 [dev-dependencies]
+futures-lite = "=2.6.1"
 proptest = "=1.11.0"
 
 [lints.rust]

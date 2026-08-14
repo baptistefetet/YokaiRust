@@ -1142,6 +1142,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5610,7 +5620,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7084,6 +7094,7 @@ version = "0.1.0"
 dependencies = [
  "burn",
  "crossbeam-channel",
+ "futures-lite",
  "proptest",
  "rand 0.10.2",
  "rand_chacha 0.10.0",
@@ -7094,6 +7105,21 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "toml",
+]
+
+[[package]]
+name = "yokai-web"
+version = "0.1.0"
+dependencies = [
+ "burn",
+ "console_error_panic_hook",
+ "getrandom 0.4.3",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "yokai",
 ]
 
 [[package]]

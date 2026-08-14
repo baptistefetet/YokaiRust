@@ -15,6 +15,7 @@ pub mod notation;
 pub mod policy;
 pub mod replay;
 pub mod search;
+#[cfg(feature = "native")]
 pub mod training;
 
 pub use game::{
@@ -24,56 +25,65 @@ pub use game::{
 };
 pub use neural::{
     ENCODER_VERSION, EncodedPosition, GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES,
-    HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, POLICY_CONTEXT_FEATURES,
+    HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, POLICY_CONTEXT_FEATURES, encode_game,
+    encode_position, encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
+    model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
+    policy_context_batch_tensor,
+};
+#[cfg(feature = "native")]
+pub use neural::{
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
         load_training_generation, next_generation, publish_champion, save_generation,
         save_training_generation, stored_generations,
     },
-    encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
     evaluator::{
         CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend, NetworkEvaluator,
     },
-    global_batch_tensor,
-    model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
-    policy_context_batch_tensor,
     service::{InferenceClient, InferenceService, InferenceServiceError, InferenceStats},
 };
 pub use policy::{POLICY_ACTIONS, PolicyIndex};
 pub use replay::{REPLAY_FORMAT_VERSION, Replay, ReplayError};
 pub use search::{
-    ActionAnalysis, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
-    LeafEvaluation, Mcts, SearchConfig, SearchError, SearchResult, TemperatureSchedule,
-    UniformEvaluator, random_rollout_value,
+    ActionAnalysis, AsyncEvaluator, CachedEvaluator, Evaluation, EvaluationError,
+    EvaluationRequest, Evaluator, LeafEvaluation, Mcts, SearchConfig, SearchError, SearchResult,
+    TemperatureSchedule, UniformEvaluator, random_rollout_value,
 };
+#[cfg(feature = "native")]
 pub use training::arena::{
     ArenaError, ArenaProgress, ArenaResult, ArenaSeatResult, run_arena, run_arena_with_progress,
 };
+#[cfg(feature = "native")]
 pub use training::config::{
     ArenaConfig, BackendKind, LearningRateStage, OptimizationConfig, PathsConfig,
     SelfPlayBootstrapConfig, SelfPlayBootstrapMode, SelfPlayConfig, TerminalWindowSchedule,
     TrainingConfig, TrainingConfigError,
 };
+#[cfg(feature = "native")]
 pub use training::data::{
     DatasetDiagnostics, DatasetSplit, PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig,
     SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, TrainingDataError, TrainingExample,
     dataset_diagnostics, mirror_policy,
 };
+#[cfg(feature = "native")]
 pub use training::diagnostics::{
     ENDGAME_DISTANCE_REPORT_VERSION, EndgameDiagnosticError, EndgameDistance,
     EndgameDistanceBucketReport, EndgameDistanceMetrics, EndgameDistanceReport,
     endgame_distance_report, endgame_distance_report_path, save_endgame_distance_report,
 };
+#[cfg(feature = "native")]
 pub use training::pipeline::{
     GameOutcomeStats, GenerationReport, PipelineError, PromotionDecision, TrainingProgress,
     bootstrap_champion, load_replay_buffer, run_generation, run_generation_with_progress,
     save_replay_buffer,
 };
+#[cfg(feature = "native")]
 pub use training::self_play::{
     SelfPlayError, generate_self_play, generate_self_play_with_progress,
     generate_self_play_with_restarts, generate_self_play_with_restarts_and_progress,
     planned_restart_count, play_self_play_game, play_self_play_game_from_restart,
 };
+#[cfg(feature = "native")]
 pub use training::trainer::{
     AlphaZeroOptimizer, AlphaZeroTrainingState, LossMetrics, TrainingReport, TrainingStepReport,
     new_optimizer, train_candidate, train_candidate_with_progress, train_state_with_progress,

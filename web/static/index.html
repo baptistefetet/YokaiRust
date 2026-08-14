@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="Play Yokai No Mori against the Rust AlphaZero engine, directly in your browser.">
+    <link rel="apple-touch-icon" href="./favicon.png" sizes="any" type="image/png">
+    <link rel="icon" href="./favicon.png" sizes="any" type="image/png">
+    <link rel="stylesheet" href="./app.css">
+    <title>Yokai No Mori</title>
+</head>
+<body>
+    <main id="app">
+        <div id="game" aria-label="Yokai No Mori board"></div>
+        <section id="loading" role="status" aria-live="polite">
+            <img src="./assets/images/logo.png" alt="" width="64" height="64">
+            <p id="loading-title">Loading the Rust engine…</p>
+            <p id="loading-detail">The champion is loaded and runs locally in your browser.</p>
+        </section>
+        <section id="fatal-error" role="alert" hidden>
+            <h1>The engine could not start</h1>
+            <p id="fatal-error-message"></p>
+            <button type="button" id="reload-button">Try again</button>
+        </section>
+    </main>
+    <script src="./vendor/phaser.min.js"></script>
+    <script type="module" src="./main.js"></script>
+</body>
+</html>

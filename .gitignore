@@ -2,4 +2,6 @@
 /main
 /models/
 /data/
+/web/dist/
+/web/generated/
 .DS_Store

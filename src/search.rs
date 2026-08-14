@@ -140,6 +140,22 @@ pub trait Evaluator {
     ) -> Result<Vec<Evaluation>, EvaluationError>;
 }
 
+/// Asynchronous evaluator used by browser backends whose device readback is a
+/// JavaScript promise. The search algorithm remains identical to native PUCT;
+/// only the inference boundary yields to the browser event loop.
+#[allow(async_fn_in_trait)]
+pub trait AsyncEvaluator {
+    /// Evaluates every request in order without blocking the browser thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluationError`] when the backend cannot produce the batch.
+    async fn evaluate_batch_async(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError>;
+}
+
 /// Baseline evaluator returning a uniform policy and neutral value.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UniformEvaluator;
@@ -1035,6 +1051,120 @@ impl<E: Evaluator> Mcts<E> {
     fn children(&self, node_index: usize) -> impl Iterator<Item = usize> + '_ {
         let node = self.arena[node_index];
         node.first_child..node.first_child + node.child_count
+    }
+}
+
+impl<E: Evaluator + AsyncEvaluator> Mcts<E> {
+    /// Runs the same deterministic PUCT search as [`Self::search`] while
+    /// awaiting evaluator batches. This is intended for WebGPU and other
+    /// browser backends whose tensor readback cannot be synchronous.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SearchError`] for terminal games, invalid temperature,
+    /// evaluator failures, or an inconsistent reused tree.
+    pub async fn search_async(
+        &mut self,
+        game: &Game,
+        temperature: f32,
+    ) -> Result<SearchResult, SearchError> {
+        if game.outcome().is_terminal() {
+            return Err(SearchError::TerminalGame);
+        }
+        if !temperature.is_finite() || temperature < 0.0 {
+            return Err(SearchError::InvalidConfiguration(
+                "temperature must be finite and non-negative",
+            ));
+        }
+
+        self.synchronize_root(game);
+        let mut remaining = self.config.simulations;
+        while remaining > 0 {
+            let requested = usize::try_from(remaining)
+                .unwrap_or(usize::MAX)
+                .min(self.config.evaluation_batch_size);
+            let completed = self.run_simulation_batch_async(game, requested).await?;
+            if completed == 0 {
+                return Err(SearchError::InvalidConfiguration(
+                    "batched search could not schedule a simulation",
+                ));
+            }
+            remaining = remaining.saturating_sub(u32::try_from(completed).unwrap_or(u32::MAX));
+        }
+        self.build_result(game.position().side_to_move(), temperature)
+    }
+
+    async fn run_simulation_batch_async(
+        &mut self,
+        root_game: &Game,
+        requested: usize,
+    ) -> Result<usize, SearchError> {
+        let mut completed = 0;
+        let mut pending = Vec::with_capacity(requested);
+        while completed + pending.len() < requested {
+            match self.prepare_simulation(root_game)? {
+                PreparedSimulation::Pending(simulation) => pending.push(simulation),
+                PreparedSimulation::Completed => completed += 1,
+                PreparedSimulation::Unavailable => break,
+            }
+        }
+        if pending.is_empty() {
+            return Ok(completed);
+        }
+
+        if let LeafEvaluation::RandomRollout { max_plies } = self.config.leaf_evaluation {
+            self.release_pending(&pending);
+            for simulation in pending {
+                let leaf_value = random_rollout_value(&simulation.game, max_plies, &mut self.rng)?;
+                self.expand(
+                    simulation.node_index,
+                    &simulation.game,
+                    &Evaluation::uniform(0.0),
+                )?;
+                self.backpropagate(&simulation.path, leaf_value);
+                completed += 1;
+            }
+            return Ok(completed);
+        }
+
+        let requests = pending
+            .iter()
+            .map(|simulation| EvaluationRequest::from_game(&simulation.game))
+            .collect::<Vec<_>>();
+        let evaluations = self.evaluator.evaluate_batch_async(&requests).await;
+        if evaluations
+            .as_ref()
+            .is_ok_and(|evaluations| evaluations.len() != pending.len())
+        {
+            let actual = evaluations.as_ref().map_or(0, Vec::len);
+            self.release_pending(&pending);
+            return Err(EvaluationError::BatchSizeMismatch {
+                expected: pending.len(),
+                actual,
+            }
+            .into());
+        }
+        let evaluations = match evaluations {
+            Ok(evaluations) => evaluations,
+            Err(error) => {
+                self.release_pending(&pending);
+                return Err(error.into());
+            }
+        };
+        self.release_pending(&pending);
+
+        for (simulation, evaluation) in pending.into_iter().zip(evaluations) {
+            let leaf_value = role_aware_value(
+                &evaluation,
+                simulation.game.position().side_to_move(),
+                simulation.game.initial_player(),
+                self.config.starter_draw_value,
+            );
+            self.expand(simulation.node_index, &simulation.game, &evaluation)?;
+            self.backpropagate(&simulation.path, leaf_value);
+            completed += 1;
+        }
+        Ok(completed)
     }
 }
 

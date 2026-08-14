@@ -21,6 +21,8 @@ The repository contains:
 - parallel self-play, a rolling replay buffer and stable whole-game validation;
 - draw-aware search, visited-state archive restarts and guarded model promotion;
 - a Ratatui interface for local play, champion play and replay analysis;
+- a static one-player web interface running the same Rust rules, MCTS and
+  champion through WebAssembly, with WebGPU and CPU fallback;
 - atomic model/optimizer checkpoints and structured JSON diagnostics.
 
 The stable training line is **v26**:
@@ -77,6 +79,9 @@ cargo fmt --check
 # Build the local API documentation; public additions must be documented.
 cargo doc --no-deps
 
+# Build the static browser version and exported champion under web/dist/.
+./web/scripts/build.sh
+
 # Explicit Apple Metal training/checkpoint preflight.
 cargo test --test neural metal_training_state_round_trip_runs_one_real_update -- --ignored --exact
 ```
@@ -109,6 +114,19 @@ cargo run --release -- train --resume latest --generations 5 --headless
 # Evaluate every checkpoint on the active run's final stable validation split.
 cargo run --release -- diagnose-endgames --config config/training.toml
 ```
+
+### Static web interface
+
+The browser mode is a one-player game against the accepted champion. Rust owns
+the complete `Game`, legal actions, history-aware encoder, MCTS and Burn neural
+network inside a Web Worker; JavaScript only renders snapshots and animations.
+It therefore does not duplicate the rules or search implementation.
+
+The output under `web/dist/` is a collection of static HTML, JavaScript, image,
+model and WebAssembly files. It needs no application backend. WebGPU is selected
+when available, with an automatically loaded Burn Flex CPU fallback. Deploy the
+directory on HTTPS (or serve it from localhost while developing); see
+[the web build guide](web/README.md) for prerequisites and commands.
 
 ### Ratatui interface
 

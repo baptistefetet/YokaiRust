@@ -22,8 +22,8 @@ pub use neural::{
     HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, POLICY_CONTEXT_FEATURES,
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
-        load_latest, load_training_generation, next_generation, publish_champion, publish_latest,
-        save_generation, save_training_generation, stored_generations,
+        load_training_generation, next_generation, publish_champion, save_generation,
+        save_training_generation, stored_generations,
     },
     encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
     evaluator::{
@@ -61,8 +61,8 @@ pub use training::diagnostics::{
 };
 pub use training::pipeline::{
     GameOutcomeStats, GenerationReport, PipelineError, PromotionDecision, TrainingProgress,
-    bootstrap_champion, bootstrap_latest, load_replay_buffer, run_generation,
-    run_generation_with_progress, save_replay_buffer,
+    bootstrap_champion, load_replay_buffer, run_generation, run_generation_with_progress,
+    save_replay_buffer,
 };
 pub use training::self_play::{
     SelfPlayError, generate_self_play, generate_self_play_with_progress,

@@ -15,8 +15,8 @@ use yokai::{
     MetalBackend, MetalTrainingBackend, ModelMetadata, ModelStoreError, NetworkEvaluator,
     POLICY_ACTIONS, Piece, PieceKind, Player, Position, Square, TrainingConfig, TrainingExample,
     encode_position, encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
-    load_generation, load_latest, load_training_generation, policy_context_batch_tensor,
-    publish_latest, save_generation, save_training_generation, stored_generations,
+    load_champion, load_generation, load_training_generation, policy_context_batch_tensor,
+    publish_champion, save_generation, save_training_generation, stored_generations,
     train_state_with_progress,
 };
 
@@ -548,8 +548,9 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
         stored_generations(&root).expect("stored model generations"),
         vec![3]
     );
-    publish_latest(&root, 3).expect("latest publication");
-    let (loaded, loaded_metadata) = load_latest::<CpuBackend>(&root, &device).expect("latest load");
+    publish_champion(&root, 3).expect("champion publication");
+    let (loaded, loaded_metadata) =
+        load_champion::<CpuBackend>(&root, &device).expect("champion load");
     let after = loaded
         .forward(
             encoded_batch_tensor(&encoded, &device),
@@ -587,17 +588,6 @@ fn checkpoint_rejects_incompatible_format_and_encoder_metadata() {
     let model = config.init::<CpuBackend>(&device);
     let metadata = ModelMetadata::new(1, config);
     let directory = save_generation(&root, &metadata, &model).expect("generation save");
-
-    let mut compatible = metadata.clone();
-    compatible.format_version = 3;
-    fs::write(
-        directory.join("metadata.json"),
-        serde_json::to_vec_pretty(&compatible).expect("metadata serialization"),
-    )
-    .expect("metadata rewrite");
-    let (_, loaded_metadata) = load_generation::<CpuBackend>(&root, 1, &device)
-        .expect("inference-compatible historical format");
-    assert_eq!(loaded_metadata.format_version, 3);
 
     let mut incompatible = metadata.clone();
     incompatible.format_version = 999;

@@ -122,10 +122,9 @@ heads keep “which move?” and “who wins?” distinct while sharing the stat
 representation.
 
 The current model uses 64 feature channels and four residual blocks, followed by
-the 64-unit shared dense representation. A 32-channel, two-block ablation was
-slower on the real self-play pipeline despite using roughly 69% fewer
-parameters, so the roughly 442,000-parameter baseline was restored. These sizes
-are configuration, not game rules, so the future 5×6 version can scale them.
+the 64-unit shared dense representation. It has roughly 442,000 parameters.
+These sizes are configuration, not game rules, so the future 5×6 version can
+scale them.
 
 ### Canonical orientation
 
@@ -344,7 +343,7 @@ that process into a proof.
 A convincing strong model should repeatedly show:
 
 - improving stable validation metrics;
-- positive paired results against current and frozen historical champions;
+- positive paired results against the champion and retained v25 checkpoints;
 - recorded deterministic draw behavior and controlled exploratory draw rates;
 - balanced results across absolute colors and starter roles;
 - reproducibility across several random seeds.

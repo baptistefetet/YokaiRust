@@ -71,7 +71,7 @@ impl Evaluation {
         } else {
             value
         };
-        // A legacy scalar carries no evidence that the position is a draw.
+        // A scalar carries no evidence that the position is a draw.
         // Preserve its expectation as a win/loss mixture instead of inventing
         // draw probability that role-aware search would then shape.
         let wdl = [1.0_f32.midpoint(bounded), 0.0, 1.0_f32.midpoint(-bounded)];

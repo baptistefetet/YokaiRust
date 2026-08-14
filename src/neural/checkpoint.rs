@@ -26,11 +26,9 @@ use crate::{
 };
 
 pub const MODEL_FORMAT_VERSION: u16 = 5;
-const MIN_INFERENCE_MODEL_FORMAT_VERSION: u16 = 3;
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";
-const LEGACY_CHAMPION_FILE: &str = "champion";
 const TRAINING_MODEL_FILE: &str = "training-model";
 const OPTIMIZER_FILE: &str = "optimizer";
 
@@ -64,22 +62,6 @@ impl ModelMetadata {
                 self.format_version, MODEL_FORMAT_VERSION
             )));
         }
-        self.validate_schema()
-    }
-
-    fn validate_for_inference(&self) -> Result<(), ModelStoreError> {
-        if !(MIN_INFERENCE_MODEL_FORMAT_VERSION..=MODEL_FORMAT_VERSION)
-            .contains(&self.format_version)
-        {
-            return Err(ModelStoreError::Incompatible(format!(
-                "model format {} is not supported for inference (expected {} through {})",
-                self.format_version, MIN_INFERENCE_MODEL_FORMAT_VERSION, MODEL_FORMAT_VERSION
-            )));
-        }
-        self.validate_schema()
-    }
-
-    fn validate_schema(&self) -> Result<(), ModelStoreError> {
         if self.encoder_version != ENCODER_VERSION {
             return Err(ModelStoreError::Incompatible(format!(
                 "encoder version {} does not match {}",
@@ -289,7 +271,7 @@ pub fn load_generation<B: Backend>(
     }
     let metadata: ModelMetadata =
         serde_json::from_slice(&fs::read(directory.join(METADATA_FILE))?)?;
-    metadata.validate_for_inference()?;
+    metadata.validate()?;
     if metadata.generation != generation {
         return Err(ModelStoreError::Incompatible(format!(
             "directory generation {generation} contains generation {}",
@@ -318,20 +300,7 @@ pub fn publish_champion(root: impl AsRef<Path>, generation: u32) -> Result<(), M
     publish_pointer(root.as_ref(), LATEST_FILE, generation)
 }
 
-/// Backward-compatible name for [`publish_champion`].
-///
-/// # Errors
-///
-/// Returns [`ModelStoreError`] under the same conditions as
-/// [`publish_champion`].
-pub fn publish_latest(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
-    publish_champion(root, generation)
-}
-
 /// Loads the generation referenced by the accepted-champion pointer.
-///
-/// Repositories created before continuous updates used a `champion` file. It is
-/// accepted as a read-only fallback and replaced by `latest` on the next update.
 ///
 /// # Errors
 ///
@@ -341,36 +310,18 @@ pub fn load_champion<B: Backend>(
     device: &B::Device,
 ) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
     let root = root.as_ref();
-    let pointer = match fs::read_to_string(root.join(LATEST_FILE)) {
-        Ok(pointer) => pointer,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            fs::read_to_string(root.join(LEGACY_CHAMPION_FILE)).map_err(|legacy_error| {
-                if legacy_error.kind() == io::ErrorKind::NotFound {
-                    ModelStoreError::InvalidLatest
-                } else {
-                    ModelStoreError::Io(legacy_error)
-                }
-            })?
+    let pointer = fs::read_to_string(root.join(LATEST_FILE)).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            ModelStoreError::InvalidLatest
+        } else {
+            ModelStoreError::Io(error)
         }
-        Err(error) => return Err(ModelStoreError::Io(error)),
-    };
+    })?;
     let generation = pointer
         .trim()
         .parse::<u32>()
         .map_err(|_| ModelStoreError::InvalidLatest)?;
     load_generation(root, generation, device)
-}
-
-/// Backward-compatible name for [`load_champion`].
-///
-/// # Errors
-///
-/// Returns [`ModelStoreError`] under the same conditions as [`load_champion`].
-pub fn load_latest<B: Backend>(
-    root: impl AsRef<Path>,
-    device: &B::Device,
-) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
-    load_champion(root, device)
 }
 
 /// Returns one more than the greatest generation directory currently present.

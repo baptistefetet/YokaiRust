@@ -124,8 +124,8 @@ steps:
    sampled mini-batch updates;
 5. save the candidate without changing the champion;
 6. `run_official_arena` against the champion;
-7. `run_candidate_diagnostics` with mirror and exploratory draw gates;
-8. publish the candidate only when all three gates pass.
+7. `run_candidate_diagnostics` with mirror and exploratory draw measurements;
+8. publish the candidate only when the strength and exploratory checks pass.
 
 Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
 `main.rs` decides how to print it. Ratatui can later consume the same events.

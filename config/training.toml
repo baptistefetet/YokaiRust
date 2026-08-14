@@ -21,7 +21,7 @@ exploration_plies = 12
 # AlphaZero samples from MCTS visits during the opening, then becomes greedy.
 exploration_temperature = 1.0
 final_temperature = 0.0
-# Legacy edge-local contempt is disabled in favor of role-aware WDL utility.
+# Edge-local contempt is disabled in favor of role-aware WDL utility.
 repetition_contempt = 0.0
 # During self-play, a draw rewards the starter's defence and penalizes the
 # non-starter's failed conversion. Stored WDL outcomes and arenas stay official.

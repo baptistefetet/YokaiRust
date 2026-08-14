@@ -12,9 +12,9 @@ use yokai::{
     PromotionDecision, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig,
     SelfPlayBootstrapConfig, SelfPlayBootstrapMode, SelfPlayConfig, SelfPlayEvaluator,
     SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule, TrainingConfig,
-    TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_latest,
+    TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_champion,
     dataset_diagnostics, endgame_distance_report, generate_self_play,
-    generate_self_play_with_restarts, load_generation, load_latest, load_replay_buffer,
+    generate_self_play_with_restarts, load_champion, load_generation, load_replay_buffer,
     planned_restart_count, run_arena, run_arena_with_progress, run_generation_with_progress,
     save_generation, train_candidate, validate_model,
 };
@@ -503,16 +503,6 @@ fn deterministic_mirror_draws_are_diagnostic_not_a_promotion_veto() {
         ..productive_candidate
     };
     assert!(!unproductive_candidate.promoted());
-
-    let legacy: PromotionDecision = serde_json::from_str(
-        r#"{
-            "arena_passed": true,
-            "mirror_draw_gate_passed": false,
-            "exploratory_draw_gate_passed": true
-        }"#,
-    )
-    .expect("legacy promotion report");
-    assert_eq!(legacy, productive_candidate);
 }
 
 #[test]
@@ -872,7 +862,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     };
     let device = burn::backend::flex::FlexDevice;
     CpuTrainingBackend::seed(&device, config.seed);
-    bootstrap_latest::<CpuBackend>(&models, config.network.clone(), &device)
+    bootstrap_champion::<CpuBackend>(&models, config.network.clone(), &device)
         .expect("initial network");
     let mut buffer = ReplayBuffer::new(config.optimization.replay_buffer).expect("buffer");
 
@@ -999,7 +989,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             .is_file()
     );
     assert!(models.join("generation-000001/optimizer.bin").is_file());
-    let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("latest model");
+    let (_, latest) = load_champion::<CpuBackend>(&models, &device).expect("champion model");
     let expected_champion = u32::from(report.promoted());
     assert_eq!(latest.generation, expected_champion);
     drop(events);
@@ -1065,7 +1055,8 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
         expected_champion
     );
     assert_eq!(optimizer_was_resumed, report.promoted());
-    let (_, latest) = load_latest::<CpuBackend>(&models, &device).expect("resumed latest model");
+    let (_, latest) =
+        load_champion::<CpuBackend>(&models, &device).expect("resumed champion model");
     let expected_champion = if resumed_report.promoted() {
         2
     } else {

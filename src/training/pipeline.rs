@@ -48,7 +48,7 @@ pub struct GameOutcomeStats {
     /// Wins by the side that did not make the first move.
     #[serde(default)]
     pub non_starter_wins: usize,
-    /// Wins from legacy self-play records without an initial-player replay.
+    /// Wins whose starter role could not be reconstructed from a replay.
     #[serde(default)]
     pub unclassified_wins: usize,
 }
@@ -111,7 +111,7 @@ pub struct PromotionDecision {
     /// Whether the deterministic mirror draw rate stayed within its configured
     /// diagnostic limit. This is deliberately not a promotion veto: identical
     /// deterministic players can draw even when noisy self-play is productive.
-    #[serde(default, alias = "mirror_draw_gate_passed")]
+    #[serde(default)]
     pub mirror_draw_limit_met: bool,
     pub exploratory_draw_gate_passed: bool,
 }
@@ -249,7 +249,7 @@ pub fn bootstrap_champion<B: Backend>(
     device: &B::Device,
 ) -> Result<ModelMetadata, PipelineError> {
     let root = root.as_ref();
-    if root.join("latest").exists() || root.join("champion").exists() {
+    if root.join("latest").exists() {
         let (_, metadata) = load_champion::<B>(root, device)?;
         return Ok(metadata);
     }
@@ -259,19 +259,6 @@ pub fn bootstrap_champion<B: Backend>(
     save_generation(root, &metadata, &model)?;
     publish_champion(root, generation)?;
     Ok(metadata)
-}
-
-/// Backward-compatible name for [`bootstrap_champion`].
-///
-/// # Errors
-///
-/// Returns [`PipelineError`] under the same conditions as [`bootstrap_champion`].
-pub fn bootstrap_latest<B: Backend>(
-    root: impl AsRef<Path>,
-    architecture: AlphaZeroNetworkConfig,
-    device: &B::Device,
-) -> Result<ModelMetadata, PipelineError> {
-    bootstrap_champion::<B>(root, architecture, device)
 }
 
 /// Runs a complete candidate and atomically promotes it only on success.

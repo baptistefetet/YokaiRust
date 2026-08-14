@@ -82,12 +82,16 @@ cargo doc --no-deps
 # Build the static browser version and exported champion under web/dist/.
 ./web/scripts/build.sh
 
+# Build the site and package a GitHub Release with the accepted champion.
+./web/scripts/package-release.sh v1.0.0
+
 # Explicit Apple Metal training/checkpoint preflight.
 cargo test --test neural metal_training_state_round_trip_runs_one_real_update -- --ignored --exact
 ```
 
-Release builds use Cargo's portable defaults. Runtime datasets and models are
-ignored by Git and stay inside `data/` and `models/`.
+Release builds use Cargo's portable defaults. Runtime datasets, working model
+histories and generated web files are ignored by Git. Published releases carry
+the deployable website and the minimal accepted checkpoint separately.
 
 ## Commands
 
@@ -127,6 +131,12 @@ model and WebAssembly files. It needs no application backend. WebGPU is selected
 when available, with an automatically loaded Burn Flex CPU fallback. Deploy the
 directory on HTTPS (or serve it from localhost while developing); see
 [the web build guide](web/README.md) for prerequisites and commands.
+
+The [latest GitHub Release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+provides a prebuilt web archive that can be extracted directly into an HTTPS
+document root. The server needs neither Rust nor a backend process. The same
+release also provides the accepted native checkpoint without optimizer state or
+training history, so cloning the repository does not require retraining v26.
 
 ### Ratatui interface
 

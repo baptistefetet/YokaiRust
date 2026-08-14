@@ -12,8 +12,15 @@ if ! command -v wasm-bindgen >/dev/null 2>&1; then
     exit 1
 fi
 
+if [ "$distribution" != "$repository_root/web/dist" ]; then
+    echo "Refusing to clean an unexpected distribution directory: $distribution" >&2
+    exit 1
+fi
+
+rm -rf -- "$distribution"
 mkdir -p "$distribution"
 cp -R "$repository_root/web/static/"* "$distribution/"
+find "$distribution" -name .DS_Store -delete
 
 cargo run --release --bin export-web-model -- \
     "$repository_root/config/training.toml" \

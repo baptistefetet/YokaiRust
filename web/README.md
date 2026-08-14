@@ -27,6 +27,18 @@ The script reads the active model path from `config/training.toml` and writes a
 self-contained deployable directory to `web/dist/`. Generated model and WASM
 files are ignored by Git.
 
+To build the site and prepare versioned release archives with checksums, run:
+
+```bash
+./web/scripts/package-release.sh v1.0.0
+```
+
+This writes ignored artifacts under `web/release/`: a ready-to-deploy web
+archive, a minimal archive containing the accepted native checkpoint, and
+`SHA256SUMS`. The model archive preserves its `models/...` path and can be
+extracted at the repository root. It intentionally excludes optimizer state,
+training snapshots and self-play data.
+
 ## Run and deploy
 
 Serve the contents of `web/dist/`, rather than opening `index.html` through a
@@ -40,3 +52,8 @@ WebGPU requires a secure context in production, so deploy the same files on an
 HTTPS static host. No route, database or backend process is required. The host
 must serve `.wasm` files with the `application/wasm` MIME type; current static
 web servers normally do this by default.
+
+If Rust is not installed on the web server, download the web archive from the
+[latest GitHub Release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+and extract it into the HTTPS document root. All generated JavaScript,
+WebAssembly and champion files are included; no build step runs on the server.

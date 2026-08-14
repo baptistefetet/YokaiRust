@@ -300,6 +300,11 @@ subsequent comparisons:
 The structured JSON reports are authoritative if prose and runtime files ever
 disagree.
 
+The early-stopped v23 capacity ablation is not a complete 15-candidate run.
+Its reports stop at candidate 7 and its accepted champion is generation 7.
+Retain `data/alpha-zero-draw-aware-v23` and
+`models/alpha-zero-draw-aware-v23` as explicitly partial comparison artifacts.
+
 ### 1. Frozen v21 endgame-distance diagnostic
 
 The read-only diagnostic is complete for every saved v21 checkpoint from 0
@@ -533,20 +538,30 @@ self-play batches reach 26.8k–44.6k positions/s while smaller arena batches
 reach 6.8k–14.2k positions/s per evaluator, consistent with the isolated
 batch-size curve above.
 
-### 4. Active experiment: v23 uses a smaller network
+### 4. Early-stopped experiment: v23 uses a smaller network
 
-The fresh `alpha-zero-draw-aware-v23` run changes only model capacity: 32
+The `alpha-zero-draw-aware-v23` run changed only model capacity: 32
 feature channels and two residual blocks replace v22's 64 channels and four
 blocks. The 64-unit shared dense representation, encoder, objectives, seed,
 game budgets, optimizer schedule, restart logic and promotion gates remain
 unchanged. Model format version 4 prevents checkpoints with the old shape from
 being mixed into the run.
 
-This reduces the model from roughly 442,000 to 136,000 parameters. Measure both
-learning and speed over 15 candidates. The smaller network is a significant
-improvement only if its throughput rises without materially weakening policy,
-arena progression or the draw gates. Long-range WDL remains the main research
-criterion; a speedup alone does not establish better learning.
+This reduced the model from roughly 442,000 to 136,000 parameters. The run was
+stopped after seven complete candidates because the expected performance gain
+did not materialize and promotion progress lagged v22. Generation 8 was
+interrupted during self-play and was not persisted. The accepted sequence is
+`0 -> 1 -> 4 -> 7`.
+
+| Gen | Source | Self-play draws | Valid loss P/V | Valid top-1 P/V | Arena | Mirror | Probe | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
+| 1 | 0 | 2/256 | 2.519 / 0.944 | 26.7% / 56.5% | 187/13/0 | 0/4 | 1/64 | promoted (rollout) |
+| 2 | 1 | 33/256 | 2.129 / 1.013 | 38.6% / 59.5% | 153/18/29 | 4/4 | 0/64 | draw rejection |
+| 3 | 1 | 39/256 | 2.025 / 0.726 | 41.9% / 63.2% | 161/10/29 | 4/4 | 2/64 | draw rejection |
+| 4 | 1 | 40/256 | 1.958 / 0.691 | 43.5% / 63.5% | 182/8/10 | 0/4 | 5/64 | promoted |
+| 5 | 4 | 46/256 | 1.847 / 0.679 | 47.2% / 64.7% | 87/87/26 | 0/4 | 1/64 | strength rejection |
+| 6 | 4 | 42/256 | 1.799 / 0.695 | 50.0% / 64.4% | 130/31/39 | 4/4 | 5/64 | draw rejection |
+| 7 | 4 | 50/256 | 1.775 / 0.648 | 50.7% / 64.9% | 134/22/44 | 0/4 | 2/64 | promoted |
 
 The isolated pre-training benchmark was repeated three times on 2026-08-14 on
 the same Apple M4 Max, macOS 26.5.2 and Rust 1.97.1 setup as v22. Reducing the
@@ -566,19 +581,34 @@ The full pipeline remains the meaningful performance test because self-play
 creates dynamic batches while optimization exercises backward passes that this
 inference-only benchmark does not measure.
 
+That full-pipeline result is negative. Neural self-play for candidates 2–7
+processed 8,876,042 positions at a backend-time-weighted 33,152 positions/s;
+the same v22 candidate range achieved 35,396 positions/s. The smaller model is
+therefore 6.3% slower in this sample despite having 69% fewer parameters.
+Dynamic batch sizes and fixed Metal dispatch costs dominate the saved parameter
+count. v23 also promoted three candidates through attempt 7 versus five for
+v22, although its candidate-7 global WDL metrics were better.
+
+The partial frozen diagnostic uses 155 validation games and 5,210 positions.
+Only 20 validation games are draws, all of whose retained examples lie within
+eight plies of the result, so it cannot answer the long-range draw question.
+The smaller network is rejected as the next baseline: lower memory use alone
+is not a significant project improvement when neither runtime nor learning
+progress improves. The next run should restore v22 capacity and target the WDL
+objective directly with an auxiliary scalar value loss.
+
 ### 5. Later ablations, in this order
 
-If v23 does not improve the long-range WDL failure, test these ideas one at a
-time:
+Test these ideas one at a time:
 
-1. **Explicit recent moves.** Encode the origin and destination of the last two
-   moves directly, then test whether some full historical board frames can be
-   removed. Do not discard repetition context: the game remains responsible
-   for exact occurrence counts.
-2. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
+1. **Auxiliary scalar value loss.** Retain the three-class WDL head, but add a
    small MSE term on `P(win) - P(loss)` against `+1/0/-1`. This imports the
    ordered scalar signal that worked well in JavaScript without making a
    certain draw indistinguishable from a 50/50 win/loss prediction.
+2. **Explicit recent moves.** Encode the origin and destination of the last two
+   moves directly, then test whether some full historical board frames can be
+   removed. Do not discard repetition context: the game remains responsible
+   for exact occurrence counts.
 3. **Stronger endgame curriculum.** Increase the early fraction of decisive
    terminal tails and expand from `1` to `2`, `4`, `8`, `16`, then all plies.
    Advance this schedule from the accepted source champion, not rejected

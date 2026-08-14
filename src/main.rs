@@ -4,6 +4,8 @@
 //! stay in library modules so the future Ratatui interface can reuse them
 //! without invoking or parsing this CLI.
 
+mod ui;
+
 use std::{
     env,
     error::Error,
@@ -56,6 +58,20 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .ok_or_else(|| invalid_input("replay requires a JSON file path"))?;
             reject_extra_argument(arguments.next())?;
             print_replay(&Replay::read_json(path)?);
+        }
+        Some("play") => {
+            let mode = arguments
+                .next()
+                .map_or(Ok(ui::PlayMode::default()), |value| value.parse())?;
+            reject_extra_argument(arguments.next())?;
+            ui::play(mode)?;
+        }
+        Some("watch") => {
+            let path = arguments
+                .next()
+                .ok_or_else(|| invalid_input("watch requires a JSON replay path"))?;
+            reject_extra_argument(arguments.next())?;
+            ui::watch(Replay::read_json(path)?)?;
         }
         Some("train") => {
             let arguments = arguments.collect::<Vec<_>>();
@@ -796,12 +812,16 @@ fn print_help() {
         r"YokaiRust
 
 Commands:
+  yokai play [human-vs-human]          Start the local Ratatui match interface
+  yokai watch <file.json>              Open a replay in the Ratatui viewer
   yokai analyze [simulations] [seed]  Analyze the initial position with pure MCTS
   yokai replay <file.json>             Validate and print a recorded game
   yokai train [--config FILE] [--resume latest] [--generations N] [--headless]
                                        Run N AlphaZero generations (default: 1)
   yokai diagnose-endgames [--config FILE]
-                                       Evaluate all checkpoints by terminal distance"
+                                       Evaluate all checkpoints by terminal distance
+
+The human-vs-cpu play mode is reserved but intentionally unavailable in this MVP."
     );
 }
 

@@ -103,6 +103,12 @@ ignored by Git and stay inside `data/` and `models/`.
 ## Commands
 
 ```bash
+# Play a local two-human match in the Ratatui interface.
+cargo run -- play
+
+# Open a validated replay and step through it with the arrow keys.
+cargo run -- watch path/to/game.json
+
 # Pure MCTS from the official initial position.
 cargo run -- analyze [simulations] [seed]
 
@@ -116,6 +122,21 @@ cargo run --release -- train --resume latest --generations 5 --headless
 # Evaluate every checkpoint on the active run's final stable validation split.
 cargo run --release -- diagnose-endgames --config config/training.toml
 ```
+
+### Ratatui MVP
+
+The first interface deliberately enables only human-versus-human play. First is
+always displayed at the bottom and Second at the top. Use the arrow keys or
+WASD to move on the board, Enter to select and play, Tab to move between the
+board and the current player's hand, Escape to cancel, `N` to restart and `Q`
+to quit. Number keys 1–3 select Tanuki, Kitsune and Kodama from the hand.
+
+The right-hand side keeps move history and prediction panels visible. Human
+play does not run inference, so prediction values remain empty; stored replay
+analyses populate the same action/prior/visit/policy/Q table. The session model
+already reserves human-versus-CPU with the human as First (bottom), but the
+command rejects that mode until inference and MCTS run outside the input and
+rendering loop.
 
 `--headless` disables the future TUI, not textual progress. Generation-boundary
 writes are atomic. `latest` points to the accepted champion; rejected candidates

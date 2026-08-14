@@ -1,7 +1,7 @@
 //! Thin command-line adapter around the `yokai` library.
 //!
 //! Parsing and text rendering live here; rules, search and training decisions
-//! stay in library modules so the future Ratatui interface can reuse them
+//! stay in library modules so the Ratatui interface can reuse them
 //! without invoking or parsing this CLI.
 
 mod ui;

@@ -32,8 +32,31 @@ The former v25 runtime files were retired after v26/g14 beat v25/g13 by a
 57.1% score over 400 paired games. Only the current v26 line remains in the
 workspace.
 
-The next product milestone is the Ratatui interface. It can advance independently
-using the stable `Game`, `Action`, `Replay` and analysis contracts.
+The learning baseline is now frozen at v26/g16 while the first interface is
+built. Product work can advance independently using the stable `Game`,
+`Action`, `Replay` and analysis contracts.
+
+## Development roadmap
+
+The next work is intentionally product-first rather than another blind sequence
+of training generations:
+
+1. build a Ratatui MVP that displays the board and hands, accepts only legal
+   actions, shows move history, and opens stored replays;
+2. add human-versus-g16 play, with neural inference and MCTS running outside the
+   rendering/input loop so the terminal remains responsive;
+3. expose analysis already produced by search (best action, root value, priors,
+   visits and Q values), then extend it with root WDL and useful depth data;
+4. polish navigation, errors and game/replay workflows before considering the
+   planned 5×6 variant;
+5. resume learning only as an isolated experiment against the frozen g16
+   baseline, targeting long-horizon draw WDL through loss weighting or decisive
+   endgame sampling before considering another architecture change.
+
+Generation 16 remains the publication and regression reference throughout the
+interface work. A learning experiment will replace it only after a paired arena
+shows a statistically credible strength improvement and the noisy productivity
+gate still passes.
 
 ## Guides
 
@@ -66,6 +89,9 @@ feature branches or pull requests unless explicitly requested.
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
+
+# Build the local API documentation; public additions must be documented.
+cargo doc --no-deps
 
 # Explicit Apple Metal training/checkpoint preflight.
 cargo test --test neural metal_training_state_round_trip_runs_one_real_update -- --ignored --exact

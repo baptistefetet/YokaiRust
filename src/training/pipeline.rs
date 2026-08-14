@@ -37,10 +37,14 @@ impl Evaluator for RolloutOnly {
     }
 }
 
+/// Official outcome counts, including absolute seat and starter-role views.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GameOutcomeStats {
+    /// Games won by absolute [`Player::First`].
     pub first_wins: usize,
+    /// Games won by absolute [`Player::Second`].
     pub second_wins: usize,
+    /// Games ending by official repetition.
     pub draws: usize,
     /// Wins by the side selected to make the first move.
     #[serde(default)]
@@ -53,6 +57,7 @@ pub struct GameOutcomeStats {
     pub unclassified_wins: usize,
 }
 
+/// Persisted audit trail for every phase of one candidate attempt.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GenerationReport {
     /// Accepted checkpoint used as the official arena reference.
@@ -63,49 +68,73 @@ pub struct GenerationReport {
     /// Leaf evaluator used for this generation's persisted self-play.
     #[serde(default)]
     pub self_play_evaluator: SelfPlayEvaluator,
+    /// Newly trained checkpoint identifier.
     pub candidate_generation: u32,
+    /// Self-play trajectories generated or resumed for this attempt.
     pub generated_games: usize,
+    /// Trajectories starting from a visited-state archive prefix.
     #[serde(default)]
     pub restarted_games: usize,
+    /// Prefix occurrences available when restart slots were sampled.
     #[serde(default)]
     pub restart_archive_prefixes: usize,
+    /// Shallowest sampled restart depth.
     #[serde(default)]
     pub restart_ply_min: Option<usize>,
+    /// Deepest sampled restart depth.
     #[serde(default)]
     pub restart_ply_max: Option<usize>,
+    /// Mean sampled restart depth.
     #[serde(default)]
     pub mean_restart_ply: f32,
+    /// Complete games retained after adding this generation.
     pub buffer_games: usize,
+    /// Nonterminal examples retained before augmentation.
     pub buffer_examples: usize,
+    /// Optional decisive-tail length selected for this attempt.
     #[serde(default)]
     pub terminal_window_plies: Option<usize>,
+    /// Extra duplicated tail examples added by scheduled oversampling.
     #[serde(default)]
     pub terminal_extra_examples: usize,
+    /// Whether scheduled tail oversampling was active.
     #[serde(default)]
     pub terminal_oversampling: bool,
+    /// Outcomes over all newly generated trajectories.
     pub self_play_outcomes: GameOutcomeStats,
+    /// Outcomes over initial-position trajectories only.
     #[serde(default)]
     pub initial_self_play_outcomes: GameOutcomeStats,
+    /// Outcomes over archive-restarted trajectories only.
     #[serde(default)]
     pub restarted_self_play_outcomes: GameOutcomeStats,
+    /// Policy-target health for newly generated games.
     #[serde(default)]
     pub generated_dataset_diagnostics: DatasetDiagnostics,
+    /// Policy-target health for the complete retained buffer.
     #[serde(default)]
     pub buffer_dataset_diagnostics: DatasetDiagnostics,
+    /// Optimization losses and validation snapshots.
     pub training: TrainingReport,
+    /// Official candidate-versus-champion comparison.
     pub arena: ArenaResult,
+    /// Deterministic candidate-versus-itself diagnostic.
     pub candidate_mirror: ArenaResult,
+    /// Outcomes from the noisy productivity probe.
     pub candidate_self_play: GameOutcomeStats,
+    /// Individual checks and final publication decision.
     #[serde(default)]
     pub promotion: PromotionDecision,
 }
 
 impl GenerationReport {
+    /// Reports whether the official strength arena passed.
     #[must_use]
     pub const fn arena_threshold_reached(&self) -> bool {
         self.arena.threshold_reached
     }
 
+    /// Reports whether all promotion vetoes passed.
     #[must_use]
     pub const fn promoted(&self) -> bool {
         self.promotion.promoted()
@@ -115,16 +144,19 @@ impl GenerationReport {
 /// Strength and self-play-productivity checks for the published champion.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PromotionDecision {
+    /// Candidate met the configured paired-arena score.
     pub arena_passed: bool,
     /// Whether the deterministic mirror draw rate stayed within its configured
     /// diagnostic limit. This is deliberately not a promotion veto: identical
     /// deterministic players can draw even when noisy self-play is productive.
     #[serde(default)]
     pub mirror_draw_limit_met: bool,
+    /// Noisy self-play draw rate stayed below its productivity limit.
     pub exploratory_draw_gate_passed: bool,
 }
 
 impl PromotionDecision {
+    /// Combines the two actual promotion gates.
     #[must_use]
     pub const fn promoted(self) -> bool {
         self.arena_passed && self.exploratory_draw_gate_passed
@@ -134,114 +166,203 @@ impl PromotionDecision {
 /// Coarse-grained events emitted by a complete `AlphaZero` generation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TrainingProgress {
+    /// Candidate identifiers have been allocated and the attempt is beginning.
     GenerationStarted {
+        /// Accepted checkpoint used as source and arena reference.
         source_generation: u32,
+        /// New checkpoint identifier reserved for this attempt.
         candidate_generation: u32,
     },
+    /// Self-play must be generated because no resumable file was found.
     SelfPlayStarted {
+        /// Leaf evaluator selected for this source generation.
         evaluator: SelfPlayEvaluator,
+        /// Number of scheduled trajectories.
         games: usize,
+        /// Parallel game workers.
         workers: usize,
+        /// Regular MCTS simulations per move.
         simulations: u32,
+        /// Pending leaves evaluated together inside each search.
         search_batch_size: usize,
+        /// Search-only immediate-repetition penalty.
         repetition_contempt: f32,
+        /// Role-aware draw utility used in self-play search.
         starter_draw_value: f32,
+        /// MCTS simulations per move on restarted trajectories.
         restart_simulations: u32,
+        /// Prefix occurrences available to sample.
         restart_archive: usize,
+        /// Trajectory slots assigned a restart.
         planned_restarts: usize,
     },
+    /// A throttled snapshot of concurrent self-play completion.
     SelfPlayAdvanced {
+        /// Finished trajectories.
         completed: usize,
+        /// Total scheduled trajectories.
         total: usize,
     },
+    /// Newly generated self-play has completed.
     SelfPlayFinished {
+        /// Evaluator that produced the stored targets.
         evaluator: SelfPlayEvaluator,
+        /// Completed trajectories.
         games: usize,
+        /// Completed trajectories using a restart prefix.
         restarted_games: usize,
+        /// Recorded nonterminal positions.
         examples: usize,
+        /// Official results of generated games.
         outcomes: GameOutcomeStats,
+        /// Shared inference batching and throughput measurements.
         inference: InferenceStats,
     },
+    /// Previously completed self-play was validated and reused after resume.
     SelfPlayResumed {
+        /// Evaluator recorded in the persisted file.
         evaluator: SelfPlayEvaluator,
+        /// Persisted trajectories.
         games: usize,
+        /// Persisted nonterminal positions.
         examples: usize,
+        /// Persisted restarted trajectories.
         restarted_games: usize,
     },
+    /// Replay-buffer partition and optional endgame sampling are ready.
     DatasetReady {
+        /// Complete games retained in the rolling buffer.
         buffer_games: usize,
+        /// Games contributing optimizer examples.
         training_games: usize,
+        /// Games reserved for validation.
         validation_games: usize,
+        /// Training positions after selection and augmentation.
         training_examples: usize,
+        /// Unaugmented validation positions.
         validation_examples: usize,
+        /// Decisive-tail length, or the full dataset when absent.
         terminal_window_plies: Option<usize>,
+        /// Extra examples introduced by scheduled tail oversampling.
         terminal_extra_examples: usize,
+        /// Whether tail examples augment rather than replace the full set.
         terminal_oversampling: bool,
     },
+    /// Fixed-budget Adam optimization is beginning.
     TrainingStarted {
+        /// Gradient updates scheduled.
         steps: usize,
+        /// Sampled examples per update.
         batch_size: usize,
+        /// Effective learning rate selected from champion milestones.
         learning_rate: f64,
+        /// Updates between metric snapshots.
         validation_interval_steps: usize,
+        /// Whether Adam moments were restored with the source checkpoint.
         optimizer_resumed: bool,
     },
+    /// One periodic training/validation checkpoint is available.
     TrainingAdvanced {
+        /// Total updates scheduled for the attempt.
         total_steps: usize,
+        /// Metrics through the reported update.
         report: TrainingStepReport,
     },
+    /// All optimizer updates completed.
     TrainingFinished {
+        /// Updates actually applied.
         completed_steps: usize,
     },
+    /// Candidate weights and resumable optimizer state are durable.
     CandidateSaved {
+        /// Saved generation identifier.
         generation: u32,
     },
+    /// Official paired strength comparison is beginning.
     ArenaStarted {
+        /// Paired games scheduled.
         games: usize,
+        /// Parallel match workers.
         workers: usize,
+        /// MCTS simulations per move.
         simulations: u32,
+        /// Pending leaves per search evaluation.
         search_batch_size: usize,
+        /// Maximum shared random opening length.
         opening_plies: usize,
     },
+    /// A throttled paired-arena snapshot is available.
     ArenaAdvanced {
+        /// Current match totals.
         progress: ArenaProgress,
     },
+    /// Official strength comparison completed.
     ArenaFinished {
+        /// Candidate/reference outcomes and threshold status.
         result: ArenaResult,
+        /// Candidate backend throughput and batching statistics.
         candidate_inference: InferenceStats,
+        /// Reference backend throughput and batching statistics.
         reference_inference: InferenceStats,
     },
+    /// Deterministic candidate-versus-itself diagnostic is beginning.
     CandidateMirrorStarted {
+        /// Mirror games scheduled.
         games: usize,
+        /// MCTS simulations per move.
         simulations: u32,
+        /// Configured diagnostic draw-rate reference.
         max_draw_rate: f32,
     },
+    /// A throttled deterministic-mirror snapshot is available.
     CandidateMirrorAdvanced {
+        /// Current mirror totals.
         progress: ArenaProgress,
     },
+    /// Deterministic mirror diagnostic completed.
     CandidateMirrorFinished {
+        /// Detailed mirror result.
         result: ArenaResult,
+        /// Observed official draw fraction.
         draw_rate: f32,
+        /// Whether the diagnostic reference was met; this is not a veto.
         within_configured_limit: bool,
     },
+    /// Noisy candidate self-play productivity probe is beginning.
     CandidateSelfPlayStarted {
+        /// Probe trajectories scheduled.
         games: usize,
+        /// MCTS simulations per move.
         simulations: u32,
+        /// Maximum draw rate allowed by the promotion gate.
         max_draw_rate: f32,
     },
+    /// A throttled productivity-probe snapshot is available.
     CandidateSelfPlayAdvanced {
+        /// Finished probe trajectories.
         completed: usize,
+        /// Total scheduled probe trajectories.
         total: usize,
     },
+    /// Noisy productivity probe completed.
     CandidateSelfPlayFinished {
+        /// Official outcomes of probe trajectories.
         outcomes: GameOutcomeStats,
+        /// Observed draw fraction.
         draw_rate: f32,
+        /// Whether the promotion draw gate passed.
         within_configured_limit: bool,
     },
+    /// Candidate atomically became the accepted `latest` champion.
     ChampionPromoted {
+        /// Published generation identifier.
         generation: u32,
     },
+    /// Candidate remains stored for diagnosis but was not published.
     CandidateRejected {
+        /// Rejected generation identifier.
         generation: u32,
+        /// Individual gate results explaining the rejection.
         decision: PromotionDecision,
     },
 }
@@ -1006,34 +1127,49 @@ fn restart_ply_stats(games: &[SelfPlayGame]) -> (Option<usize>, Option<usize>, f
     (minimum, maximum, mean)
 }
 
+/// Typed failures from any phase of a recoverable candidate attempt.
 #[derive(Debug, Error)]
 pub enum PipelineError {
+    /// Training configuration failed semantic validation.
     #[error(transparent)]
     Configuration(crate::TrainingConfigError),
+    /// Checkpoint load, save or publication failed.
     #[error(transparent)]
     Model(#[from] ModelStoreError),
+    /// Shared inference worker could not start.
     #[error(transparent)]
     Inference(#[from] InferenceServiceError),
+    /// Self-play generation failed.
     #[error(transparent)]
     SelfPlay(#[from] SelfPlayError),
+    /// Candidate comparison failed.
     #[error(transparent)]
     Arena(#[from] ArenaError),
+    /// Replay-buffer contents or targets were invalid.
     #[error(transparent)]
     TrainingData(#[from] crate::TrainingDataError),
+    /// A stored complete game replay was invalid.
     #[error(transparent)]
     Replay(#[from] ReplayError),
+    /// Dataset selection left no positions eligible for optimization.
     #[error("training split produced no examples")]
     EmptyTrainingSet,
+    /// A resumable self-play file has incompatible provenance.
     #[error(
         "persisted self-play generation {file_generation} is empty or was not produced by network {expected_source_generation} with {expected_evaluator:?}"
     )]
     InvalidPersistedSelfPlay {
+        /// Candidate attempt encoded by the filename.
         file_generation: u32,
+        /// Champion generation that should have generated its games.
         expected_source_generation: u32,
+        /// Evaluator that should have generated its targets.
         expected_evaluator: SelfPlayEvaluator,
     },
+    /// Filesystem operation failed.
     #[error("training pipeline I/O error: {0}")]
     Io(#[from] io::Error),
+    /// JSON artifact could not be serialized or parsed.
     #[error("training pipeline JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }

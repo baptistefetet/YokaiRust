@@ -1,7 +1,14 @@
+//! Stable bijection between domain [`Action`] values and neural policy slots.
+//!
+//! The network always sees the side to move as if it were [`Player::First`].
+//! Rotating Second's actions here lets one set of weights learn both seats and
+//! prevents board-orientation details from leaking into MCTS or the UI.
+
 use serde::{Deserialize, Serialize};
 
 use crate::game::{Action, BOARD_SQUARES, HandPiece, Player, Square};
 
+/// Width of the policy head: 12 origins × 8 directions + 12 squares × 3 drops.
 pub const POLICY_ACTIONS: usize = 132;
 const BOARD_POLICY_ACTIONS: u8 = 96;
 
@@ -11,6 +18,7 @@ const BOARD_POLICY_ACTIONS: u8 = 96;
 pub struct PolicyIndex(u8);
 
 impl PolicyIndex {
+    /// Validates and wraps a raw policy-vector index.
     #[must_use]
     pub const fn new(index: u8) -> Option<Self> {
         if (index as usize) < POLICY_ACTIONS {
@@ -20,11 +28,13 @@ impl PolicyIndex {
         }
     }
 
+    /// Returns the compact raw index.
     #[must_use]
     pub const fn get(self) -> u8 {
         self.0
     }
 
+    /// Returns the index in the type expected by Rust slices and tensors.
     #[must_use]
     pub const fn as_usize(self) -> usize {
         self.0 as usize

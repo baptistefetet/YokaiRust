@@ -22,21 +22,31 @@ use crate::{
     training::config::OptimizationConfig,
 };
 
+/// Mean optimization losses and health metrics over a set of examples.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LossMetrics {
+    /// Sum of the weighted policy, WDL and auxiliary scalar objectives.
     pub total_loss: f32,
+    /// Cross-entropy between network policy and MCTS visit target.
     pub policy_loss: f32,
+    /// Cross-entropy between WDL logits and official result class.
     pub value_loss: f32,
     /// Unweighted MSE between `P(win) - P(loss)` and the scalar result.
     #[serde(default)]
     pub scalar_value_loss: f32,
+    /// Entropy of predicted policy probabilities.
     pub policy_entropy: f32,
+    /// Mean absolute scalar outcome error.
     pub value_calibration_error: f32,
+    /// Predicted probability mass assigned to illegal actions.
     pub illegal_policy_mass: f32,
+    /// Fraction whose highest policy logit matches the target's highest mass.
     pub policy_top1_accuracy: f32,
     #[serde(default)]
+    /// Fraction whose most likely WDL class matches the official result.
     pub wdl_top1_accuracy: f32,
     #[serde(default)]
+    /// Mean absolute error of predicted draw probability.
     pub draw_probability_error: f32,
     /// Mean multiplier applied to per-position policy cross-entropy.
     #[serde(default = "default_policy_weight")]
@@ -47,16 +57,23 @@ const fn default_policy_weight() -> f32 {
     1.0
 }
 
+/// Periodic metrics snapshot from one optimizer run.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingStepReport {
+    /// One-based optimizer update count.
     pub step: usize,
+    /// Metrics accumulated since the previous report.
     pub training: LossMetrics,
+    /// Full validation metrics, absent when no validation examples exist.
     pub validation: Option<LossMetrics>,
 }
 
+/// Complete optimizer summary for one candidate generation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingReport {
+    /// Periodic training and validation snapshots.
     pub checkpoints: Vec<TrainingStepReport>,
+    /// Number of Adam updates actually applied.
     pub steps_completed: usize,
     /// Effective rate used for every update in this report.
     #[serde(default)]
@@ -64,6 +81,7 @@ pub struct TrainingReport {
 }
 
 impl TrainingReport {
+    /// Returns the final metrics snapshot selected for generation reporting.
     #[must_use]
     pub fn selected(&self) -> Option<&TrainingStepReport> {
         self.checkpoints.last()
@@ -79,7 +97,9 @@ pub struct AlphaZeroTrainingState<B>
 where
     B: AutodiffBackend<FloatElem = f32>,
 {
+    /// Trainable network parameters and batch-normalization state.
     pub model: AlphaZeroNetwork<B>,
+    /// Adam first/second moments associated with exactly those parameters.
     pub optimizer: AlphaZeroOptimizer<B>,
 }
 
@@ -87,6 +107,7 @@ impl<B> AlphaZeroTrainingState<B>
 where
     B: AutodiffBackend<FloatElem = f32>,
 {
+    /// Couples a model with a fresh Adam optimizer configured for this run.
     #[must_use]
     pub fn new(model: AlphaZeroNetwork<B>, config: &OptimizationConfig) -> Self {
         Self {
@@ -96,6 +117,7 @@ where
     }
 }
 
+/// Constructs the `AdamW` optimizer used for all candidate updates.
 #[must_use]
 pub fn new_optimizer<B>(config: &OptimizationConfig) -> AlphaZeroOptimizer<B>
 where

@@ -25,6 +25,7 @@ use crate::{
     },
 };
 
+/// Schema version of checkpoint directories and their metadata.
 pub const MODEL_FORMAT_VERSION: u16 = 5;
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
@@ -32,17 +33,25 @@ const LATEST_FILE: &str = "latest";
 const TRAINING_MODEL_FILE: &str = "training-model";
 const OPTIMIZER_FILE: &str = "optimizer";
 
+/// Compatibility information stored alongside every set of weights.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelMetadata {
+    /// Checkpoint storage schema version.
     pub format_version: u16,
+    /// Neural feature-encoder version expected by the weights.
     pub encoder_version: u16,
+    /// Game rules version that generated the training data.
     pub rules_version: u16,
+    /// Fixed width of the policy output layer.
     pub policy_actions: usize,
+    /// Monotonic candidate generation identifier.
     pub generation: u32,
+    /// Layer dimensions needed to reconstruct the Burn module before loading.
     pub architecture: AlphaZeroNetworkConfig,
 }
 
 impl ModelMetadata {
+    /// Creates metadata populated with every current compatibility version.
     #[must_use]
     pub fn new(generation: u32, architecture: AlphaZeroNetworkConfig) -> Self {
         Self {
@@ -84,20 +93,28 @@ impl ModelMetadata {
     }
 }
 
+/// Checkpoint compatibility, persistence and publication failures.
 #[derive(Debug, Error)]
 pub enum ModelStoreError {
+    /// A checkpoint filesystem operation failed.
     #[error("model I/O error: {0}")]
     Io(#[from] io::Error),
+    /// Metadata is not valid JSON for the current schema.
     #[error("invalid model metadata: {0}")]
     Json(#[from] serde_json::Error),
+    /// Burn failed to serialize or restore tensors or optimizer state.
     #[error("Burn model storage failed: {0}")]
     Burn(String),
+    /// Stored versions, architecture or tensor keys do not match this build.
     #[error("incompatible model: {0}")]
     Incompatible(String),
+    /// Atomic save refused to overwrite an existing generation.
     #[error("model generation {0} already exists")]
     GenerationExists(u32),
+    /// A requested generation directory does not exist.
     #[error("model generation {0} does not exist")]
     GenerationMissing(u32),
+    /// The `latest` champion pointer is absent or does not contain a generation.
     #[error("champion pointer is missing or invalid")]
     InvalidLatest,
 }

@@ -26,6 +26,11 @@ For machine-learning vocabulary, read the glossary at the start of
 [`alphazero-guide.md`](alphazero-guide.md); the code-reading guide assumes those
 terms but does not assume prior neural-network experience.
 
+Every public Rust item now has `///` API documentation, and each source module
+starts with a `//!` overview. `cargo doc --no-deps --open` builds a browsable
+local reference with links between those types. Comments inside functions are
+reserved for invariants and design choices that the code alone cannot explain.
+
 ## A C++ to Rust translation table
 
 | Rust in this project | Approximate C++ mental model | Important difference |

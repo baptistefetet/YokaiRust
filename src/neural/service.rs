@@ -62,15 +62,22 @@ impl Evaluator for InferenceClient {
 /// Snapshot of batching and backend utilization since service startup.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct InferenceStats {
+    /// Number of client calls completed.
     pub jobs: u64,
+    /// Number of batches actually sent through the backend.
     pub backend_batches: u64,
+    /// Total positions evaluated by the backend.
     pub positions: u64,
+    /// Largest backend batch observed.
     pub maximum_batch_size: usize,
+    /// Sum of time spent inside backend evaluation calls.
     pub backend_time: Duration,
+    /// Sum of end-to-end waits across all clients.
     pub cumulative_client_wait: Duration,
 }
 
 impl InferenceStats {
+    /// Returns positions per backend call, or zero before the first call.
     #[must_use]
     pub fn average_batch_size(self) -> f64 {
         if self.backend_batches == 0 {
@@ -79,6 +86,7 @@ impl InferenceStats {
         count_as_f64(self.positions) / count_as_f64(self.backend_batches)
     }
 
+    /// Returns throughput measured only while the backend was evaluating.
     #[must_use]
     pub fn positions_per_backend_second(self) -> f64 {
         let seconds = self.backend_time.as_secs_f64();
@@ -88,6 +96,7 @@ impl InferenceStats {
         count_as_f64(self.positions) / seconds
     }
 
+    /// Returns mean end-to-end latency seen by one client call.
     #[must_use]
     pub fn average_client_wait(self) -> Duration {
         if self.jobs == 0 {
@@ -122,12 +131,16 @@ impl SharedInferenceStats {
     }
 }
 
+/// Invalid batching settings or worker-thread startup failures.
 #[derive(Debug, Error)]
 pub enum InferenceServiceError {
+    /// Maximum backend batch size was zero.
     #[error("maximum inference batch size must be greater than zero")]
     EmptyBatch,
+    /// Minimum batch size was zero or exceeded the maximum.
     #[error("minimum inference batch must be in 1..=maximum batch size")]
     InvalidMinimumBatch,
+    /// The operating system could not spawn the named worker thread.
     #[error("failed to start inference thread: {0}")]
     Spawn(#[from] std::io::Error),
 }
@@ -174,6 +187,9 @@ impl InferenceService {
             return Err(InferenceServiceError::InvalidMinimumBatch);
         }
         let (sender, receiver) = unbounded();
+        // `Arc` gives the worker and all clients shared ownership. Atomics are
+        // sufficient because each field is an independent diagnostic counter;
+        // no multi-field transactional snapshot is required.
         let stats = Arc::new(SharedInferenceStats::default());
         let worker_stats = stats.clone();
         let worker = thread::Builder::new()
@@ -195,6 +211,7 @@ impl InferenceService {
         })
     }
 
+    /// Creates a cheap, cloneable handle for one self-play worker.
     #[must_use]
     pub fn client(&self) -> InferenceClient {
         InferenceClient {
@@ -203,6 +220,7 @@ impl InferenceService {
         }
     }
 
+    /// Takes a non-blocking snapshot of accumulated service statistics.
     #[must_use]
     pub fn stats(&self) -> InferenceStats {
         self.stats.snapshot()
@@ -236,6 +254,8 @@ fn worker_loop<E: Evaluator>(
         };
         let mut jobs = vec![(requests, response)];
         let mut position_count = jobs[0].0.len();
+        // The deadline starts at the oldest queued request, bounding its wait
+        // even when the desired minimum batch never arrives.
         let deadline = Instant::now() + max_wait;
 
         while position_count < max_batch_size {
@@ -299,6 +319,8 @@ fn evaluate_jobs<E: Evaluator>(
     );
     match evaluations {
         Ok(evaluations) => {
+            // Results remain in request order, so contiguous slices can be sent
+            // back to each original client without identifiers or a hash map.
             let mut offset = 0;
             for (requests, response) in jobs {
                 let end = offset + requests.len();

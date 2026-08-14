@@ -13,14 +13,22 @@ use crate::{
     training::config::ArenaConfig,
 };
 
+/// Aggregate paired-match result used by the promotion gate.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArenaResult {
+    /// Games won by the candidate from either seat.
     pub candidate_wins: usize,
+    /// Games won by the accepted reference champion.
     pub reference_wins: usize,
+    /// Official drawn games.
     pub draws: usize,
+    /// Candidate points divided by games, with a draw worth one half.
     pub score: f32,
+    /// Whether `score` meets the configured promotion threshold.
     pub threshold_reached: bool,
+    /// Candidate outcomes while playing as absolute First.
     pub candidate_as_first: ArenaSeatResult,
+    /// Candidate outcomes while playing as absolute Second.
     pub candidate_as_second: ArenaSeatResult,
     /// Number of different seeded opening histories represented by the games.
     /// Both games in a color-swapped pair deliberately count as one opening.
@@ -31,17 +39,22 @@ pub struct ArenaResult {
 /// Candidate results for one absolute player assignment.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ArenaSeatResult {
+    /// Candidate wins from this seat.
     pub wins: usize,
+    /// Candidate losses from this seat.
     pub losses: usize,
+    /// Candidate draws from this seat.
     pub draws: usize,
 }
 
 impl ArenaSeatResult {
+    /// Returns total games represented by this seat breakdown.
     #[must_use]
     pub const fn games(self) -> usize {
         self.wins + self.losses + self.draws
     }
 
+    /// Returns points per game, with each draw worth one half.
     #[must_use]
     pub fn score(self) -> f32 {
         score(self.wins, self.draws, self.games())
@@ -51,14 +64,20 @@ impl ArenaSeatResult {
 /// Consistent snapshot emitted as arena games finish concurrently.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ArenaProgress {
+    /// Games that have reported an outcome.
     pub completed: usize,
+    /// Total games scheduled for this arena.
     pub total: usize,
+    /// Candidate wins observed so far.
     pub candidate_wins: usize,
+    /// Reference wins observed so far.
     pub reference_wins: usize,
+    /// Draws observed so far.
     pub draws: usize,
 }
 
 impl ArenaProgress {
+    /// Returns the candidate's current score over completed games.
     #[must_use]
     pub fn score(self) -> f32 {
         score(self.candidate_wins, self.draws, self.completed)
@@ -132,6 +151,8 @@ where
             .into_par_iter()
             .map(|game_index| {
                 let paired_seed = base_seed.wrapping_add((game_index / 2) as u64);
+                // Adjacent games share their opening seed and swap colors. This
+                // removes much of the first-player/opening luck from comparison.
                 let candidate_player = if game_index % 2 == 0 {
                     Player::First
                 } else {
@@ -297,18 +318,25 @@ fn count_as_f32(value: usize) -> f32 {
     value as f32
 }
 
+/// Failures that invalidate a model-comparison arena.
 #[derive(Debug, Error)]
 pub enum ArenaError {
+    /// Worker or game count was zero.
     #[error("arena worker and game counts must be positive")]
     InvalidConfiguration,
+    /// MCTS failed in one worker.
     #[error(transparent)]
     Search(#[from] SearchError),
+    /// The rules engine rejected a supposedly legal search choice.
     #[error(transparent)]
     Move(#[from] MoveError),
+    /// One game exceeded the configured safety bound.
     #[error("arena game exceeded the safety limit of {0} plies")]
     PlyLimit(usize),
+    /// Rayon could not create the dedicated worker pool.
     #[error("failed to create arena workers: {0}")]
     ThreadPool(#[from] rayon::ThreadPoolBuildError),
+    /// A worker panic poisoned the shared progress mutex.
     #[error("arena progress state was poisoned by a panicking worker")]
     ProgressStatePoisoned,
 }

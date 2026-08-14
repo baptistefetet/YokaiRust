@@ -1,4 +1,7 @@
-//! Explicit local performance probes. They are ignored by the normal suite.
+//! Ignored local Metal benchmarks and retained-checkpoint comparison tools.
+//!
+//! They are intentionally excluded from the normal correctness suite because
+//! they load runtime checkpoints and may occupy the GPU for several minutes.
 
 use std::{
     env,

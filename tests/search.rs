@@ -1,3 +1,5 @@
+//! Behavioral tests for PUCT perspective, noise, batching and subtree reuse.
+
 use std::sync::{Arc, Mutex};
 
 use rand::SeedableRng;

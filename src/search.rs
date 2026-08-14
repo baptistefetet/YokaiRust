@@ -1,3 +1,9 @@
+//! Deterministic PUCT Monte-Carlo tree search and evaluator abstractions.
+//!
+//! Search knows only the [`Evaluator`] trait, not Burn or a particular device.
+//! That separation allows the same tree code to use neural inference, random
+//! rollout bootstrapping, a cache, or small deterministic test doubles.
+
 use std::collections::{HashMap, VecDeque};
 
 use rand::{Rng, RngExt, SeedableRng};
@@ -13,8 +19,11 @@ use crate::{
 /// Input expected by a policy/value evaluator.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct EvaluationRequest {
+    /// Path-independent board state to encode.
     pub position: Position,
+    /// Number of occurrences of the current full position on this path.
     pub repetition_count: u8,
+    /// Whether the side to move also made the trajectory's first move.
     pub current_player_is_starter: bool,
     /// Resulting occurrence count for each legal policy action; zero elsewhere.
     pub action_repetition_counts: [u8; POLICY_ACTIONS],
@@ -23,6 +32,7 @@ pub struct EvaluationRequest {
 }
 
 impl EvaluationRequest {
+    /// Collects all spatial, historical and per-action context from a game.
     #[must_use]
     pub fn from_game(game: &Game) -> Self {
         let positions = game.position_history();
@@ -54,6 +64,7 @@ impl EvaluationRequest {
 /// Policy probabilities and a value from the current player's perspective.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
+    /// One probability per fixed action slot; illegal slots may be ignored later.
     pub policy: [f32; POLICY_ACTIONS],
     /// Win, draw and loss probabilities from the current player's perspective.
     pub wdl: [f32; 3],
@@ -62,6 +73,7 @@ pub struct Evaluation {
 }
 
 impl Evaluation {
+    /// Adapts an older scalar evaluator to an explicit win/draw/loss mixture.
     #[must_use]
     pub const fn new(policy: [f32; POLICY_ACTIONS], value: f32) -> Self {
         let bounded = if value < -1.0 {
@@ -82,6 +94,7 @@ impl Evaluation {
         }
     }
 
+    /// Builds an evaluation and derives its neutral scalar expectation.
     #[must_use]
     pub const fn from_wdl(policy: [f32; POLICY_ACTIONS], wdl: [f32; 3]) -> Self {
         Self {
@@ -91,18 +104,27 @@ impl Evaluation {
         }
     }
 
+    /// Builds a uniform-policy evaluation useful for tests and rollouts.
     #[must_use]
     pub const fn uniform(value: f32) -> Self {
         Self::new([1.0 / 132.0; POLICY_ACTIONS], value)
     }
 }
 
+/// Failures produced by an inference backend or adapter.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum EvaluationError {
+    /// Backend-specific execution or tensor conversion failure.
     #[error("evaluator failed: {0}")]
     Backend(String),
+    /// Evaluator violated the one-result-per-request contract.
     #[error("evaluator returned {actual} results for a batch of {expected}")]
-    BatchSizeMismatch { expected: usize, actual: usize },
+    BatchSizeMismatch {
+        /// Number of submitted requests.
+        expected: usize,
+        /// Number of returned evaluations.
+        actual: usize,
+    },
 }
 
 /// Batch-oriented interface shared by CPU, Metal, and test evaluators.
@@ -118,6 +140,7 @@ pub trait Evaluator {
     ) -> Result<Vec<Evaluation>, EvaluationError>;
 }
 
+/// Baseline evaluator returning a uniform policy and neutral value.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UniformEvaluator;
 
@@ -140,6 +163,7 @@ pub struct CachedEvaluator<E> {
 }
 
 impl<E> CachedEvaluator<E> {
+    /// Wraps an evaluator with a bounded FIFO cache; zero disables storage.
     #[must_use]
     pub fn new(inner: E, max_entries: usize) -> Self {
         Self {
@@ -150,25 +174,30 @@ impl<E> CachedEvaluator<E> {
         }
     }
 
+    /// Borrows the wrapped evaluator.
     #[must_use]
     pub const fn inner(&self) -> &E {
         &self.inner
     }
 
+    /// Mutably borrows the wrapped evaluator, for example to inspect counters.
     pub fn inner_mut(&mut self) -> &mut E {
         &mut self.inner
     }
 
+    /// Returns the number of cached unique requests.
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Reports whether the cache currently contains no requests.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// Removes all predictions while preserving allocated capacity.
     pub fn clear(&mut self) {
         self.entries.clear();
         self.insertion_order.clear();
@@ -242,12 +271,18 @@ impl<E: Evaluator> Evaluator for CachedEvaluator<E> {
     }
 }
 
+/// PUCT budgets, exploration noise and draw-value conventions.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SearchConfig {
+    /// Complete tree traversals performed before choosing an action.
     pub simulations: u32,
+    /// Pending leaves combined into one evaluator call.
     pub evaluation_batch_size: usize,
+    /// Strength of the PUCT prior-driven exploration bonus.
     pub c_puct: f32,
+    /// Concentration of root Dirichlet noise used only in neural self-play.
     pub dirichlet_alpha: f32,
+    /// Fraction of root prior replaced by sampled Dirichlet noise.
     pub dirichlet_weight: f32,
     /// Search-only reward given to the opponent when a player causes a draw.
     /// Zero preserves the official game-theoretic value.
@@ -259,11 +294,15 @@ pub struct SearchConfig {
     pub leaf_evaluation: LeafEvaluation,
 }
 
+/// Mechanism used to assign priors and values to newly reached leaves.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LeafEvaluation {
+    /// Query the configured policy/value evaluator.
     #[default]
     Evaluator,
+    /// Play uniformly random legal moves to a terminal state or safety limit.
     RandomRollout {
+        /// Maximum number of random actions before returning neutral value.
         max_plies: usize,
     },
 }
@@ -283,10 +322,14 @@ impl Default for SearchConfig {
     }
 }
 
+/// Move-sampling temperatures before and after the exploratory opening.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TemperatureSchedule {
+    /// Number of initial plies using `exploration_temperature`.
     pub exploration_plies: usize,
+    /// Sampling temperature used to diversify opening self-play.
     pub exploration_temperature: f32,
+    /// Later temperature, normally zero for a visit-count argmax.
     pub final_temperature: f32,
 }
 
@@ -301,6 +344,7 @@ impl Default for TemperatureSchedule {
 }
 
 impl TemperatureSchedule {
+    /// Returns the temperature applicable to a zero-based ply.
     #[must_use]
     pub fn for_ply(self, ply: usize) -> f32 {
         if ply < self.exploration_plies {
@@ -311,27 +355,39 @@ impl TemperatureSchedule {
     }
 }
 
+/// Human-readable diagnostics for one legal root action.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActionAnalysis {
+    /// Domain action represented by this child.
     pub action: Action,
+    /// Normalized evaluator prior after optional root noise.
     pub prior: f32,
+    /// Mean value from the root player's perspective.
     pub q_value: f32,
+    /// Number of simulations that traversed this action.
     pub visits: u32,
+    /// Visit fraction used as the untempered neural policy target.
     pub visit_probability: f32,
 }
 
+/// Selected move, training target and diagnostics returned by one search.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchResult {
+    /// Deterministic visit-count leader, independent of sampling temperature.
     pub best_action: Action,
+    /// Action actually sampled under the requested temperature.
     pub selected_action: Action,
+    /// Mean root value from the current player's perspective.
     pub root_value: f32,
     /// Raw normalized MCTS visit counts used as the neural policy target.
     /// Move-selection temperature must not sharpen this training signal.
     pub policy: [f32; POLICY_ACTIONS],
+    /// Legal actions sorted for display, normally by descending visits.
     pub analysis: Vec<ActionAnalysis>,
 }
 
 impl SearchResult {
+    /// Formats one compact diagnostics line per legal root action.
     #[must_use]
     pub fn analysis_text(&self) -> String {
         self.analysis
@@ -347,16 +403,22 @@ impl SearchResult {
     }
 }
 
+/// Invalid search requests, configuration or evaluator behavior.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum SearchError {
+    /// Leaf evaluation failed.
     #[error(transparent)]
     Evaluation(#[from] EvaluationError),
+    /// Search was requested after the official game ended.
     #[error("cannot search a terminal game")]
     TerminalGame,
+    /// An ongoing position unexpectedly exposes no action.
     #[error("the root position has no legal action")]
     NoLegalAction,
+    /// A numeric budget or exploration setting is invalid.
     #[error("invalid search configuration: {0}")]
     InvalidConfiguration(&'static str),
+    /// A reused tree edge no longer matches the reconstructed game path.
     #[error("tree action became illegal while reconstructing a simulation")]
     InvalidTreeAction,
 }
@@ -463,20 +525,24 @@ impl<E: Evaluator> Mcts<E> {
         })
     }
 
+    /// Borrows the evaluator owned by the search instance.
     #[must_use]
     pub const fn evaluator(&self) -> &E {
         &self.evaluator
     }
 
+    /// Mutably borrows the evaluator, commonly to inspect adapter state.
     pub fn evaluator_mut(&mut self) -> &mut E {
         &mut self.evaluator
     }
 
+    /// Returns allocated nodes, including unreachable nodes from reused roots.
     #[must_use]
     pub fn node_count(&self) -> usize {
         self.arena.len()
     }
 
+    /// Discards the complete tree while retaining evaluator and configuration.
     pub fn reset(&mut self) {
         self.arena.clear();
         self.arena.push(Node::root());
@@ -718,6 +784,8 @@ impl<E: Evaluator> Mcts<E> {
             let node = &mut self.arena[visited];
             node.visits += 1;
             node.value_sum += value;
+            // Each edge changes the side to move. Negating on every step keeps
+            // every node value in that node's own player-to-move perspective.
             value = -value;
         }
     }
@@ -791,6 +859,8 @@ impl<E: Evaluator> Mcts<E> {
 
     fn puct_score(&self, child_index: usize, parent_visits: f32) -> f32 {
         let child = self.arena[child_index];
+        // Child Q is stored for the opponent, so the parent negates it before
+        // adding the exploration bonus based on prior and visit imbalance.
         let q_from_parent = -child.mean_value();
         let exploration = self.config.c_puct * child.prior * parent_visits.sqrt()
             / (1.0 + visits_as_f32(child.visits));

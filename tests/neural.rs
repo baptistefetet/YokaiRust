@@ -1,3 +1,5 @@
+//! Encoder, network-shape, checkpoint and inference-service integration tests.
+
 use std::{
     fs,
     path::PathBuf,

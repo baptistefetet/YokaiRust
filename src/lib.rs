@@ -3,6 +3,11 @@
 //! The engine stores the board in an absolute orientation: First starts at the
 //! bottom and moves toward row zero. Neural-network canonicalization belongs in
 //! the policy/encoder layers, never in the rules themselves.
+//!
+//! Public items are documented deliberately: this crate is also meant to be a
+//! readable Rust and `AlphaZero` learning project, not only an executable engine.
+
+#![warn(missing_docs)]
 
 pub mod game;
 pub mod neural;

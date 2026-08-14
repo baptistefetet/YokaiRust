@@ -52,6 +52,9 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         Game::new_random(&mut starting_rng)
     };
     let restart_ply = game.actions().len();
+    // A restarted trajectory explores an already interesting state with the
+    // larger configured budget, but its temperature schedule starts over so it
+    // still generates diverse continuations from that state.
     let simulations = trajectory_simulations(
         config.simulations,
         config.restart_simulations,
@@ -281,20 +284,28 @@ fn fraction_count(total: usize, fraction: f32) -> usize {
     ((total as f32) * fraction).round() as usize
 }
 
+/// Search, rules, replay or parallel-generation failures during self-play.
 #[derive(Debug, Error)]
 pub enum SelfPlayError {
+    /// MCTS failed to produce an action.
     #[error(transparent)]
     Search(#[from] SearchError),
+    /// The rules engine rejected a selected action.
     #[error(transparent)]
     Move(#[from] MoveError),
+    /// Recorded neural targets failed validation.
     #[error(transparent)]
     Data(#[from] TrainingDataError),
+    /// A restart replay was malformed or incompatible.
     #[error(transparent)]
     Replay(#[from] ReplayError),
+    /// The sampled restart was already terminal.
     #[error("an archive self-play restart must be ongoing")]
     TerminalRestart,
+    /// A trajectory exceeded the configured safety bound.
     #[error("self-play exceeded the safety limit of {0} plies")]
     PlyLimit(usize),
+    /// Rayon could not create the dedicated self-play worker pool.
     #[error("failed to create self-play workers: {0}")]
     ThreadPool(#[from] rayon::ThreadPoolBuildError),
 }

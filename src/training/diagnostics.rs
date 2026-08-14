@@ -14,24 +14,31 @@ use crate::{
     validate_model_with_policy_weight,
 };
 
+/// Schema version of persisted distance-to-result reports.
 pub const ENDGAME_DISTANCE_REPORT_VERSION: u16 = 2;
 
 /// Remaining plies between a recorded position and its official result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum EndgameDistance {
+    /// Final position before the terminal action.
     #[serde(rename = "1")]
     One,
+    /// Two through four plies from the result.
     #[serde(rename = "2-4")]
     TwoToFour,
+    /// Five through eight plies from the result.
     #[serde(rename = "5-8")]
     FiveToEight,
+    /// Nine through sixteen plies from the result.
     #[serde(rename = "9-16")]
     NineToSixteen,
+    /// Seventeen or more plies from the result.
     #[serde(rename = "17+")]
     SeventeenPlus,
 }
 
 impl EndgameDistance {
+    /// Every distance bucket in report order.
     pub const ALL: [Self; 5] = [
         Self::One,
         Self::TwoToFour,
@@ -40,6 +47,7 @@ impl EndgameDistance {
         Self::SeventeenPlus,
     ];
 
+    /// Maps a remaining-ply count to a stable reporting bucket.
     #[must_use]
     pub const fn from_remaining_plies(plies: usize) -> Self {
         match plies {
@@ -51,6 +59,7 @@ impl EndgameDistance {
         }
     }
 
+    /// Returns the label used in JSON and CLI output.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -76,11 +85,17 @@ impl EndgameDistance {
 /// Required validation metrics for one distance and outcome bucket.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EndgameDistanceMetrics {
+    /// Number of examples in this bucket.
     pub examples: usize,
+    /// Mean policy cross-entropy.
     pub policy_loss: f32,
+    /// Fraction whose highest policy logit matches the target's highest mass.
     pub policy_top1_accuracy: f32,
+    /// Mean Win/Draw/Loss cross-entropy.
     pub wdl_loss: f32,
+    /// Fraction whose most likely WDL class matches the official result.
     pub wdl_top1_accuracy: f32,
+    /// Mean squared error of `P(win) - P(loss)` against `+1/0/-1`.
     pub scalar_value_loss: f32,
 }
 
@@ -100,25 +115,40 @@ impl EndgameDistanceMetrics {
 /// Metrics at one distance, with draws kept separate from decisive results.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EndgameDistanceBucketReport {
+    /// Distance range represented by this bucket.
     pub distance: EndgameDistance,
+    /// Metrics over all examples at this distance.
     pub all: EndgameDistanceMetrics,
+    /// Metrics over drawn-game examples only.
     pub draws: EndgameDistanceMetrics,
+    /// Metrics over decisive-game examples only.
     pub decisive: EndgameDistanceMetrics,
 }
 
 /// One checkpoint evaluated on a frozen, whole-game validation split.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EndgameDistanceReport {
+    /// Report JSON schema version.
     pub report_version: u16,
+    /// Evaluated model generation.
     pub checkpoint_generation: u32,
+    /// Seed defining the stable whole-game split.
     pub split_seed: u64,
+    /// Configured validation fraction.
     pub validation_fraction: f32,
+    /// Complete games present when the split was frozen.
     pub buffer_games: usize,
+    /// Games assigned to validation.
     pub validation_games: usize,
+    /// Drawn games among validation games.
     pub drawn_validation_games: usize,
+    /// Won games among validation games.
     pub decisive_validation_games: usize,
+    /// Nonterminal positions evaluated across validation games.
     pub validation_examples: usize,
+    /// Policy weight used for a non-starter position in a drawn game.
     pub non_starter_draw_policy_weight: f32,
+    /// Metrics ordered by [`EndgameDistance::ALL`].
     pub buckets: Vec<EndgameDistanceBucketReport>,
 }
 
@@ -264,10 +294,13 @@ pub fn save_endgame_distance_report(
     Ok(())
 }
 
+/// Persistence failures for endgame diagnostic reports.
 #[derive(Debug, Error)]
 pub enum EndgameDiagnosticError {
+    /// Report directory or file operation failed.
     #[error("endgame diagnostic I/O error: {0}")]
     Io(#[from] io::Error),
+    /// Report could not be serialized to JSON.
     #[error("endgame diagnostic JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }

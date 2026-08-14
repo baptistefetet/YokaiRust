@@ -1,3 +1,9 @@
+//! Versioned, validated JSON representation of complete games.
+//!
+//! Deserialization alone is not trusted: [`Replay::to_game`] reapplies every
+//! action through the rules engine and checks the claimed outcome. This keeps
+//! old or manually edited files from silently creating impossible game states.
+
 use std::{fs, io, path::Path};
 
 use serde::{Deserialize, Serialize};
@@ -8,21 +14,31 @@ use crate::{
     game::{Action, Game, MoveError, Outcome, Player, RULES_VERSION},
 };
 
+/// Current schema version of serialized [`Replay`] files.
 pub const REPLAY_FORMAT_VERSION: u16 = 1;
 
+/// Portable record of one game and optional search information for each ply.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Replay {
+    /// Replay JSON schema version.
     pub format_version: u16,
+    /// Rules implementation version used to validate the actions.
     pub rules_version: u16,
+    /// Optional random seed that makes generated games reproducible.
     pub seed: Option<u64>,
+    /// Absolute player who took the first turn.
     pub initial_player: Player,
+    /// Applied actions in chronological order.
     pub actions: Vec<Action>,
+    /// Claimed terminal status, checked by replaying all actions.
     pub outcome: Outcome,
+    /// Optional MCTS alternatives aligned one list per played action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analyses: Option<Vec<Vec<ActionAnalysis>>>,
 }
 
 impl Replay {
+    /// Builds a replay from already collected components.
     #[must_use]
     pub fn from_actions(
         initial_player: Player,
@@ -41,6 +57,7 @@ impl Replay {
         }
     }
 
+    /// Snapshots a validated in-memory game into its portable representation.
     #[must_use]
     pub fn from_game(game: &Game, seed: Option<u64>) -> Self {
         Self::from_actions(
@@ -151,22 +168,51 @@ impl Replay {
     }
 }
 
+/// Failures encountered while parsing, validating or storing a replay.
 #[derive(Debug, Error)]
 pub enum ReplayError {
+    /// File uses a replay schema this build does not understand.
     #[error("unsupported replay format version {0}")]
     UnsupportedFormatVersion(u16),
+    /// File targets a different rules implementation.
     #[error("unsupported rules version {0}")]
     UnsupportedRulesVersion(u16),
+    /// One stored action is illegal at its reconstructed ply.
     #[error("invalid action at ply {ply}: {source}")]
-    InvalidAction { ply: usize, source: MoveError },
+    InvalidAction {
+        /// Zero-based action index.
+        ply: usize,
+        /// Rules-engine rejection.
+        source: MoveError,
+    },
+    /// Optional analysis lists are not aligned one-to-one with actions.
     #[error("expected {expected} analysis lists, got {actual}")]
-    AnalysisCountMismatch { expected: usize, actual: usize },
+    AnalysisCountMismatch {
+        /// Number of played actions.
+        expected: usize,
+        /// Number of stored analysis lists.
+        actual: usize,
+    },
+    /// An analysis mentions an action illegal at that ply.
     #[error("analysis at ply {ply} contains illegal action {action}")]
-    InvalidAnalysisAction { ply: usize, action: Action },
+    InvalidAnalysisAction {
+        /// Zero-based action index.
+        ply: usize,
+        /// Illegal diagnostic alternative.
+        action: Action,
+    },
+    /// Claimed outcome differs from rules-engine reconstruction.
     #[error("replay outcome mismatch: expected {expected:?}, got {actual:?}")]
-    OutcomeMismatch { expected: Outcome, actual: Outcome },
+    OutcomeMismatch {
+        /// Outcome stored in JSON.
+        expected: Outcome,
+        /// Outcome produced by replaying actions.
+        actual: Outcome,
+    },
+    /// JSON syntax or schema is invalid.
     #[error("invalid replay JSON: {0}")]
     Json(#[from] serde_json::Error),
+    /// Replay file could not be read or written.
     #[error("replay I/O error: {0}")]
     Io(#[from] io::Error),
 }

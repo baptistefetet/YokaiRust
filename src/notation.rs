@@ -1,15 +1,24 @@
+//! Human-readable coordinates and actions used by the CLI and future TUI.
+//!
+//! Notation is deliberately kept outside the rules engine: formatting `b2-b3`
+//! is a presentation concern, while [`Action`] remains the shared typed value.
+
 use std::{fmt, str::FromStr};
 
 use thiserror::Error;
 
 use crate::game::{Action, BOARD_HEIGHT, BOARD_WIDTH, HandPiece, Square};
 
+/// Parsing failures for squares, hand pieces and complete actions.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum NotationError {
+    /// A coordinate is not a file `a`–`c` followed by rank `1`–`4`.
     #[error("invalid square notation: {0}")]
     InvalidSquare(String),
+    /// An action is neither `from-to` nor `piece@to`.
     #[error("invalid action notation: {0}")]
     InvalidAction(String),
+    /// A drop names a piece that cannot exist in hand.
     #[error("unknown hand piece: {0}")]
     UnknownHandPiece(String),
 }

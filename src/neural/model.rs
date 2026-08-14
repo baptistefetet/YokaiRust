@@ -21,12 +21,16 @@ const BOARD_VALUES: usize = 12;
 /// Serializable architecture metadata stored next to every checkpoint.
 #[derive(Config, Debug, PartialEq, Eq)]
 pub struct AlphaZeroNetworkConfig {
+    /// Channel width of the convolutional trunk.
     #[config(default = 64)]
     pub filters: usize,
+    /// Number of skip-connected residual blocks.
     #[config(default = 4)]
     pub residual_blocks: usize,
+    /// Width shared by the policy and value branches after board flattening.
     #[config(default = 64)]
     pub shared_hidden: usize,
+    /// Width of the outcome-specific hidden layer.
     #[config(default = 64)]
     pub value_hidden: usize,
 }
@@ -98,6 +102,8 @@ impl<B: Backend> ResidualBlock<B> {
     }
 
     fn forward(&self, input: Tensor<B, 4>) -> Tensor<B, 4> {
+        // The skip connection lets gradients bypass two convolutions. This is
+        // the central ResNet idea and makes deeper stacks easier to optimize.
         let residual = input.clone();
         let hidden = relu(self.norm_1.forward(self.conv_1.forward(input)));
         relu(self.norm_2.forward(self.conv_2.forward(hidden)) + residual)
@@ -118,7 +124,9 @@ pub struct AlphaZeroNetwork<B: Backend> {
 
 /// Unnormalized policy and Win/Draw/Loss logits for each batch item.
 pub struct NetworkOutput<B: Backend> {
+    /// One raw score per fixed policy slot and batch item.
     pub policy_logits: Tensor<B, 2>,
+    /// Three raw scores ordered as win, draw and loss.
     pub wdl_logits: Tensor<B, 2>,
 }
 
@@ -145,6 +153,9 @@ impl<B: Backend> AlphaZeroNetwork<B> {
         let shared = Tensor::cat(vec![trunk.flatten(1, 3), global_features], 1);
         let shared = relu(self.shared_hidden.forward(shared));
 
+        // Only the policy branch consumes action-specific repetition context:
+        // WDL describes the position, while the context distinguishes actions
+        // that would create an immediate official draw.
         let policy = Tensor::cat(vec![shared.clone(), policy_context], 1);
         let policy_logits = self.policy_linear.forward(policy);
 

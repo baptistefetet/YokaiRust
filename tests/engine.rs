@@ -1,3 +1,5 @@
+//! Executable specification of board setup, movement and official outcomes.
+
 use std::str::FromStr;
 
 use yokai::{

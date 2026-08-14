@@ -1,3 +1,5 @@
+//! End-to-end tests for targets, buffers, losses, arenas and promotion logic.
+
 use std::{
     collections::HashSet,
     fs,

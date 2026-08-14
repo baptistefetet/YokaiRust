@@ -12,14 +12,22 @@ use crate::{
     Position, Square,
 };
 
+/// Version stored in checkpoints so incompatible feature layouts are rejected.
 pub const ENCODER_VERSION: u16 = 4;
+/// Number of temporal frames: the current position plus seven predecessors.
 pub const HISTORY_LENGTH: usize = 8;
+/// Number of preceding positions supplied alongside the current one.
 pub const HISTORY_POSITIONS: usize = HISTORY_LENGTH - 1;
 const POSITION_PLANES: usize = 10;
+/// Total spatial channels (`10 piece planes × 8 temporal frames`).
 pub const INPUT_PLANES: usize = POSITION_PLANES * HISTORY_LENGTH;
+/// Flat number of values in one `[planes, rows, columns]` board input.
 pub const INPUT_VALUES: usize = INPUT_PLANES * BOARD_SQUARES;
+/// Hand-count features stored for each temporal frame.
 pub const GLOBAL_FEATURES_PER_FRAME: usize = 6;
+/// Total non-spatial features: temporal hands, repetition and starter role.
 pub const GLOBAL_INPUT_FEATURES: usize = GLOBAL_FEATURES_PER_FRAME * HISTORY_LENGTH + 2;
+/// Two repetition features for each of the 132 policy actions.
 pub const POLICY_CONTEXT_FEATURES: usize = POLICY_ACTIONS * 2;
 
 const CURRENT_PIECES_OFFSET: usize = 0;
@@ -37,21 +45,25 @@ pub struct EncodedPosition {
 }
 
 impl EncodedPosition {
+    /// Borrows the flat channel-first board input.
     #[must_use]
     pub const fn values(&self) -> &[f32; INPUT_VALUES] {
         &self.values
     }
 
+    /// Borrows hand, repetition and player-role features.
     #[must_use]
     pub const fn global_values(&self) -> &[f32; GLOBAL_INPUT_FEATURES] {
         &self.global_values
     }
 
+    /// Reads one spatial feature using explicit plane, row and column indices.
     #[must_use]
     pub const fn get(&self, plane: usize, row: usize, column: usize) -> f32 {
         self.values[plane * BOARD_SQUARES + row * BOARD_WIDTH as usize + column]
     }
 
+    /// Reads one non-spatial feature.
     #[must_use]
     pub const fn get_global(&self, feature: usize) -> f32 {
         self.global_values[feature]
@@ -137,6 +149,8 @@ pub fn policy_context_batch_tensor<B: Backend>(
 pub fn encode_game(game: &Game) -> EncodedPosition {
     let positions = game.position_history();
     let history = std::array::from_fn(|offset| {
+        // `positions` includes the current state. Offset zero therefore selects
+        // `len - 2`, the state immediately before it.
         positions
             .len()
             .checked_sub(offset + 2)
@@ -190,6 +204,8 @@ pub fn encode_position_with_history(
         }
     }
 
+    // Repetition is capped because the third occurrence ends an official game;
+    // larger values would carry no additional rules information.
     global_values[REPETITION_FEATURE] = f32::from(repetition_count.min(3)) / 3.0;
     global_values[STARTER_FEATURE] = if current_player_is_starter { 1.0 } else { 0.0 };
     EncodedPosition {

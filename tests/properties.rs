@@ -1,3 +1,5 @@
+//! Randomized invariants that complement hand-written rules examples.
+
 use proptest::prelude::*;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;

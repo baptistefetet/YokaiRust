@@ -14,9 +14,13 @@ use crate::{
     },
 };
 
+/// Portable CPU backend used by tests and machines without Metal.
 pub type CpuBackend = Flex<f32, i32>;
+/// Apple GPU backend used for fast inference and local training.
 pub type MetalBackend = Metal<f32, i32>;
+/// CPU backend augmented with automatic differentiation for training.
 pub type CpuTrainingBackend = Autodiff<CpuBackend>;
+/// Metal backend augmented with automatic differentiation for training.
 pub type MetalTrainingBackend = Autodiff<MetalBackend>;
 
 /// Synchronous batch evaluator. Policy and value are concatenated before the
@@ -27,21 +31,25 @@ pub struct NetworkEvaluator<B: Backend> {
 }
 
 impl<B: Backend> NetworkEvaluator<B> {
+    /// Couples a model with the device on which its tensors must be allocated.
     #[must_use]
     pub const fn new(model: AlphaZeroNetwork<B>, device: B::Device) -> Self {
         Self { model, device }
     }
 
+    /// Borrows the underlying network, for diagnostics or checkpointing.
     #[must_use]
     pub const fn model(&self) -> &AlphaZeroNetwork<B> {
         &self.model
     }
 
+    /// Borrows the Burn device selected for evaluation.
     #[must_use]
     pub const fn device(&self) -> &B::Device {
         &self.device
     }
 
+    /// Consumes the adapter and returns ownership of its network.
     #[must_use]
     pub fn into_model(self) -> AlphaZeroNetwork<B> {
         self.model
@@ -78,6 +86,9 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
             policy_context_batch_tensor(&policy_contexts, &self.device),
         );
         let output_width = POLICY_ACTIONS + 3;
+        // Concatenating before `into_data` performs one device-to-host transfer
+        // for both heads. GPU synchronization is expensive relative to this
+        // tiny network, so avoiding a second readback materially helps MCTS.
         let predictions = burn::tensor::Tensor::cat(
             vec![
                 softmax(output.policy_logits, 1),

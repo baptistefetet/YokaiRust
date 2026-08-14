@@ -1,3 +1,9 @@
+//! Thin command-line adapter around the `yokai` library.
+//!
+//! Parsing and text rendering live here; rules, search and training decisions
+//! stay in library modules so the future Ratatui interface can reuse them
+//! without invoking or parsing this CLI.
+
 use std::{
     env,
     error::Error,
@@ -19,6 +25,8 @@ use yokai::{
 };
 
 fn main() -> ExitCode {
+    // Rust programs may return `ExitCode` from `main`. Converting every typed
+    // error at this outer boundary keeps lower layers testable and panic-free.
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -63,11 +71,14 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 struct TrainArguments {
+    /// TOML file defining the complete experiment.
     config_path: String,
+    /// Consecutive candidate attempts to run before returning.
     generations: usize,
 }
 
 struct DiagnoseEndgamesArguments {
+    /// TOML file used to reconstruct paths and the stable split.
     config_path: String,
 }
 
@@ -162,6 +173,8 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
     match config.backend {
         BackendKind::Cpu => {
             let device = burn::backend::flex::FlexDevice;
+            // Inference and autodiff are distinct Burn backend types, so both
+            // deterministic random-number generators receive the same seed.
             CpuBackend::seed(&device, config.seed);
             CpuTrainingBackend::seed(&device, config.seed);
             let champion = bootstrap_champion::<CpuBackend>(
@@ -191,6 +204,8 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
         }
         BackendKind::Metal => {
             let device = burn::backend::wgpu::WgpuDevice::default();
+            // The Metal aliases share this WGPU device but retain separate
+            // inference/autodiff type-level capabilities.
             MetalBackend::seed(&device, config.seed);
             MetalTrainingBackend::seed(&device, config.seed);
             let champion = bootstrap_champion::<MetalBackend>(
@@ -326,6 +341,8 @@ fn print_endgame_distance_report(report: &yokai::EndgameDistanceReport) {
 #[allow(clippy::too_many_lines)]
 fn print_training_progress(started: Instant, event: &TrainingProgress) {
     let elapsed = elapsed_text(started.elapsed());
+    // This exhaustive match is valuable during UI work: adding a new progress
+    // variant makes the compiler point to every presentation layer to update.
     match event {
         TrainingProgress::GenerationStarted {
             source_generation,

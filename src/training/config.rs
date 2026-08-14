@@ -7,25 +7,40 @@ use thiserror::Error;
 
 use crate::{AlphaZeroNetworkConfig, ReplayBufferConfig, SelfPlayEvaluator};
 
+/// Burn execution backend selected by the training configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind {
+    /// Apple GPU acceleration through Metal/WGPU.
     Metal,
+    /// Portable CPU execution, mainly for tests and debugging.
     Cpu,
 }
 
+/// Search, exploration and concurrency settings used to generate experience.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelfPlayConfig {
+    /// Complete games generated before each optimization phase.
     pub games_per_generation: usize,
+    /// Parallel game workers sharing the inference batching service.
     pub workers: usize,
+    /// MCTS simulations performed for each regular move.
     pub simulations: u32,
+    /// Leaf positions collected before one evaluator call inside one search.
     pub search_batch_size: usize,
+    /// Safety limit preventing a faulty or cyclic game from running forever.
     pub max_game_plies: usize,
+    /// Maximum number of positions combined in one backend inference call.
     pub inference_batch_size: usize,
+    /// Maximum batching delay after the first inference request arrives.
     pub inference_wait_ms: u64,
+    /// Opening plies during which visit counts are sampled instead of maximized.
     pub exploration_plies: usize,
+    /// Visit-count sampling temperature during exploratory opening plies.
     pub exploration_temperature: f32,
+    /// Visit-count sampling temperature after the exploratory opening.
     pub final_temperature: f32,
+    /// Optional search-only penalty assigned to actions causing repetition.
     pub repetition_contempt: f32,
     /// Draw utility for the starter during self-play; the non-starter gets its negation.
     #[serde(default = "default_starter_draw_value")]
@@ -41,17 +56,23 @@ pub struct SelfPlayConfig {
     pub bootstrap: SelfPlayBootstrapConfig,
 }
 
+/// Optional evaluator used only before the first learned champion exists.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelfPlayBootstrapMode {
+    /// Use the randomly initialized generation-zero neural network.
     #[default]
     Neural,
+    /// Use random MCTS rollouts until a non-zero champion is accepted.
     RandomRolloutUntilFirstPromotion,
 }
 
+/// Settings for generation-zero self-play bootstrapping.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SelfPlayBootstrapConfig {
+    /// Evaluator-selection policy.
     pub mode: SelfPlayBootstrapMode,
+    /// Maximum rollout length before treating the leaf as neutral.
     pub rollout_max_plies: usize,
 }
 
@@ -82,20 +103,25 @@ impl SelfPlayConfig {
     }
 }
 
+/// Dataset, loss and Adam optimizer settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OptimizationConfig {
     /// Number of optimizer updates performed after each self-play batch.
     pub steps_per_generation: usize,
     /// Emit training/validation metrics after this many optimizer updates.
     pub validation_interval_steps: usize,
+    /// Number of sampled positions used by one gradient update.
     pub batch_size: usize,
     /// Initial learning rate, used until a configured champion milestone.
     pub learning_rate: f64,
     /// Optional lower rates selected from the accepted champion generation.
     #[serde(default)]
     pub learning_rate_schedule: Vec<LearningRateStage>,
+    /// L2-style `AdamW` regularization discouraging unnecessarily large weights.
     pub weight_decay: f32,
+    /// Stable whole-game fraction reserved for metrics, never gradient updates.
     pub validation_fraction: f32,
+    /// Whether each sampled example may be reflected left-to-right.
     pub mirror_augmentation: bool,
     /// Policy-loss multiplier for the non-starter's positions in drawn games.
     /// Value/WDL supervision always stays fully weighted.
@@ -112,12 +138,16 @@ pub struct OptimizationConfig {
     /// switching to the complete `AlphaZero` dataset.
     #[serde(default)]
     pub terminal_window_schedule: Option<TerminalWindowSchedule>,
+    /// Retention limits for recent self-play games.
     pub replay_buffer: ReplayBufferConfig,
 }
 
+/// Temporary schedule that grows a decisive endgame-only training window.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TerminalWindowSchedule {
+    /// Number of final plies retained at the start of the schedule.
     pub initial_plies: usize,
+    /// Multiplicative window growth applied after each generation.
     pub growth_factor: usize,
     /// Desired fraction of training samples belonging to the decisive tail.
     pub decisive_fraction: f32,
@@ -125,14 +155,17 @@ pub struct TerminalWindowSchedule {
     pub full_dataset_generation: u32,
 }
 
+/// Learning-rate milestone keyed by the accepted source champion.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LearningRateStage {
     /// Use this rate when the optimization source is at least this generation.
     pub source_generation: u32,
+    /// Adam learning rate selected at and after the milestone.
     pub learning_rate: f64,
 }
 
 impl OptimizationConfig {
+    /// Selects the latest applicable learning-rate milestone.
     #[must_use]
     pub fn learning_rate_for_source_generation(&self, source_generation: u32) -> f64 {
         self.learning_rate_schedule
@@ -142,6 +175,7 @@ impl OptimizationConfig {
             .map_or(self.learning_rate, |stage| stage.learning_rate)
     }
 
+    /// Resolves the endgame window for a candidate generation.
     #[must_use]
     pub fn terminal_window_for_generation(&self, generation: u32) -> Option<usize> {
         let Some(schedule) = self.terminal_window_schedule else {
@@ -159,39 +193,58 @@ impl OptimizationConfig {
     }
 }
 
+/// Fair model-comparison and productivity-diagnostic settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArenaConfig {
+    /// Paired candidate-versus-champion strength games.
     pub games: usize,
+    /// Parallel arena game workers.
     pub workers: usize,
+    /// MCTS simulations per official arena move.
     pub simulations: u32,
+    /// Leaf batch size inside each arena search.
     pub search_batch_size: usize,
     /// Maximum number of reproducible random opening plies. Each paired game
     /// shares the exact same opening before the networks exchange colors.
     #[serde(default = "default_arena_opening_plies")]
     pub opening_plies: usize,
+    /// Minimum candidate score, counting a draw as one half, for promotion.
     pub score_threshold: f32,
     /// Noise-free candidate-versus-itself games used as a cycle diagnostic.
     pub mirror_games: usize,
+    /// Diagnostic draw-rate reference for deterministic mirror games.
     pub max_mirror_draw_rate: f32,
     /// Noisy candidate self-play games used to catch exploration-only cycles.
     pub candidate_self_play_games: usize,
+    /// Maximum noisy self-play draw rate allowed for promotion.
     pub max_candidate_self_play_draw_rate: f32,
 }
 
+/// Runtime storage roots; their contents are intentionally ignored by Git.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PathsConfig {
+    /// Directory containing versioned model generations and `latest` pointer.
     pub models: String,
+    /// Directory containing games, replay buffer, reports and diagnostics.
     pub self_play: String,
 }
 
+/// Complete top-level training configuration loaded from TOML.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingConfig {
+    /// Root deterministic seed from which generation and game seeds derive.
     pub seed: u64,
+    /// Hardware backend for both inference and optimization.
     pub backend: BackendKind,
+    /// Serializable neural architecture dimensions.
     pub network: AlphaZeroNetworkConfig,
+    /// Experience-generation settings.
     pub self_play: SelfPlayConfig,
+    /// Dataset and gradient-update settings.
     pub optimization: OptimizationConfig,
+    /// Candidate comparison and diagnostic settings.
     pub arena: ArenaConfig,
+    /// Runtime artifact locations.
     pub paths: PathsConfig,
 }
 
@@ -471,12 +524,16 @@ fn validate_terminal_window(optimization: &OptimizationConfig) -> Result<(), Tra
     Ok(())
 }
 
+/// Configuration loading, parsing and semantic-validation failures.
 #[derive(Debug, Error)]
 pub enum TrainingConfigError {
+    /// Configuration file could not be read.
     #[error("training configuration I/O error: {0}")]
     Io(#[from] io::Error),
+    /// Configuration text is not valid TOML for this schema.
     #[error("invalid training TOML: {0}")]
     Toml(#[from] toml::de::Error),
+    /// Values parse correctly but violate a cross-field invariant.
     #[error("invalid training configuration: {0}")]
     Invalid(&'static str),
 }

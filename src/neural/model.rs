@@ -15,12 +15,9 @@ use burn::{
     tensor::activation::relu,
 };
 
-use crate::{INPUT_PLANES, POLICY_ACTIONS, POLICY_CONTEXT_FEATURES};
+use crate::{GLOBAL_INPUT_FEATURES, INPUT_PLANES, POLICY_ACTIONS, POLICY_CONTEXT_FEATURES};
 
 const BOARD_VALUES: usize = 12;
-const POLICY_CHANNELS: usize = 2;
-const VALUE_CHANNELS: usize = 1;
-
 /// Serializable architecture metadata stored next to every checkpoint.
 #[derive(Config, Debug, PartialEq, Eq)]
 pub struct AlphaZeroNetworkConfig {
@@ -28,6 +25,8 @@ pub struct AlphaZeroNetworkConfig {
     pub filters: usize,
     #[config(default = 4)]
     pub residual_blocks: usize,
+    #[config(default = 64)]
+    pub shared_hidden: usize,
     #[config(default = 64)]
     pub value_hidden: usize,
 }
@@ -46,6 +45,10 @@ impl AlphaZeroNetworkConfig {
             "the residual tower must contain at least one block"
         );
         assert!(
+            self.shared_hidden > 0,
+            "the shared hidden size must be positive"
+        );
+        assert!(
             self.value_hidden > 0,
             "the value hidden size must be positive"
         );
@@ -60,17 +63,17 @@ impl AlphaZeroNetworkConfig {
             input_conv,
             input_norm,
             residual_tower,
-            policy_conv: pointwise_conv(self.filters, POLICY_CHANNELS, device),
-            policy_norm: BatchNormConfig::new(POLICY_CHANNELS).init(device),
+            shared_hidden: LinearConfig::new(
+                self.filters * BOARD_VALUES + GLOBAL_INPUT_FEATURES,
+                self.shared_hidden,
+            )
+            .init(device),
             policy_linear: LinearConfig::new(
-                POLICY_CHANNELS * BOARD_VALUES + POLICY_CONTEXT_FEATURES,
+                self.shared_hidden + POLICY_CONTEXT_FEATURES,
                 POLICY_ACTIONS,
             )
             .init(device),
-            value_conv: pointwise_conv(self.filters, VALUE_CHANNELS, device),
-            value_norm: BatchNormConfig::new(VALUE_CHANNELS).init(device),
-            value_hidden: LinearConfig::new(VALUE_CHANNELS * BOARD_VALUES, self.value_hidden)
-                .init(device),
+            value_hidden: LinearConfig::new(self.shared_hidden, self.value_hidden).init(device),
             value_output: LinearConfig::new(self.value_hidden, 3).init(device),
         }
     }
@@ -107,11 +110,8 @@ pub struct AlphaZeroNetwork<B: Backend> {
     input_conv: Conv2d<B>,
     input_norm: BatchNorm<B>,
     residual_tower: Vec<ResidualBlock<B>>,
-    policy_conv: Conv2d<B>,
-    policy_norm: BatchNorm<B>,
+    shared_hidden: Linear<B>,
     policy_linear: Linear<B>,
-    value_conv: Conv2d<B>,
-    value_norm: BatchNorm<B>,
     value_hidden: Linear<B>,
     value_output: Linear<B>,
 }
@@ -125,26 +125,30 @@ pub struct NetworkOutput<B: Backend> {
 impl<B: Backend> AlphaZeroNetwork<B> {
     /// Runs the shared residual trunk followed by policy and WDL heads.
     ///
-    /// `input` has shape `[batch, planes, rows, columns]`. `policy_context`
+    /// `input` has shape `[batch, planes, rows, columns]`, `global_features`
+    /// contains non-spatial hand/history and role state, and `policy_context`
     /// stores two repetition features for each fixed action slot. Returned
     /// values are logits: callers apply softmax before interpreting them as
     /// probabilities.
     #[must_use]
-    pub fn forward(&self, input: Tensor<B, 4>, policy_context: Tensor<B, 2>) -> NetworkOutput<B> {
+    pub fn forward(
+        &self,
+        input: Tensor<B, 4>,
+        global_features: Tensor<B, 2>,
+        policy_context: Tensor<B, 2>,
+    ) -> NetworkOutput<B> {
         let mut trunk = relu(self.input_norm.forward(self.input_conv.forward(input)));
         for block in &self.residual_tower {
             trunk = block.forward(trunk);
         }
 
-        let policy = relu(
-            self.policy_norm
-                .forward(self.policy_conv.forward(trunk.clone())),
-        );
-        let policy = Tensor::cat(vec![policy.flatten(1, 3), policy_context], 1);
+        let shared = Tensor::cat(vec![trunk.flatten(1, 3), global_features], 1);
+        let shared = relu(self.shared_hidden.forward(shared));
+
+        let policy = Tensor::cat(vec![shared.clone(), policy_context], 1);
         let policy_logits = self.policy_linear.forward(policy);
 
-        let value = relu(self.value_norm.forward(self.value_conv.forward(trunk)));
-        let value = relu(self.value_hidden.forward(value.flatten(1, 3)));
+        let value = relu(self.value_hidden.forward(shared));
         let wdl_logits = self.value_output.forward(value);
 
         NetworkOutput {
@@ -167,12 +171,4 @@ fn same_conv<B: Backend>(
     .with_padding(PaddingConfig2d::Same)
     .with_bias(false)
     .init(device)
-}
-
-fn pointwise_conv<B: Backend>(
-    input_channels: usize,
-    output_channels: usize,
-    device: &B::Device,
-) -> Conv2d<B> {
-    same_conv(input_channels, output_channels, 1, device)
 }

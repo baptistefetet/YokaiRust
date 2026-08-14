@@ -9,8 +9,8 @@ use burn::{
 use crate::{
     Evaluation, EvaluationError, EvaluationRequest, Evaluator, POLICY_ACTIONS,
     neural::{
-        encode_position_with_history, encoded_batch_tensor, model::AlphaZeroNetwork,
-        policy_context_batch_tensor,
+        encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
+        model::AlphaZeroNetwork, policy_context_batch_tensor,
     },
 };
 
@@ -74,6 +74,7 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
             .collect::<Vec<_>>();
         let output = self.model.forward(
             encoded_batch_tensor(&encoded, &self.device),
+            global_batch_tensor(&encoded, &self.device),
             policy_context_batch_tensor(&policy_contexts, &self.device),
         );
         let output_width = POLICY_ACTIONS + 3;

@@ -402,6 +402,7 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 
     assert_eq!(config.network.filters, 64);
     assert_eq!(config.network.residual_blocks, 4);
+    assert_eq!(config.network.shared_hidden, 64);
     assert_eq!(config.self_play.workers, 16);
     assert_eq!(config.self_play.inference_wait_ms, 1);
     assert_eq!(config.self_play.exploration_plies, 12);
@@ -446,8 +447,8 @@ fn checked_in_training_configuration_is_valid_and_strict() {
     assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
     assert_eq!(config.arena.candidate_self_play_games, 64);
     assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v21");
-    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v21");
+    assert_eq!(config.paths.models, "models/alpha-zero-draw-aware-v22");
+    assert_eq!(config.paths.self_play, "data/alpha-zero-draw-aware-v22");
 
     let mut invalid = config;
     invalid.arena.games = 199;
@@ -465,6 +466,13 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 
     invalid.optimization.terminal_window_plies = None;
     invalid.optimization.non_starter_draw_policy_weight = 1.1;
+    assert!(matches!(
+        invalid.validate(),
+        Err(TrainingConfigError::Invalid(_))
+    ));
+
+    invalid.optimization.non_starter_draw_policy_weight = 0.0;
+    invalid.network.shared_hidden = 0;
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))

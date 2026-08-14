@@ -18,8 +18,8 @@ pub use game::{
     WinReason,
 };
 pub use neural::{
-    ENCODER_VERSION, EncodedPosition, HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES,
-    POLICY_CONTEXT_FEATURES,
+    ENCODER_VERSION, EncodedPosition, GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES,
+    HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, POLICY_CONTEXT_FEATURES,
     checkpoint::{
         MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
         load_latest, load_training_generation, next_generation, publish_champion, publish_latest,
@@ -29,6 +29,7 @@ pub use neural::{
     evaluator::{
         CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend, NetworkEvaluator,
     },
+    global_batch_tensor,
     model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
     policy_context_batch_tensor,
     service::{InferenceClient, InferenceService, InferenceServiceError, InferenceStats},

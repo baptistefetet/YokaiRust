@@ -9,11 +9,15 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, BOARD_SQUARES, CpuBackend, EncodedPosition, Evaluation,
-    EvaluationError, EvaluationRequest, Evaluator, Game, HandPiece, INPUT_PLANES, InferenceService,
-    MetalBackend, ModelMetadata, ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece,
-    PieceKind, Player, Position, Square, encode_position, encoded_batch_tensor, load_generation,
-    load_latest, policy_context_batch_tensor, publish_latest, save_generation, stored_generations,
+    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, BOARD_SQUARES, CpuBackend, Evaluation,
+    EvaluationError, EvaluationRequest, Evaluator, GLOBAL_FEATURES_PER_FRAME,
+    GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece, INPUT_PLANES, InferenceService,
+    MetalBackend, MetalTrainingBackend, ModelMetadata, ModelStoreError, NetworkEvaluator,
+    POLICY_ACTIONS, Piece, PieceKind, Player, Position, Square, TrainingConfig, TrainingExample,
+    encode_position, encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
+    load_generation, load_latest, load_training_generation, policy_context_batch_tensor,
+    publish_latest, save_generation, save_training_generation, stored_generations,
+    train_state_with_progress,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -58,14 +62,19 @@ fn game_encoding_includes_the_previous_position() {
     assert_eq!(request.history[0], Some(initial));
     assert!(request.history[1..].iter().all(Option::is_none));
     assert!(!request.current_player_is_starter);
-    // Frame one starts at plane 16 and is canonicalized for Second, who now moves.
-    assert!((encoded.get(16, 3, 1) - 1.0).abs() < f32::EPSILON);
-    assert!((encoded.get(21, 0, 1) - 1.0).abs() < f32::EPSILON);
-    assert_plane_is_constant(&encoded, INPUT_PLANES - 1, 0.0);
+    // Frame one starts at plane 10 and is canonicalized for Second, who now moves.
+    assert!((encoded.get(10, 3, 1) - 1.0).abs() < f32::EPSILON);
+    assert!((encoded.get(15, 0, 1) - 1.0).abs() < f32::EPSILON);
+    assert!(
+        encoded.global_values()[GLOBAL_FEATURES_PER_FRAME..GLOBAL_FEATURES_PER_FRAME * 2]
+            .iter()
+            .all(|value| value.abs() < f32::EPSILON)
+    );
+    assert!(encoded.get_global(GLOBAL_INPUT_FEATURES - 1).abs() < f32::EPSILON);
 }
 
 #[test]
-fn hand_and_repetition_planes_are_normalized_constants() {
+fn hand_repetition_and_role_features_are_normalized_scalars() {
     let position = position_with(
         &[
             (3, 1, PieceKind::Koropokkuru, Player::First),
@@ -76,11 +85,39 @@ fn hand_and_repetition_planes_are_normalized_constants() {
     );
     let encoded = encode_position(&position, 2);
 
-    assert_plane_is_constant(&encoded, 10 + HandPiece::Tanuki.index(), 1.0);
-    assert_plane_is_constant(&encoded, 10 + HandPiece::Kitsune.index(), 0.5);
-    assert_plane_is_constant(&encoded, 13 + HandPiece::Kodama.index(), 0.5);
-    assert_plane_is_constant(&encoded, INPUT_PLANES - 2, 2.0 / 3.0);
-    assert_plane_is_constant(&encoded, INPUT_PLANES - 1, 1.0);
+    assert!((encoded.get_global(HandPiece::Tanuki.index()) - 1.0).abs() < f32::EPSILON);
+    assert!((encoded.get_global(HandPiece::Kitsune.index()) - 0.5).abs() < f32::EPSILON);
+    assert!((encoded.get_global(3 + HandPiece::Kodama.index()) - 0.5).abs() < f32::EPSILON);
+    assert!((encoded.get_global(GLOBAL_INPUT_FEATURES - 2) - 2.0 / 3.0).abs() < 1.0e-6);
+    assert!((encoded.get_global(GLOBAL_INPUT_FEATURES - 1) - 1.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn historical_hand_counts_remain_available_as_global_features() {
+    let kings = [
+        (3, 1, PieceKind::Koropokkuru, Player::First),
+        (0, 1, PieceKind::Koropokkuru, Player::Second),
+    ];
+    let current = position_with(&kings, [[2, 1, 0], [0, 0, 1]], Player::First);
+    let previous = position_with(&kings, [[0, 0, 1], [1, 2, 0]], Player::Second);
+    let mut history = [None; HISTORY_POSITIONS];
+    history[0] = Some(previous);
+
+    let encoded = encode_position_with_history(&current, 1, false, &history);
+    let previous_offset = GLOBAL_FEATURES_PER_FRAME;
+
+    assert!((encoded.get_global(previous_offset + HandPiece::Kodama.index()) - 0.5).abs() < 1.0e-6);
+    assert!(
+        (encoded.get_global(previous_offset + 3 + HandPiece::Tanuki.index()) - 0.5).abs() < 1.0e-6
+    );
+    assert!(
+        (encoded.get_global(previous_offset + 3 + HandPiece::Kitsune.index()) - 1.0).abs() < 1.0e-6
+    );
+    assert!(
+        encoded.global_values()[2 * GLOBAL_FEATURES_PER_FRAME..GLOBAL_INPUT_FEATURES - 2]
+            .iter()
+            .all(|value| value.abs() < f32::EPSILON)
+    );
 }
 
 #[test]
@@ -107,6 +144,13 @@ fn horizontal_position_mirror_reverses_only_encoded_columns() {
             }
         }
     }
+    assert!(
+        original
+            .global_values()
+            .iter()
+            .zip(mirrored.global_values())
+            .all(|(left, right)| (*left - *right).abs() < f32::EPSILON)
+    );
 }
 
 #[test]
@@ -126,17 +170,81 @@ fn residual_network_has_fixed_policy_and_wdl_outputs() {
     let contexts = [[0; POLICY_ACTIONS]; 2];
     let output = model.forward(
         encoded_batch_tensor(&positions, &device),
+        global_batch_tensor(&positions, &device),
         policy_context_batch_tensor(&contexts, &device),
     );
 
     assert_eq!(output.policy_logits.dims(), [2, POLICY_ACTIONS]);
     assert_eq!(output.wdl_logits.dims(), [2, 3]);
+    assert_eq!(
+        encoded_batch_tensor::<Backend>(&positions, &device).dims(),
+        [2, INPUT_PLANES, 4, 3]
+    );
+    assert_eq!(
+        global_batch_tensor::<Backend>(&positions, &device).dims(),
+        [2, GLOBAL_INPUT_FEATURES]
+    );
     let logits = output
         .wdl_logits
         .into_data()
         .to_vec::<f32>()
         .expect("f32 WDL output");
     assert!(logits.iter().all(|value| value.is_finite()));
+}
+
+#[test]
+fn global_hand_features_reach_both_network_heads() {
+    use burn::prelude::Backend;
+
+    type TestBackend = CpuBackend;
+
+    let device = burn::backend::flex::FlexDevice;
+    TestBackend::seed(&device, 17);
+    let model = AlphaZeroNetworkConfig::new()
+        .with_filters(8)
+        .with_residual_blocks(1)
+        .with_shared_hidden(8)
+        .with_value_hidden(8)
+        .init::<TestBackend>(&device);
+    let kings = [
+        (3, 1, PieceKind::Koropokkuru, Player::First),
+        (0, 1, PieceKind::Koropokkuru, Player::Second),
+    ];
+    let without_hands = position_with(&kings, [[0; 3]; 2], Player::First);
+    let with_hands = position_with(&kings, [[1, 2, 0], [0, 0, 1]], Player::First);
+    let positions = [
+        encode_position(&without_hands, 1),
+        encode_position(&with_hands, 1),
+    ];
+    let contexts = [[0; POLICY_ACTIONS]; 2];
+    let output = model.forward(
+        encoded_batch_tensor(&positions, &device),
+        global_batch_tensor(&positions, &device),
+        policy_context_batch_tensor(&contexts, &device),
+    );
+    let policy = output
+        .policy_logits
+        .into_data()
+        .to_vec::<f32>()
+        .expect("f32 policy output");
+    let wdl = output
+        .wdl_logits
+        .into_data()
+        .to_vec::<f32>()
+        .expect("f32 WDL output");
+
+    assert!(
+        policy[..POLICY_ACTIONS]
+            .iter()
+            .zip(&policy[POLICY_ACTIONS..])
+            .any(|(left, right)| (*left - *right).abs() > 1.0e-6)
+    );
+    assert!(
+        wdl[..3]
+            .iter()
+            .zip(&wdl[3..])
+            .any(|(left, right)| (*left - *right).abs() > 1.0e-6)
+    );
 }
 
 #[test]
@@ -187,6 +295,105 @@ fn metal_network_evaluator_runs_a_real_batch() {
 
     assert_eq!(evaluations.len(), 2);
     assert!((evaluations[0].policy.iter().sum::<f32>() - 1.0).abs() < 1.0e-5);
+}
+
+#[test]
+#[ignore = "strict preflight requiring an available Metal device"]
+fn metal_training_state_round_trip_runs_one_real_update() {
+    use burn::{module::AutodiffModule, prelude::Backend};
+
+    let root = unique_test_directory();
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    MetalTrainingBackend::seed(&device, 193);
+    let checked_in_config = TrainingConfig::load(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/training.toml"),
+    )
+    .expect("checked-in v22 configuration");
+    let architecture = checked_in_config.network;
+    let mut optimization = checked_in_config.optimization;
+    optimization.steps_per_generation = 1;
+    optimization.validation_interval_steps = 1;
+    optimization.batch_size = 1;
+    optimization.weight_decay = 0.0;
+    let position = Position::initial(Player::First);
+    let action = position.legal_actions()[0];
+    let mut policy = [0.0; POLICY_ACTIONS];
+    policy[action
+        .policy_index(position.side_to_move())
+        .expect("legal action has a policy index")
+        .as_usize()] = 1.0;
+    let example = TrainingExample {
+        position,
+        repetition_count: 1,
+        current_player_is_starter: true,
+        action_repetition_counts: [0; POLICY_ACTIONS],
+        history: [None; HISTORY_POSITIONS],
+        policy,
+        value: 1.0,
+    };
+    let state = AlphaZeroTrainingState::new(
+        architecture.clone().init::<MetalTrainingBackend>(&device),
+        &optimization,
+    );
+    let (state, report) = train_state_with_progress(
+        state,
+        std::slice::from_ref(&example),
+        std::slice::from_ref(&example),
+        &optimization,
+        193,
+        &device,
+        &|_| {},
+    );
+    let encoded = [encode_position(&example.position, example.repetition_count)];
+    let contexts = [example.action_repetition_counts];
+    let before = state
+        .model
+        .clone()
+        .valid()
+        .forward(
+            encoded_batch_tensor(&encoded, &device),
+            global_batch_tensor(&encoded, &device),
+            policy_context_batch_tensor(&contexts, &device),
+        )
+        .policy_logits
+        .into_data()
+        .to_vec::<f32>()
+        .expect("policy values before checkpoint save");
+    let metadata = ModelMetadata::new(0, architecture);
+
+    assert!(report.selected().is_some_and(|checkpoint| {
+        checkpoint.training.total_loss.is_finite()
+            && checkpoint
+                .validation
+                .is_some_and(|validation| validation.total_loss.is_finite())
+    }));
+    save_training_generation(&root, &metadata, &state).expect("training state save");
+    let (loaded, loaded_metadata) =
+        load_training_generation::<MetalTrainingBackend>(&root, 0, &optimization, &device)
+            .expect("training state load")
+            .expect("resumable checkpoint");
+    let after = loaded
+        .model
+        .valid()
+        .forward(
+            encoded_batch_tensor(&encoded, &device),
+            global_batch_tensor(&encoded, &device),
+            policy_context_batch_tensor(&contexts, &device),
+        )
+        .policy_logits
+        .into_data()
+        .to_vec::<f32>()
+        .expect("policy values after checkpoint load");
+
+    assert_eq!(loaded_metadata, metadata);
+    assert!(
+        before
+            .iter()
+            .zip(after)
+            .all(|(left, right)| (*left - right).abs() < f32::EPSILON)
+    );
+
+    fs::remove_dir_all(root).expect("Metal preflight checkpoint cleanup");
 }
 
 #[derive(Clone)]
@@ -325,6 +532,7 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
     let before = model
         .forward(
             encoded_batch_tensor(&encoded, &device),
+            global_batch_tensor(&encoded, &device),
             policy_context_batch_tensor(&contexts, &device),
         )
         .policy_logits
@@ -344,6 +552,7 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
     let after = loaded
         .forward(
             encoded_batch_tensor(&encoded, &device),
+            global_batch_tensor(&encoded, &device),
             policy_context_batch_tensor(&contexts, &device),
         )
         .policy_logits
@@ -404,12 +613,4 @@ fn unique_test_directory() -> PathBuf {
         std::process::id(),
         NEXT_ID.fetch_add(1, Ordering::Relaxed)
     ))
-}
-
-fn assert_plane_is_constant(encoded: &EncodedPosition, plane: usize, expected: f32) {
-    for row in 0..4 {
-        for column in 0..3 {
-            assert!((encoded.get(plane, row, column) - expected).abs() < 1.0e-6);
-        }
-    }
 }

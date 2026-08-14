@@ -50,11 +50,11 @@ For every non-terminal position, the network predicts:
 - **WDL**: win, draw and loss logits from the current player's perspective.
 
 The input contains the current state and seven preceding states. Each state
-contributes 16 piece/hand planes; two final planes encode current repetition
-count and whether the player to move started the game. The policy branch also
-receives, for each action slot, the occurrence count of the resulting position
-and an immediate-threefold flag. MCTS computes this context from the complete
-`Game` history.
+contributes ten spatial piece planes and six scalar hand counts. Two final
+scalars encode current repetition count and whether the player to move started
+the game. The policy branch also receives, for each action slot, the occurrence
+count of the resulting position and an immediate-threefold flag. MCTS computes
+this context from the complete `Game` history.
 
 The policy target is the normalized MCTS visit distribution, not merely the
 action eventually played. Temperature affects action sampling but never
@@ -96,19 +96,25 @@ is a useful experiment.
 [`src/neural/model.rs`](../src/neural/model.rs) has three conceptual parts:
 
 ```text
-encoded game [batch, 130, 4, 3]
-                 |
-       shared residual trunk
-          /              \
- policy head          WDL head
- 132 logits            3 logits
+board history [batch, 80, 4, 3]    globals [batch, 50]
+                |                         |
+       shared residual tower              |
+                |                         |
+                +------ concatenate ------+
+                            |
+                 shared dense representation
+                     /                 \
+            policy head              WDL head
+             132 logits                3 logits
 ```
 
-The shared convolutional trunk learns board patterns useful to both questions.
-The policy head maps those patterns plus per-action repetition context to 132
-action slots. The WDL head maps the same patterns to three outcome logits.
-Separate heads keep “which move?” and “who wins?” distinct while sharing most
-of the computation.
+The shared convolutional tower learns board patterns useful to both questions.
+After the convolutions, its flattened output is concatenated with the global
+features and mixed by a shared dense layer. The policy head maps that
+representation plus per-action repetition context to 132 action slots. The WDL
+head maps the same shared representation to three outcome logits. Separate
+heads keep “which move?” and “who wins?” distinct while sharing the state
+representation.
 
 The default model is deliberately small: 64 feature channels and four residual
 blocks. A 3×4 board does not justify a large image model, and small generations
@@ -127,20 +133,16 @@ inherit neural conventions.
 
 A captured piece in hand has no board coordinate, and the order in which pieces
 were captured carries no information. The encoder therefore keeps only one
-count per droppable piece type for each player. The current implementation
-copies each normalized count across a constant input plane; this does not encode
-an order or a location, but it does route a global scalar through the
-convolutional trunk.
-
-The earlier JavaScript network used a more literal representation: it kept
-these counts in a separate scalar vector and concatenated that vector with the
-spatial board features after the convolutions. Comparing the two representations
-is a useful future architecture experiment.
+normalized count per droppable piece type for each player and history frame.
+These counts stay in a 48-value scalar vector, outside the convolutions. Current
+repetition and starter role add two more global features. The complete scalar
+vector is concatenated with the spatial board features after the residual
+tower, matching the separation used by the earlier JavaScript network.
 
 ### History and repetition context
 
 The board alone cannot tell how often it occurred. Eight frames provide recent
-motion; the current repetition plane and per-action occurrence counts expose
+motion; the current repetition scalar and per-action occurrence counts expose
 the immediate rule consequence. `Game` still owns the complete history and is
 the sole authority for declaring a draw. Neural input guides search; it never
 replaces the rules engine.

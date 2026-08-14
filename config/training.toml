@@ -4,6 +4,7 @@ backend = "metal"
 [network]
 filters = 64
 residual_blocks = 4
+shared_hidden = 64
 value_hidden = 64
 
 [self_play]
@@ -98,5 +99,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-draw-aware-v21"
-self_play = "data/alpha-zero-draw-aware-v21"
+models = "models/alpha-zero-draw-aware-v22"
+self_play = "data/alpha-zero-draw-aware-v22"

@@ -13,7 +13,8 @@ The repository contains:
 - capture, promotion, parachuting, victory and threefold-repetition rules;
 - a canonical 132-action policy encoding and versioned JSON replays;
 - deterministic PUCT/MCTS with subtree reuse and batched inference;
-- a 130-plane history-and-role encoder plus action-aligned repetition context;
+- an 80-plane board-history encoder plus 50 non-spatial features and
+  action-aligned repetition context;
 - a Burn residual network with policy and Win/Draw/Loss (WDL) heads;
 - CPU tests and WGPU/Metal training on Apple Silicon;
 - parallel self-play, a rolling replay buffer and stable whole-game validation;
@@ -83,10 +84,16 @@ Moves use `b2-b3`. Drops use a full piece name such as `kodama@a4`.
 
 ## Development
 
+Project changes are developed, committed, and pushed directly on `main`. Do not
+create feature branches or pull requests unless explicitly requested.
+
 ```bash
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
+
+# Explicit Apple Metal training/checkpoint preflight.
+cargo test --test neural metal_training_state_round_trip_runs_one_real_update -- --ignored --exact
 ```
 
 Release builds use Cargo's portable defaults. Runtime datasets and models are
@@ -354,12 +361,13 @@ mid-run mirror rejections nor teaches the WDL head to recognize distant draws.
 The result supports keeping rollout bootstrap as the baseline while changing a
 different variable next; it does not justify relaxing either draw gate.
 
-### 3. Next experiment: v22 changes only the hand representation
+### 3. Active experiment: v22 changes only the global representation
 
-Create fresh `alpha-zero-draw-aware-v22` model and data paths. Keep v21's
-rollout bootstrap, seed 42, game budgets, replay sampling, optimizer schedule,
-restart logic, promotion threshold and draw gates unchanged. The sole ablation
-is the encoder/network boundary:
+The v22 implementation and fresh `alpha-zero-draw-aware-v22` model/data paths
+are active. The 15-generation run is paused after five complete candidates. It
+keeps v21's rollout bootstrap, seed 42, game budgets, replay sampling,
+optimizer schedule, restart logic, promotion threshold and draw gates
+unchanged. The sole ablation is the encoder/network boundary:
 
 - a hand is an unordered count per droppable piece type and player;
 - keep every board-history feature spatial;
@@ -370,12 +378,81 @@ is the encoder/network boundary:
   shared representation to both policy and WDL heads, as in the JavaScript
   network.
 
-This shape change requires a checkpoint metadata/version bump, shape and
-round-trip tests, a strict preflight, then a fresh 15-generation run. Report
-both policy and WDL train/validation losses and top-1 values explicitly beside
-arena and draw-gate results. In particular, test whether separating non-spatial
-state improves the stalled long-horizon WDL head without sacrificing policy
-learning.
+Encoder version 4 now supplies 80 spatial planes and 50 global scalars. Model
+format version 3 adds a 64-unit dense shared representation after the residual
+tower. CPU tests cover tensor shapes, historical scalar preservation, both-head
+connectivity and exact checkpoint round trips. The strict Metal preflight also
+passes: it performs one real autodiff update, saves the model and Adam state,
+reloads both and checks the policy logits exactly.
+
+The accepted sequence so far is `0 -> 1 -> 3 -> 4 -> 5`. Candidate 2 won its
+arena 117/23/60 but was correctly rejected because all four deterministic
+mirrors cycled. Candidate 6 completed self-play and optimization, then its arena
+was manually interrupted at 40/200. Its 256 games remain persisted, while its
+unpublished checkpoint is retained as
+`models/alpha-zero-draw-aware-v22/interrupted-generation-000006` so it cannot
+make the next attempt skip a number. On resume, generation 6 will reuse those
+games, deterministically repeat its short optimization phase, and restart the
+arena. Ten completed attempts remain:
+
+```bash
+cargo run --release -- train --resume latest --generations 10 --headless
+```
+
+Report both policy and WDL train/validation losses and top-1 values explicitly
+beside arena and draw-gate results. In particular, test whether separating
+non-spatial state improves the stalled long-horizon WDL head without
+sacrificing policy learning.
+
+| Gen | Source | Self-play draws | Train loss P/V | Valid loss P/V | Valid top-1 P/V | Arena | Mirror | Probe | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
+| 1 | 0 | 2/256 | 1.800 / 0.281 | 2.633 / 1.176 | 26.0% / 54.6% | 180/20/0 | 0/4 | 2/64 | promoted (rollout) |
+| 2 | 1 | 31/256 | 1.682 / 0.339 | 2.154 / 1.118 | 38.6% / 59.1% | 117/23/60 | 4/4 | 5/64 | draw rejection |
+| 3 | 1 | 40/256 | 1.758 / 0.469 | 2.073 / 0.762 | 43.0% / 63.2% | 171/11/18 | 0/4 | 3/64 | promoted |
+| 4 | 3 | 59/256 | 1.708 / 0.541 | 1.926 / 0.762 | 44.7% / 62.7% | 129/67/4 | 0/4 | 2/64 | promoted |
+| 5 | 4 | 47/256 | 1.649 / 0.531 | 1.860 / 0.830 | 47.6% / 62.8% | 137/39/24 | 0/4 | 4/64 | promoted |
+
+#### v22 speed baseline before training
+
+There is no equivalent preserved v21 measurement, so these numbers are a v22
+baseline rather than evidence of a speedup or regression. They were measured
+on 2026-08-12 on an Apple M4 Max (40-core GPU, 128 GB) with macOS 26.5.2,
+Rust 1.97.1, Burn 0.21.0/Metal and an optimized release build. The table reports
+the median of three consecutive runs; each run performs an untimed warmup for
+every batch size before measuring 4,096 positions (at least 16 batches).
+
+| Batch | Median ms/batch | Median positions/s | Observed positions/s |
+| ---: | ---: | ---: | ---: |
+| 1 | 2.258 | 443 | 274–465 |
+| 8 | 2.168 | 3,690 | 3,684–3,690 |
+| 16 | 2.171 | 7,371 | 7,281–7,371 |
+| 32 | 2.217 | 14,436 | 14,408–14,457 |
+| 64 | 2.227 | 28,744 | 27,750–29,412 |
+| 128 | 2.514 | 50,925 | 46,458–53,533 |
+
+Reproduce the microbenchmark with:
+
+```bash
+cargo test --release --test performance benchmark_metal_inference_batches -- --ignored --exact --nocapture
+```
+
+The completed v22 run should additionally record wall time per generation and
+the self-play/arena inference throughput and average batch sizes printed by the
+pipeline. Those end-to-end figures include search, scheduling and game length,
+which this isolated network benchmark intentionally excludes.
+
+The first neural self-play batches already provide an interim end-to-end
+baseline. Generation 1 used rollout search and therefore performed no neural
+inference. Generation 6 is included because self-play completed before the
+pause, even though its arena did not.
+
+| Gen | Inference positions | Average batch | Backend positions/s |
+| ---: | ---: | ---: | ---: |
+| 2 | 1,769,053 | 91.3 | 38,349 |
+| 3 | 1,393,378 | 84.5 | 34,885 |
+| 4 | 1,458,090 | 91.7 | 36,885 |
+| 5 | 1,566,943 | 61.9 | 26,820 |
+| 6 | 1,674,344 | 97.6 | 39,755 |
 
 ### 4. Later ablations, in this order
 
@@ -384,7 +461,7 @@ at a time:
 
 1. **Smaller network.** Compare the current 64 filters and four residual blocks
    with 32 filters and two blocks. The JavaScript 3×4 model had roughly 77,000
-   parameters versus roughly 410,000 currently; a smaller Rust model may learn
+   parameters versus roughly 442,000 in v22; a smaller Rust model may learn
    more reliably from the available number of correlated positions.
 2. **Explicit recent moves.** Encode the origin and destination of the last two
    moves directly, then test whether some full historical board frames can be

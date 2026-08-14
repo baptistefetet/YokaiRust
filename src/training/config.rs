@@ -285,6 +285,7 @@ impl TrainingConfig {
     pub fn validate(&self) -> Result<(), TrainingConfigError> {
         if self.network.filters == 0
             || self.network.residual_blocks == 0
+            || self.network.shared_hidden == 0
             || self.network.value_hidden == 0
         {
             return Err(TrainingConfigError::Invalid(

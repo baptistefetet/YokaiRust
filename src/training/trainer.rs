@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AlphaZeroNetwork, POLICY_ACTIONS, TrainingExample, encode_position_with_history,
-    encoded_batch_tensor, policy_context_batch_tensor, training::config::OptimizationConfig,
+    encoded_batch_tensor, global_batch_tensor, policy_context_batch_tensor,
+    training::config::OptimizationConfig,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -293,6 +294,7 @@ pub fn validate_model_with_policy_weight<B: Backend<FloatElem = f32>>(
 
 struct BatchTensors<B: Backend> {
     input: Tensor<B, 4>,
+    global_features: Tensor<B, 2>,
     policy_context: Tensor<B, 2>,
     policy: Tensor<B, 2>,
     policy_weight: Tensor<B, 2>,
@@ -352,6 +354,7 @@ impl<B: Backend> BatchTensors<B> {
             .collect::<Vec<_>>();
         Self {
             input: encoded_batch_tensor(&encoded, device),
+            global_features: global_batch_tensor(&encoded, device),
             policy_context: policy_context_batch_tensor(&policy_contexts, device),
             policy: Tensor::from_data(
                 TensorData::new(policy, [examples.len(), POLICY_ACTIONS]),
@@ -380,7 +383,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
     model: &AlphaZeroNetwork<B>,
     batch: BatchTensors<B>,
 ) -> BatchLosses<B> {
-    let output = model.forward(batch.input, batch.policy_context);
+    let output = model.forward(batch.input, batch.global_features, batch.policy_context);
 
     // Cross-entropy for a target distribution p and predicted logits z is
     // -sum(p * log_softmax(z)). Keep one value per position first because

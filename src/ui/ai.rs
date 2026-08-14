@@ -14,7 +14,7 @@ pub(super) enum AiEvent {
         generation: u32,
         simulations: u32,
     },
-    MoveReady {
+    SearchReady {
         request_id: u64,
         result: Box<SearchResult>,
         search_started: Instant,
@@ -27,7 +27,7 @@ pub(super) enum AiEvent {
 }
 
 pub(super) enum AiCommand {
-    Think { request_id: u64, game: Game },
+    Search { request_id: u64, game: Game },
     Advance { action: yokai::Action, game: Game },
     Reset,
     Shutdown,
@@ -53,9 +53,9 @@ impl AiWorker {
         })
     }
 
-    pub(super) fn think(&self, request_id: u64, game: &Game) -> Result<(), String> {
+    pub(super) fn search(&self, request_id: u64, game: &Game) -> Result<(), String> {
         self.commands
-            .send(AiCommand::Think {
+            .send(AiCommand::Search {
                 request_id,
                 game: game.clone(),
             })
@@ -146,11 +146,11 @@ fn run_with_backend<B: Backend<FloatElem = f32>>(
 
     while let Ok(command) = commands.recv() {
         match command {
-            AiCommand::Think { request_id, game } => {
+            AiCommand::Search { request_id, game } => {
                 let search_started = Instant::now();
                 match search.search(&game, 0.0) {
                     Ok(result) => {
-                        let _ = events.send(AiEvent::MoveReady {
+                        let _ = events.send(AiEvent::SearchReady {
                             request_id,
                             result: Box::new(result),
                             search_started,

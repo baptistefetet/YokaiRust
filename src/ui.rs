@@ -31,8 +31,8 @@ use yokai::{
 use self::ai::{AiEvent, AiWorker};
 
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const AI_SOURCE_FOCUS_DURATION: Duration = Duration::from_millis(500);
-const AI_MOVE_DELAY: Duration = Duration::from_millis(800);
+const AI_SOURCE_FOCUS_DURATION: Duration = Duration::from_millis(800);
+const AI_MOVE_DELAY: Duration = Duration::from_millis(1_500);
 const ACTIVE_TRAINING_CONFIG: &str = "config/training.toml";
 const MINIMUM_WIDTH: u16 = 70;
 const MINIMUM_HEIGHT: u16 = 24;
@@ -114,6 +114,7 @@ impl Controller {
 
 #[derive(Clone, Debug)]
 struct PredictionSnapshot {
+    player: Player,
     root_value: Option<f32>,
     wdl: Option<[f32; 3]>,
     actions: Vec<ActionAnalysis>,
@@ -171,115 +172,175 @@ impl MatchSession {
         self.controllers[player.index()]
     }
 
-    fn request_ai_turn(&mut self, now: Instant) -> Result<(), String> {
+    fn request_cpu_move(&mut self, now: Instant) -> Result<(), String> {
         if self.game.outcome().is_terminal()
             || self.controller(self.game.position().side_to_move()) != Controller::Cpu
         {
             return Ok(());
         }
+        self.request_search(now, SearchPurpose::CpuMove)
+    }
+
+    fn request_human_predictions(&mut self, now: Instant) -> Result<(), String> {
+        if self.game.outcome().is_terminal()
+            || self.controller(self.game.position().side_to_move()) != Controller::Human
+            || self.predictions.is_some()
+            || !matches!(self.ai.as_ref().map(|ai| &ai.state), Some(AiState::Idle))
+        {
+            return Ok(());
+        }
+        self.request_search(now, SearchPurpose::HumanPrediction)
+    }
+
+    fn request_search(&mut self, now: Instant, purpose: SearchPurpose) -> Result<(), String> {
         let Some(ai) = &mut self.ai else {
             return Err("CPU controller has no worker".to_owned());
         };
         let request_id = ai.next_request_id;
         ai.next_request_id = ai.next_request_id.wrapping_add(1);
-        ai.worker.think(request_id, &self.game)?;
+        if let Err(message) = ai.worker.search(request_id, &self.game) {
+            ai.state = AiState::Failed(message.clone());
+            return Err(message);
+        }
         ai.state = AiState::Thinking {
             request_id,
             requested_at: now,
+            purpose,
         };
         self.predictions = None;
         Ok(())
     }
 
     fn tick(&mut self, now: Instant) -> Option<MatchUpdate> {
-        let ai = self.ai.as_mut()?;
-        let mut update = None;
-        while let Some(event) = ai.worker.try_event() {
-            match event {
-                AiEvent::Ready {
-                    generation,
-                    simulations,
-                } => {
-                    ai.generation = Some(generation);
-                    ai.simulations = Some(simulations);
-                    if matches!(ai.state, AiState::Loading) {
-                        ai.state = AiState::Idle;
-                    }
-                    update = Some(MatchUpdate::notice(format!(
-                        "Champion generation {generation} loaded"
-                    )));
-                }
-                AiEvent::MoveReady {
-                    request_id,
-                    result,
-                    search_started,
-                    search_finished,
-                } if ai.state.matches_request(request_id) => {
-                    self.predictions = Some(PredictionSnapshot {
-                        root_value: Some(result.root_value),
-                        wdl: None,
-                        actions: result.analysis.clone(),
-                    });
-                    let action = result.best_action;
-                    ai.state = AiState::WaitingToPlay {
-                        request_id,
-                        result,
-                        destination_at: now + AI_SOURCE_FOCUS_DURATION,
-                        apply_at: now + AI_MOVE_DELAY,
-                        search_duration: search_finished.saturating_duration_since(search_started),
-                    };
-                    let focus = match action {
-                        Action::Move { from, .. } => format!("source {from}"),
-                        Action::Drop { piece, .. } => format!("{piece} in hand"),
-                    };
-                    update = Some(MatchUpdate::notice(format!("CPU focuses {focus}")));
-                }
-                AiEvent::Failed {
-                    request_id,
-                    message,
-                } if request_id.is_none_or(|id| ai.state.matches_request(id)) => {
-                    ai.state = AiState::Failed(message.clone());
-                    update = Some(MatchUpdate::notice(format!("CPU error: {message}")));
-                }
-                AiEvent::MoveReady { .. } | AiEvent::Failed { .. } => {}
-            }
+        let mut update = self.process_ai_events(now);
+        if let Some(move_update) = self.apply_pending_cpu_move(now) {
+            update = Some(move_update);
         }
+        if let Err(message) = self.request_human_predictions(now) {
+            update = Some(MatchUpdate::notice(format!("CPU error: {message}")));
+        }
+        update
+    }
 
-        let move_is_due = matches!(
-            ai.state,
-            AiState::WaitingToPlay { apply_at, .. } if now >= apply_at
-        );
-        if move_is_due {
-            let state = std::mem::replace(&mut ai.state, AiState::Idle);
-            let AiState::WaitingToPlay {
-                result,
-                search_duration,
-                ..
-            } = state
-            else {
-                return update;
+    fn process_ai_events(&mut self, now: Instant) -> Option<MatchUpdate> {
+        let mut update = None;
+        loop {
+            let event = self.ai.as_ref()?.worker.try_event();
+            let Some(event) = event else {
+                break;
             };
-            let action = result.best_action;
-            match self.game.apply(action) {
-                Ok(transition) => {
-                    ai.worker.advance(action, &self.game);
-                    update = Some(MatchUpdate {
-                        notice: format!(
-                            "{} · CPU search {:.2}s",
-                            transition_message(transition),
-                            search_duration.as_secs_f32()
-                        ),
-                        action: Some(action),
-                    });
-                }
-                Err(error) => {
-                    let message = format!("CPU produced an illegal move: {error}");
-                    ai.state = AiState::Failed(message.clone());
-                    update = Some(MatchUpdate::notice(message));
-                }
+            if let Some(event_update) = self.process_ai_event(event, now) {
+                update = Some(event_update);
             }
         }
         update
+    }
+
+    fn process_ai_event(&mut self, event: AiEvent, now: Instant) -> Option<MatchUpdate> {
+        let ai = self.ai.as_mut()?;
+        match event {
+            AiEvent::Ready {
+                generation,
+                simulations,
+            } => {
+                ai.generation = Some(generation);
+                ai.simulations = Some(simulations);
+                if matches!(ai.state, AiState::Loading) {
+                    ai.state = AiState::Idle;
+                }
+                Some(MatchUpdate::notice(format!(
+                    "Champion generation {generation} loaded"
+                )))
+            }
+            AiEvent::SearchReady {
+                request_id,
+                result,
+                search_started,
+                search_finished,
+            } if ai.state.matches_request(request_id) => {
+                let purpose = ai
+                    .state
+                    .search_purpose(request_id)
+                    .expect("matching search has a purpose");
+                let player = self.game.position().side_to_move();
+                let search_duration = search_finished.saturating_duration_since(search_started);
+                self.predictions = Some(PredictionSnapshot {
+                    player,
+                    root_value: Some(result.root_value),
+                    wdl: None,
+                    actions: result.analysis.clone(),
+                });
+                Some(match purpose {
+                    SearchPurpose::HumanPrediction => {
+                        ai.state = AiState::Idle;
+                        MatchUpdate::notice(format!(
+                            "Champion predictions ready for {} · {:.2}s",
+                            player_label(player),
+                            search_duration.as_secs_f32()
+                        ))
+                    }
+                    SearchPurpose::CpuMove => {
+                        let action = result.best_action;
+                        ai.state = AiState::WaitingToPlay {
+                            request_id,
+                            result,
+                            destination_at: now + AI_SOURCE_FOCUS_DURATION,
+                            apply_at: now + AI_MOVE_DELAY,
+                            search_duration,
+                        };
+                        let focus = match action {
+                            Action::Move { from, .. } => format!("source {from}"),
+                            Action::Drop { piece, .. } => format!("{piece} in hand"),
+                        };
+                        MatchUpdate::notice(format!("CPU focuses {focus}"))
+                    }
+                })
+            }
+            AiEvent::Failed {
+                request_id,
+                message,
+            } if request_id.is_none_or(|id| ai.state.matches_request(id)) => {
+                ai.state = AiState::Failed(message.clone());
+                Some(MatchUpdate::notice(format!("CPU error: {message}")))
+            }
+            AiEvent::SearchReady { .. } | AiEvent::Failed { .. } => None,
+        }
+    }
+
+    fn apply_pending_cpu_move(&mut self, now: Instant) -> Option<MatchUpdate> {
+        let ai = self.ai.as_mut()?;
+        if !matches!(ai.state, AiState::WaitingToPlay { apply_at, .. } if now >= apply_at) {
+            return None;
+        }
+        let state = std::mem::replace(&mut ai.state, AiState::Idle);
+        let AiState::WaitingToPlay {
+            result,
+            search_duration,
+            ..
+        } = state
+        else {
+            unreachable!("due CPU move must be waiting to play");
+        };
+        let action = result.best_action;
+        match self.game.apply(action) {
+            Ok(transition) => {
+                self.predictions = None;
+                ai.worker.advance(action, &self.game);
+                Some(MatchUpdate {
+                    notice: format!(
+                        "{} · CPU search {:.2}s",
+                        transition_message(transition),
+                        search_duration.as_secs_f32()
+                    ),
+                    action: Some(action),
+                })
+            }
+            Err(error) => {
+                let message = format!("CPU produced an illegal move: {error}");
+                ai.state = AiState::Failed(message.clone());
+                Some(MatchUpdate::notice(message))
+            }
+        }
     }
 
     fn ai_status(&self, now: Instant) -> Option<String> {
@@ -295,8 +356,20 @@ impl MatchSession {
                 "Loading latest champion… · move queued {:.1}s",
                 now.saturating_duration_since(*requested_at).as_secs_f32()
             ),
-            AiState::Thinking { requested_at, .. } => format!(
+            AiState::Thinking {
+                requested_at,
+                purpose: SearchPurpose::CpuMove,
+                ..
+            } => format!(
                 "CPU thinking… {:.1}s",
+                now.saturating_duration_since(*requested_at).as_secs_f32()
+            ),
+            AiState::Thinking {
+                requested_at,
+                purpose: SearchPurpose::HumanPrediction,
+                ..
+            } => format!(
+                "Champion analyzing human turn… {:.1}s",
                 now.saturating_duration_since(*requested_at).as_secs_f32()
             ),
             AiState::WaitingToPlay {
@@ -334,12 +407,19 @@ struct AiRuntime {
     next_request_id: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SearchPurpose {
+    HumanPrediction,
+    CpuMove,
+}
+
 enum AiState {
     Loading,
     Idle,
     Thinking {
         request_id: u64,
         requested_at: Instant,
+        purpose: SearchPurpose,
     },
     WaitingToPlay {
         request_id: u64,
@@ -358,6 +438,21 @@ impl AiState {
             Self::Thinking { request_id, .. } | Self::WaitingToPlay { request_id, .. }
                 if *request_id == expected
         )
+    }
+
+    const fn search_purpose(&self, expected: u64) -> Option<SearchPurpose> {
+        match self {
+            Self::Thinking {
+                request_id,
+                purpose,
+                ..
+            } if *request_id == expected => Some(*purpose),
+            Self::Loading
+            | Self::Idle
+            | Self::Thinking { .. }
+            | Self::WaitingToPlay { .. }
+            | Self::Failed(_) => None,
+        }
     }
 
     fn pending_action(&self) -> Option<Action> {
@@ -758,11 +853,14 @@ impl App {
         match session.game.apply(action) {
             Ok(transition) => {
                 session.predictions = None;
+                if let Some(ai) = &session.ai {
+                    ai.worker.advance(action, &session.game);
+                }
                 self.selection = None;
                 self.focus = Focus::Board;
                 self.cursor = action.destination();
                 self.notice = transition_message(transition);
-                if let Err(error) = session.request_ai_turn(Instant::now()) {
+                if let Err(error) = session.request_cpu_move(Instant::now()) {
                     self.notice = format!("{} · CPU error: {error}", self.notice);
                 }
             }
@@ -1158,9 +1256,19 @@ fn render_history(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
 fn render_analysis(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let view = analysis_view(app);
+    let title = view.perspective.map_or_else(
+        || " Predictions ".to_owned(),
+        |(player, controller)| {
+            format!(
+                " Predictions · {} · {} ",
+                short_player_label(player),
+                controller.label()
+            )
+        },
+    );
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .title(" Predictions ");
+        .title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height == 0 || inner.width == 0 {
@@ -1237,6 +1345,7 @@ fn render_analysis(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 struct AnalysisView<'a> {
+    perspective: Option<(Player, Controller)>,
     root_value: Option<f32>,
     wdl: Option<[f32; 3]>,
     actions: Option<&'a [ActionAnalysis]>,
@@ -1247,16 +1356,32 @@ fn analysis_view(app: &App) -> AnalysisView<'_> {
     match &app.session {
         Session::Match(session) => session.predictions.as_ref().map_or(
             AnalysisView {
+                perspective: Some((
+                    session.game.position().side_to_move(),
+                    session.controller(session.game.position().side_to_move()),
+                )),
                 root_value: None,
                 wdl: None,
                 actions: None,
-                note: if session.ai.is_some() {
-                    "Champion analysis will appear after the CPU searches."
-                } else {
-                    "Reserved for human/CPU play. No search runs in human/human mode."
+                note: match session.ai.as_ref().map(|ai| &ai.state) {
+                    None => "No model analysis runs in human/human mode.",
+                    Some(AiState::Loading) => "Loading the latest champion…",
+                    Some(AiState::Thinking {
+                        purpose: SearchPurpose::HumanPrediction,
+                        ..
+                    }) => "Champion is analyzing the human position…",
+                    Some(AiState::Thinking {
+                        purpose: SearchPurpose::CpuMove,
+                        ..
+                    }) => "Champion is choosing the CPU move…",
+                    Some(AiState::Failed(_)) => "Champion analysis is unavailable.",
+                    Some(AiState::Idle | AiState::WaitingToPlay { .. }) => {
+                        "Champion analysis is starting…"
+                    }
                 },
             },
             |predictions| AnalysisView {
+                perspective: Some((predictions.player, session.controller(predictions.player))),
                 root_value: predictions.root_value,
                 wdl: predictions.wdl,
                 actions: Some(&predictions.actions),
@@ -1264,6 +1389,7 @@ fn analysis_view(app: &App) -> AnalysisView<'_> {
             },
         ),
         Session::Replay(session) => AnalysisView {
+            perspective: None,
             root_value: None,
             wdl: None,
             actions: session.current_analyses(),
@@ -1415,6 +1541,7 @@ impl fmt::Display for PieceKindLabel {
 
 #[cfg(test)]
 mod tests {
+    use super::ai::AiCommand;
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
 
@@ -1500,8 +1627,65 @@ mod tests {
     }
 
     #[test]
-    fn cpu_result_focuses_source_then_destination_before_being_applied() {
-        let (worker, events, _commands) = AiWorker::stub();
+    fn champion_predictions_are_computed_for_the_human_turn_without_playing() {
+        let (worker, events, commands) = AiWorker::stub();
+        let mut app = App::for_cpu_match(worker);
+        let now = Instant::now();
+        events
+            .send(AiEvent::Ready {
+                generation: 16,
+                simulations: 400,
+            })
+            .unwrap();
+
+        app.tick_at(now);
+        match commands.try_recv().expect("human search request") {
+            AiCommand::Search { request_id, game } => {
+                assert_eq!(request_id, 0);
+                assert!(game.actions().is_empty());
+                assert_eq!(game.position().side_to_move(), Player::First);
+            }
+            _ => panic!("expected a search for the starting position"),
+        }
+        let human_action = app.game().legal_actions()[0];
+        let analysis = ActionAnalysis {
+            action: human_action,
+            prior: 0.5,
+            q_value: 0.25,
+            visits: 400,
+            visit_probability: 1.0,
+        };
+        events
+            .send(AiEvent::SearchReady {
+                request_id: 0,
+                result: Box::new(SearchResult {
+                    best_action: human_action,
+                    selected_action: human_action,
+                    root_value: 0.25,
+                    policy: [0.0; yokai::POLICY_ACTIONS],
+                    analysis: vec![analysis],
+                }),
+                search_started: now,
+                search_finished: now + Duration::from_millis(20),
+            })
+            .unwrap();
+
+        app.tick_at(now + Duration::from_millis(20));
+
+        assert!(app.game().actions().is_empty());
+        let view = analysis_view(&app);
+        assert_eq!(view.actions, Some([analysis].as_slice()));
+        assert_eq!(view.perspective, Some((Player::First, Controller::Human)));
+        let Session::Match(session) = &app.session else {
+            panic!("expected match session");
+        };
+        assert!(matches!(session.ai.as_ref().unwrap().state, AiState::Idle));
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn stale_human_predictions_are_ignored_after_the_human_moves() {
+        let (worker, events, commands) = AiWorker::stub();
         let mut app = App::for_cpu_match(worker);
         let now = Instant::now();
         events
@@ -1511,8 +1695,80 @@ mod tests {
             })
             .unwrap();
         app.tick_at(now);
+        assert!(matches!(
+            commands.try_recv().expect("initial human search"),
+            AiCommand::Search { request_id: 0, .. }
+        ));
 
-        app.apply_action("b2-b3".parse().unwrap());
+        let human_action = "b2-b3".parse().unwrap();
+        app.apply_action(human_action);
+        assert!(matches!(
+            commands.try_recv().expect("human action advances the tree"),
+            AiCommand::Advance { action, .. } if action == human_action
+        ));
+        assert!(matches!(
+            commands.try_recv().expect("CPU search request"),
+            AiCommand::Search { request_id: 1, .. }
+        ));
+        events
+            .send(AiEvent::SearchReady {
+                request_id: 0,
+                result: Box::new(SearchResult {
+                    best_action: human_action,
+                    selected_action: human_action,
+                    root_value: -0.5,
+                    policy: [0.0; yokai::POLICY_ACTIONS],
+                    analysis: Vec::new(),
+                }),
+                search_started: now,
+                search_finished: now + Duration::from_millis(10),
+            })
+            .unwrap();
+
+        app.tick_at(now + Duration::from_millis(10));
+
+        assert!(analysis_view(&app).actions.is_none());
+        let Session::Match(session) = &app.session else {
+            panic!("expected match session");
+        };
+        assert!(matches!(
+            session.ai.as_ref().unwrap().state,
+            AiState::Thinking {
+                request_id: 1,
+                purpose: SearchPurpose::CpuMove,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn cpu_result_focuses_source_then_destination_before_being_applied() {
+        let (worker, events, commands) = AiWorker::stub();
+        let mut app = App::for_cpu_match(worker);
+        let now = Instant::now();
+        events
+            .send(AiEvent::Ready {
+                generation: 16,
+                simulations: 400,
+            })
+            .unwrap();
+        app.tick_at(now);
+        assert!(matches!(
+            commands.try_recv().expect("initial human search"),
+            AiCommand::Search { request_id: 0, .. }
+        ));
+
+        let human_action = "b2-b3".parse().unwrap();
+        app.apply_action(human_action);
+        assert!(matches!(
+            commands.try_recv().expect("human action advances the tree"),
+            AiCommand::Advance { action, .. } if action == human_action
+        ));
+        assert!(matches!(
+            commands.try_recv().expect("CPU search request"),
+            AiCommand::Search { request_id: 1, .. }
+        ));
+
         let cpu_action = app.game().legal_actions()[0];
         let analysis = ActionAnalysis {
             action: cpu_action,
@@ -1522,8 +1778,8 @@ mod tests {
             visit_probability: 1.0,
         };
         events
-            .send(AiEvent::MoveReady {
-                request_id: 0,
+            .send(AiEvent::SearchReady {
+                request_id: 1,
                 result: Box::new(SearchResult {
                     best_action: cpu_action,
                     selected_action: cpu_action,
@@ -1575,6 +1831,22 @@ mod tests {
             &["b2-b3".parse().unwrap(), cpu_action]
         );
         assert!(app.notice.contains("CPU search 0.02s"));
+        assert!(analysis_view(&app).actions.is_none());
+        let Session::Match(session) = &app.session else {
+            panic!("expected match session");
+        };
+        assert!(matches!(
+            session.ai.as_ref().unwrap().state,
+            AiState::Thinking {
+                request_id: 2,
+                purpose: SearchPurpose::HumanPrediction,
+                ..
+            }
+        ));
+        assert!(matches!(
+            commands.try_recv().expect("CPU action advances the tree"),
+            AiCommand::Advance { action, .. } if action == cpu_action
+        ));
     }
 
     #[test]

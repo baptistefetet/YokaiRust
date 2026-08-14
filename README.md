@@ -137,9 +137,10 @@ the board and the current player's hand, Escape to cancel, `N` to restart and
 `human-vs-cpu` loads the accepted generation referenced by `latest` under the
 model path in `config/training.toml`. Model loading and deterministic MCTS run
 on a background worker, leaving rendering and input responsive. The human is
-First at the bottom. Once search finishes, the interface exposes its root value,
-priors, visits, policy and Q values, waits briefly before applying the CPU move,
-then highlights the move on the board.
+First at the bottom. The same champion analyzes every human and CPU turn, so the
+interface exposes the current side's root value, priors, visits, policy and Q
+values. Human predictions never play a move; CPU predictions wait briefly before
+the chosen move is applied and highlighted on the board.
 
 The same right-hand panels show move history and stored replay analyses. Local
 human-versus-human play does not run inference, so its prediction values remain

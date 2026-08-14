@@ -31,6 +31,7 @@ use yokai::{
 use self::ai::{AiEvent, AiWorker};
 
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const AI_SOURCE_FOCUS_DURATION: Duration = Duration::from_millis(500);
 const AI_MOVE_DELAY: Duration = Duration::from_millis(800);
 const ACTIVE_TRAINING_CONFIG: &str = "config/training.toml";
 const MINIMUM_WIDTH: u16 = 70;
@@ -223,13 +224,15 @@ impl MatchSession {
                     ai.state = AiState::WaitingToPlay {
                         request_id,
                         result,
+                        destination_at: now + AI_SOURCE_FOCUS_DURATION,
                         apply_at: now + AI_MOVE_DELAY,
                         search_duration: search_finished.saturating_duration_since(search_started),
                     };
-                    update = Some(MatchUpdate::notice(format!(
-                        "CPU selected {action}; move reveal in {:.1}s",
-                        AI_MOVE_DELAY.as_secs_f32()
-                    )));
+                    let focus = match action {
+                        Action::Move { from, .. } => format!("source {from}"),
+                        Action::Drop { piece, .. } => format!("{piece} in hand"),
+                    };
+                    update = Some(MatchUpdate::notice(format!("CPU focuses {focus}")));
                 }
                 AiEvent::Failed {
                     request_id,
@@ -297,10 +300,25 @@ impl MatchSession {
                 now.saturating_duration_since(*requested_at).as_secs_f32()
             ),
             AiState::WaitingToPlay {
+                result,
+                destination_at,
+                apply_at,
+                ..
+            } if now < *destination_at => match result.best_action {
+                Action::Move { from, .. } => format!(
+                    "CPU focuses {from} · target in {:.1}s",
+                    destination_at.saturating_duration_since(now).as_secs_f32()
+                ),
+                Action::Drop { piece, .. } => format!(
+                    "CPU selects {piece} in hand · target in {:.1}s",
+                    destination_at.saturating_duration_since(now).as_secs_f32()
+                ),
+            },
+            AiState::WaitingToPlay {
                 result, apply_at, ..
             } => format!(
-                "CPU plays {} in {:.1}s",
-                result.best_action,
+                "CPU targets {} · plays in {:.1}s",
+                result.best_action.destination(),
                 apply_at.saturating_duration_since(now).as_secs_f32()
             ),
             AiState::Failed(message) => format!("CPU unavailable: {message}"),
@@ -326,6 +344,7 @@ enum AiState {
     WaitingToPlay {
         request_id: u64,
         result: Box<SearchResult>,
+        destination_at: Instant,
         apply_at: Instant,
         search_duration: Duration,
     },
@@ -339,6 +358,28 @@ impl AiState {
             Self::Thinking { request_id, .. } | Self::WaitingToPlay { request_id, .. }
                 if *request_id == expected
         )
+    }
+
+    fn pending_action(&self) -> Option<Action> {
+        match self {
+            Self::WaitingToPlay { result, .. } => Some(result.best_action),
+            Self::Loading | Self::Idle | Self::Thinking { .. } | Self::Failed(_) => None,
+        }
+    }
+
+    fn focused_destination(&self, now: Instant) -> Option<Square> {
+        match self {
+            Self::WaitingToPlay {
+                result,
+                destination_at,
+                ..
+            } if now >= *destination_at => Some(result.best_action.destination()),
+            Self::Loading
+            | Self::Idle
+            | Self::Thinking { .. }
+            | Self::WaitingToPlay { .. }
+            | Self::Failed(_) => None,
+        }
     }
 }
 
@@ -729,11 +770,24 @@ impl App {
         }
     }
 
+    fn effective_selection(&self) -> Option<Selection> {
+        let Session::Match(session) = &self.session else {
+            return None;
+        };
+        self.selection.or_else(|| {
+            let action = session.ai.as_ref()?.state.pending_action()?;
+            Some(match action {
+                Action::Move { from, .. } => Selection::MoveFrom(from),
+                Action::Drop { piece, .. } => Selection::Drop(piece),
+            })
+        })
+    }
+
     fn legal_destination(&self, square: Square) -> bool {
         let Session::Match(session) = &self.session else {
             return false;
         };
-        match self.selection {
+        match self.effective_selection() {
             Some(Selection::MoveFrom(from)) => session
                 .game
                 .is_legal_action(Action::Move { from, to: square }),
@@ -744,11 +798,48 @@ impl App {
         }
     }
 
-    const fn selected_source(&self) -> Option<Square> {
-        match self.selection {
+    fn selected_source(&self) -> Option<Square> {
+        match self.effective_selection() {
             Some(Selection::MoveFrom(square)) => Some(square),
             Some(Selection::Drop(_)) | None => None,
         }
+    }
+
+    fn focused_ai_destination(&self, now: Instant) -> Option<Square> {
+        let Session::Match(session) = &self.session else {
+            return None;
+        };
+        session.ai.as_ref()?.state.focused_destination(now)
+    }
+
+    fn selected_hand_piece(&self, player: Player, piece: HandPiece, index: usize) -> bool {
+        let Session::Match(session) = &self.session else {
+            return false;
+        };
+        let side_to_move = session.game.position().side_to_move();
+        if side_to_move != player {
+            return false;
+        }
+        let human_focus = session.controller(player) == Controller::Human
+            && self.focus == Focus::Hand
+            && self.hand_index == index;
+        let selected_drop = self.selection == Some(Selection::Drop(piece));
+        let ai_drop = session.ai.as_ref().is_some_and(|ai| {
+            matches!(
+                ai.state.pending_action(),
+                Some(Action::Drop { piece: selected, .. }) if selected == piece
+            )
+        });
+        human_focus || selected_drop || ai_drop
+    }
+
+    fn board_cursor(&self, square: Square) -> bool {
+        let Session::Match(session) = &self.session else {
+            return false;
+        };
+        session.controller(session.game.position().side_to_move()) == Controller::Human
+            && self.focus == Focus::Board
+            && self.cursor == square
     }
 
     fn last_action(&self) -> Option<Action> {
@@ -779,6 +870,7 @@ fn move_axis(value: u8, delta: i8, upper_bound: u8) -> u8 {
 
 fn render(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
+    let now = Instant::now();
     if area.width < MINIMUM_WIDTH || area.height < MINIMUM_HEIGHT {
         let message = format!(
             "Terminal too small\n\nMinimum: {MINIMUM_WIDTH}×{MINIMUM_HEIGHT}\nCurrent: {}×{}\n\nPress Q to quit",
@@ -799,12 +891,12 @@ fn render(frame: &mut Frame<'_>, app: &App) {
         Constraint::Length(3),
     ])
     .areas(area);
-    render_header(frame, app, header);
-    render_main(frame, app, main);
+    render_header(frame, app, header, now);
+    render_main(frame, app, main, now);
     render_footer(frame, app, footer);
 }
 
-fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
     let mode = match &app.session {
         Session::Match(session) => {
             let mut label = format!(
@@ -836,7 +928,7 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 if session.controller(app.game().position().side_to_move()) == Controller::Cpu =>
             {
                 session
-                    .ai_status(Instant::now())
+                    .ai_status(now)
                     .unwrap_or_else(|| "CPU turn".to_owned())
             }
             Outcome::Ongoing => format!(
@@ -863,7 +955,7 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
-fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
     if area.width >= 100 {
         let [board, history, analysis] = Layout::horizontal([
             Constraint::Length(34),
@@ -871,7 +963,7 @@ fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Constraint::Min(42),
         ])
         .areas(area);
-        render_board_column(frame, app, board);
+        render_board_column(frame, app, board, now);
         render_history(frame, app, history);
         render_analysis(frame, app, analysis);
     } else {
@@ -880,13 +972,13 @@ fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let [history, analysis] =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .areas(sidebar);
-        render_board_column(frame, app, board);
+        render_board_column(frame, app, board, now);
         render_history(frame, app, history);
         render_analysis(frame, app, analysis);
     }
 }
 
-fn render_board_column(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn render_board_column(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
     let [second_hand, board, first_hand] = Layout::vertical([
         Constraint::Length(3),
         Constraint::Length(12),
@@ -894,21 +986,17 @@ fn render_board_column(frame: &mut Frame<'_>, app: &App, area: Rect) {
     ])
     .areas(area);
     render_hand(frame, app, Player::Second, second_hand);
-    render_board(frame, app, board);
+    render_board(frame, app, board, now);
     render_hand(frame, app, Player::First, first_hand);
 }
 
 fn render_hand(frame: &mut Frame<'_>, app: &App, player: Player, area: Rect) {
     let position = app.game().position();
-    let side_to_move = position.side_to_move();
     let spans = HandPiece::ALL
         .iter()
         .enumerate()
         .flat_map(|(index, &piece)| {
-            let selected = matches!(app.session, Session::Match(_))
-                && app.focus == Focus::Hand
-                && side_to_move == player
-                && app.hand_index == index;
+            let selected = app.selected_hand_piece(player, piece, index);
             let style = if selected {
                 Style::default().fg(Color::Black).bg(Color::Yellow).bold()
             } else if position.hand_count(player, piece) > 0 {
@@ -942,7 +1030,7 @@ fn render_hand(frame: &mut Frame<'_>, app: &App, player: Player, area: Rect) {
     );
 }
 
-fn render_board(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn render_board(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
     let rows = Layout::vertical([Constraint::Length(3); 4]).split(area);
     for (row, row_area) in rows.iter().enumerate() {
         let columns = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(*row_area);
@@ -950,35 +1038,22 @@ fn render_board(frame: &mut Frame<'_>, app: &App, area: Rect) {
             let row = u8::try_from(row).expect("board row fits in u8");
             let column = u8::try_from(column).expect("board column fits in u8");
             let square = Square::new(row, column).expect("rendered board square");
-            render_square(frame, app, square, cell_area);
+            render_square(frame, app, square, cell_area, now);
         }
     }
 }
 
-fn render_square(frame: &mut Frame<'_>, app: &App, square: Square, area: Rect) {
+fn render_square(frame: &mut Frame<'_>, app: &App, square: Square, area: Rect, now: Instant) {
     let piece = app.game().position().piece_at(square);
-    let selected_source = app.selected_source() == Some(square);
-    let legal_destination = app.legal_destination(square);
-    let cursor = matches!(app.session, Session::Match(_))
-        && app.focus == Focus::Board
-        && app.cursor == square;
-    let last_action = app.last_action();
-    let last_destination = last_action.is_some_and(|action| action.destination() == square);
-    let last_source = last_action
-        .is_some_and(|action| matches!(action, Action::Move { from, .. } if from == square));
-
-    let (border_color, border_type) = if selected_source {
-        (Color::Yellow, BorderType::Double)
-    } else if legal_destination {
-        (Color::Green, BorderType::Thick)
-    } else if last_destination {
-        (Color::Yellow, BorderType::Thick)
-    } else if last_source {
-        (Color::DarkGray, BorderType::Thick)
-    } else if cursor {
-        (Color::Cyan, BorderType::Double)
-    } else {
-        (Color::Gray, BorderType::Plain)
+    let (border_color, border_type) = match square_highlight(app, square, now) {
+        SquareHighlight::SelectedSource => (Color::Yellow, BorderType::Double),
+        SquareHighlight::FocusedDestination | SquareHighlight::Cursor => {
+            (Color::Cyan, BorderType::Double)
+        }
+        SquareHighlight::LegalDestination => (Color::Green, BorderType::Thick),
+        SquareHighlight::LastDestination => (Color::Yellow, BorderType::Thick),
+        SquareHighlight::LastSource => (Color::DarkGray, BorderType::Thick),
+        SquareHighlight::None => (Color::Gray, BorderType::Plain),
     };
     let content = piece.map_or_else(
         || "·".to_owned(),
@@ -1002,6 +1077,46 @@ fn render_square(frame: &mut Frame<'_>, app: &App, square: Square, area: Rect) {
             ),
         area,
     );
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SquareHighlight {
+    SelectedSource,
+    FocusedDestination,
+    Cursor,
+    LegalDestination,
+    LastDestination,
+    LastSource,
+    None,
+}
+
+fn square_highlight(app: &App, square: Square, now: Instant) -> SquareHighlight {
+    if app.selected_source() == Some(square) {
+        return SquareHighlight::SelectedSource;
+    }
+    if app.focused_ai_destination(now) == Some(square) {
+        return SquareHighlight::FocusedDestination;
+    }
+    let cursor = app.board_cursor(square);
+    if cursor && app.selection.is_some() {
+        return SquareHighlight::Cursor;
+    }
+    if app.legal_destination(square) {
+        return SquareHighlight::LegalDestination;
+    }
+    let last_action = app.last_action();
+    if last_action.is_some_and(|action| action.destination() == square) {
+        return SquareHighlight::LastDestination;
+    }
+    if last_action
+        .is_some_and(|action| matches!(action, Action::Move { from, .. } if from == square))
+    {
+        return SquareHighlight::LastSource;
+    }
+    if cursor {
+        return SquareHighlight::Cursor;
+    }
+    SquareHighlight::None
 }
 
 fn render_history(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -1350,6 +1465,17 @@ mod tests {
         app.select_hand_piece(2);
         assert_eq!(app.selection, Some(Selection::Drop(HandPiece::Kodama)));
         app.cursor = "c2".parse().unwrap();
+        let now = Instant::now();
+        assert!(app.legal_destination("c2".parse().unwrap()));
+        assert_eq!(
+            square_highlight(&app, "c2".parse().unwrap(), now),
+            SquareHighlight::Cursor
+        );
+        assert_eq!(
+            square_highlight(&app, "a2".parse().unwrap(), now),
+            SquareHighlight::LegalDestination
+        );
+        assert!(app.selected_hand_piece(Player::First, HandPiece::Kodama, 2));
         app.activate_board();
 
         assert_eq!(
@@ -1374,7 +1500,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_result_waits_for_the_reveal_timer_before_being_applied() {
+    fn cpu_result_focuses_source_then_destination_before_being_applied() {
         let (worker, events, _commands) = AiWorker::stub();
         let mut app = App::for_cpu_match(worker);
         let now = Instant::now();
@@ -1414,6 +1540,28 @@ mod tests {
         app.tick_at(result_received);
         assert_eq!(app.game().actions().len(), 1);
         assert_eq!(analysis_view(&app).actions, Some([analysis].as_slice()));
+        let Action::Move { from, to } = cpu_action else {
+            panic!("expected board move");
+        };
+        assert_eq!(app.selected_source(), Some(from));
+        assert_eq!(app.focused_ai_destination(result_received), None);
+        assert_eq!(
+            square_highlight(&app, from, result_received),
+            SquareHighlight::SelectedSource
+        );
+        assert_eq!(
+            square_highlight(&app, to, result_received),
+            SquareHighlight::LegalDestination
+        );
+
+        let destination_focus = result_received + AI_SOURCE_FOCUS_DURATION;
+        app.tick_at(destination_focus);
+        assert_eq!(app.game().actions().len(), 1);
+        assert_eq!(app.focused_ai_destination(destination_focus), Some(to));
+        assert_eq!(
+            square_highlight(&app, to, destination_focus),
+            SquareHighlight::FocusedDestination
+        );
 
         app.tick_at(
             (result_received + AI_MOVE_DELAY)

@@ -185,12 +185,3 @@ cargo fmt --check
 The ignored tests in `tests/performance.rs` are local Metal benchmarks. They are
 not part of the fast correctness suite because they load saved checkpoints and
 can take minutes.
-
-## A practical way to learn from the code
-
-For each module, first read its public structs and function signatures, then the
-corresponding tests, and only then the implementation. Try small changes such as
-adding a diagnostic field or a test position before editing generic Burn code.
-Rust compiler errors are often the most precise explanation of an ownership or
-type relationship; solve the first error first, because later errors may be
-cascades.

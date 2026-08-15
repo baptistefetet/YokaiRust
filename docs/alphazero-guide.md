@@ -32,6 +32,7 @@ These terms occur in logs, configuration and source names:
 | **encoder** | Deterministic conversion from a `Game` into numeric planes understood by the network. |
 | **convolution** | A small learned filter reused over every board location to detect local patterns. |
 | **residual block** | Two convolutions plus a shortcut adding the input back, which helps optimization. |
+| **BatchNorm** | Normalizes each channel's activations for stable training; its scale and shift replace convolution biases. |
 | **Adam** | The optimizer updating parameters from gradients while remembering moving averages of past gradients. |
 | **learning rate** | Size of each optimizer update. Too large can damage a mature policy; too small slows learning. |
 | **Dirichlet noise** | Random probability mass mixed into root priors during self-play so different actions are explored. |
@@ -96,6 +97,41 @@ rollouts. The JavaScript approach provides a less arbitrary but noisier
 bootstrap target. Comparing them while holding every later generation constant
 is a useful experiment.
 
+## Where the input numbers come from
+
+Every constant in the network signature derives from a game rule rather than
+from an arbitrary choice:
+
+| Constant | Value | Derivation |
+| --- | --- | --- |
+| Board squares | 12 | 3 columns × 4 rows. |
+| Piece planes per frame | 10 | 5 piece types × 2 owners: one binary sheet per (owner, type) pair. |
+| History frames | 8 | The current position plus the seven preceding positions. |
+| Spatial input planes | 80 | 10 planes × 8 frames. |
+| Hand features per frame | 6 | Normalized count of each of the three droppable piece types, for both players. |
+| Global features | 50 | 6 per frame × 8 frames, plus the repetition count and the starter-role flag. |
+| Move slots | 96 | Any of the 12 squares can move in any of the 8 directions. |
+| Drop slots | 36 | Any of the 12 squares can receive any of the 3 hand piece types. |
+| Policy slots | 132 | 96 moves + 36 drops. |
+| Policy context features | 264 | Per action slot: occurrence count of the resulting position and an immediate threefold-repetition flag. |
+
+The spatial input is a stack of 80 binary sheets over the 4×3 board. Each
+history frame contributes ten sheets, one per owner and piece type; a sheet
+holds `1` on every square occupied by that piece. Summing the ten sheets of
+frame zero recovers the current placement, which makes a single frame easy to
+verify by hand.
+
+The 50 global values carry everything without a board coordinate: the hand
+composition of both players for every frame (48 values), the current repetition
+count capped at three, and whether the player to move started the game.
+
+The 264 policy context values are action-specific, which is why they bypass the
+shared trunk and enter only the policy head: “how often has this move's
+resulting position occurred” and “does this move complete the third repetition”
+are properties of a candidate action, not of the position alone. The occurrence
+count is capped at three and normalized to `[0, 1]`; the flag is `1` exactly
+when the move would end the game by repetition.
+
 ## Why the network has one trunk and two heads
 
 [`src/neural/model.rs`](../src/neural/model.rs) has three conceptual parts:
@@ -121,10 +157,35 @@ head maps the same shared representation to three outcome logits. Separate
 heads keep “which move?” and “who wins?” distinct while sharing the state
 representation.
 
-The current model uses 64 feature channels and four residual blocks, followed by
-the 64-unit shared dense representation. It has roughly 442,000 parameters.
-These sizes are configuration, not game rules, so the future 5×6 version can
-scale them.
+### Layer by layer
+
+1. **Input convolution.** A 3×3 kernel slides over the 80 input planes and
+   produces 64 channels of unchanged spatial size (padding `Same`, no bias).
+   Each channel is a learned local detector; after training, individual channels
+   respond to motifs such as “my piece adjacent to an enemy piece” or “empty
+   corner”. Batch normalization and ReLU follow.
+2. **Residual tower.** Four blocks are stacked. Each block applies two 3×3
+   convolutions, with normalization and ReLU between them, then adds the block
+   input back to its own output before a final ReLU: `output = input + f(input)`.
+   The shortcut carries the original features through all four blocks, which is
+   what keeps deep stacks trainable (the ResNet idea).
+3. **Flatten and fuse.** The tower output is 64 channels × 12 squares = 768
+   values. Concatenating the 50 global features gives an 818-value vector, which
+   a dense layer compresses to the shared 64-unit representation.
+4. **Policy head.** The shared representation is concatenated with the 264
+   per-action context values (328 total) and mapped to 132 action logits.
+5. **WDL head.** The shared representation alone passes through a 64-unit hidden
+   layer and is mapped to three outcome logits.
+
+All convolutions are bias-free; the affine scaling lives in the BatchNorm
+layers, which is the standard ResNet convention. The heads emit raw logits;
+callers apply softmax before treating them as probabilities, and search converts
+WDL logits to `P(win) - P(loss)` (see [Network targets](#network-targets)).
+
+With the default configuration, roughly two thirds of the 442,000 parameters sit
+in the residual tower. The size is deliberately small because MCTS queries the
+network thousands of times per move; every width remains a checkpointed setting
+in `AlphaZeroNetworkConfig`, so the future 5×6 game can scale it.
 
 ### Canonical orientation
 
@@ -353,9 +414,3 @@ A convincing strong model should repeatedly show:
 The project goal is a genuinely from-scratch AlphaZero learner. Its success is
 measured by internal learning and playing strength, with no external component
 in data generation, targets, search, promotion or runtime play.
-
-## Can Ratatui development start now?
-
-Yes. UI code should consume engine-level state and actions, not Burn tensors.
-Use a fixed checkpoint or `UniformEvaluator` for reproducible interface tests;
-training can advance independently.

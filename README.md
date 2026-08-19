@@ -39,13 +39,7 @@ local human play, human-versus-champion play and replay viewing using the stable
 
 The Ratatui interface is complete for its current scope. The next planned
 feature is the 5×6 game variant. Learning will resume only as an isolated
-experiment against the frozen v26/g16 baseline, targeting long-horizon draw WDL
-through loss weighting or decisive endgame sampling before considering another
-architecture change.
-
-Generation 16 remains the publication and regression reference. A learning
-experiment will replace it only after a paired arena shows a statistically
-credible strength improvement and the noisy productivity gate still passes.
+experiment against the frozen v26/g16 baseline.
 
 ## Guides
 
@@ -64,34 +58,10 @@ toward rank 4; Second starts at the top and moves toward rank 1.
       a1 b1 c1   First
 ```
 
-Moves use `b2-b3`. Drops use a full piece name such as `kodama@a4`.
-
 ## Development
 
-Changes are developed, committed and pushed directly on `main`. Do not create
-feature branches or pull requests unless explicitly requested.
-
-```bash
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo fmt --check
-
-# Build the local API documentation; public additions must be documented.
-cargo doc --no-deps
-
-# Build the static browser version and exported champion under web/dist/.
-./web/scripts/build.sh
-
-# Build the site and package a GitHub Release with the accepted champion.
-./web/scripts/package-release.sh v1.0.0
-
-# Explicit Apple Metal training/checkpoint preflight.
-cargo test --test neural metal_training_state_round_trip_runs_one_real_update -- --ignored --exact
-```
-
 Release builds use Cargo's portable defaults. Runtime datasets, working model
-histories and generated web files are ignored by Git. Published releases carry
-the deployable website and the minimal accepted checkpoint separately.
+histories and generated web files are ignored by Git.
 
 ## Commands
 
@@ -156,11 +126,6 @@ the chosen move is applied and highlighted on the board.
 The same right-hand panels show move history and stored replay analyses. Local
 human-versus-human play does not run inference, so its prediction values remain
 empty.
-
-Training reports progress as text; `--headless` is accepted for explicit
-non-interactive runs. Generation-boundary writes are atomic. `latest` points to
-the accepted champion; rejected candidates remain available for diagnostics but
-never become self-play sources.
 
 ## Current AlphaZero pipeline
 

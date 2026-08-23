@@ -48,12 +48,6 @@ impl<B: Backend> NetworkEvaluator<B> {
     pub const fn device(&self) -> &B::Device {
         &self.device
     }
-
-    /// Consumes the adapter and returns ownership of its network.
-    #[must_use]
-    pub fn into_model(self) -> AlphaZeroNetwork<B> {
-        self.model
-    }
 }
 
 impl<B: Backend> Evaluator for NetworkEvaluator<B> {

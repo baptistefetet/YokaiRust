@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::{
     Evaluator, Game, Mcts, MoveError, Outcome, Player, SearchConfig, SearchError,
-    training::config::ArenaConfig,
+    training::{config::ArenaConfig, data::count_as_f32},
 };
 
 /// Aggregate paired-match result used by the promotion gate.
@@ -311,11 +311,6 @@ fn score(wins: usize, draws: usize, games: usize) -> f32 {
         return 0.0;
     }
     (count_as_f32(wins) + 0.5 * count_as_f32(draws)) / count_as_f32(games)
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn count_as_f32(value: usize) -> f32 {
-    value as f32
 }
 
 /// Failures that invalidate a model-comparison arena.

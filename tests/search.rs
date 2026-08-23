@@ -298,7 +298,7 @@ impl Evaluator for IllegalPolicyEvaluator {
     ) -> Result<Vec<Evaluation>, EvaluationError> {
         let mut policy = [0.0; POLICY_ACTIONS];
         policy[POLICY_ACTIONS - 1] = 1.0;
-        Ok(vec![Evaluation::new(policy, 5.0); requests.len()])
+        Ok(vec![Evaluation::from_scalar(policy, 5.0); requests.len()])
     }
 }
 

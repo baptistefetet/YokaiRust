@@ -149,17 +149,6 @@ impl Replay {
         Ok(replay)
     }
 
-    /// Validates and writes this replay to a JSON file.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReplayError`] when validation, serialization, or I/O fails.
-    pub fn write_json(&self, path: impl AsRef<Path>) -> Result<(), ReplayError> {
-        self.to_game()?;
-        fs::write(path, self.to_json_pretty()?)?;
-        Ok(())
-    }
-
     /// Reads, parses, and validates a JSON replay file.
     ///
     /// # Errors

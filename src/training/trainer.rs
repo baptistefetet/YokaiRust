@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AlphaZeroNetwork, POLICY_ACTIONS, TrainingExample, encode_position_with_history,
     encoded_batch_tensor, global_batch_tensor, policy_context_batch_tensor,
-    training::config::OptimizationConfig,
+    training::{config::OptimizationConfig, data::count_as_f32},
 };
 
 /// Mean optimization losses and health metrics over a set of examples.
@@ -128,7 +128,11 @@ where
         .init()
 }
 
-/// Optimizes the next network initialized from the latest weights.
+/// Optimizes a candidate with a fresh Adam state.
+///
+/// The complete pipeline uses [`train_state_with_progress`] instead so Adam's
+/// moments survive generation boundaries. This convenience API is useful for
+/// isolated corpus tests.
 ///
 /// # Panics
 ///
@@ -146,42 +150,6 @@ where
     B: AutodiffBackend<FloatElem = f32>,
     B::InnerBackend: Backend<FloatElem = f32>,
 {
-    train_candidate_with_progress(
-        model,
-        training_examples,
-        validation_examples,
-        config,
-        seed,
-        device,
-        &|_| {},
-    )
-}
-
-/// Optimizes a candidate with a fresh Adam state.
-///
-/// The complete pipeline uses [`train_state_with_progress`] instead so Adam's
-/// moments survive generation boundaries. This convenience API is useful for
-/// isolated corpus tests.
-///
-/// # Panics
-///
-/// Panics when the training dataset is empty.
-#[must_use]
-#[allow(clippy::too_many_arguments)]
-pub fn train_candidate_with_progress<B, F>(
-    model: AlphaZeroNetwork<B>,
-    training_examples: &[TrainingExample],
-    validation_examples: &[TrainingExample],
-    config: &OptimizationConfig,
-    seed: u64,
-    device: &B::Device,
-    progress: &F,
-) -> (AlphaZeroNetwork<B>, TrainingReport)
-where
-    B: AutodiffBackend<FloatElem = f32>,
-    B::InnerBackend: Backend<FloatElem = f32>,
-    F: Fn(TrainingStepReport),
-{
     let state = AlphaZeroTrainingState::new(model, config);
     let (state, report) = train_state_with_progress(
         state,
@@ -190,7 +158,7 @@ where
         config,
         seed,
         device,
-        progress,
+        &|_| {},
     );
     (state.model, report)
 }
@@ -570,7 +538,7 @@ struct MetricAccumulator {
 
 impl MetricAccumulator {
     fn add(&mut self, metrics: LossMetrics, examples: usize) {
-        let weight = sample_count_as_f32(examples);
+        let weight = count_as_f32(examples);
         self.weighted.total_loss += metrics.total_loss * weight;
         self.weighted.policy_loss += metrics.policy_loss * weight;
         self.weighted.value_loss += metrics.value_loss * weight;
@@ -589,7 +557,7 @@ impl MetricAccumulator {
         if self.examples == 0 {
             return LossMetrics::default();
         }
-        let divisor = sample_count_as_f32(self.examples);
+        let divisor = count_as_f32(self.examples);
         LossMetrics {
             total_loss: self.weighted.total_loss / divisor,
             policy_loss: self.weighted.policy_loss / divisor,
@@ -604,11 +572,6 @@ impl MetricAccumulator {
             mean_policy_weight: self.weighted.mean_policy_weight / divisor,
         }
     }
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn sample_count_as_f32(count: usize) -> f32 {
-    count as f32
 }
 
 #[cfg(test)]

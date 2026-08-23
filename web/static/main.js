@@ -657,12 +657,15 @@ class GameScene extends Phaser.Scene {
         if (outcome.status === 'ongoing') {
             return false;
         }
+        // The reason sentence is rendered by Rust (`outcome_text`), so this
+        // file never depends on the serialized names of outcome reasons.
+        const reason = this.state.outcome_text || 'The game is over.';
         if (outcome.status === 'draw') {
-            this.showGameOver('Draw', 'The position was repeated three times.');
+            this.showGameOver('Draw', reason);
         } else if (outcome.player === this.human) {
-            this.showGameOver('Victory!', outcomeReason(outcome.reason));
+            this.showGameOver('Victory!', reason);
         } else {
-            this.showGameOver('Defeat', outcomeReason(outcome.reason));
+            this.showGameOver('Defeat', reason);
         }
         return true;
     }
@@ -806,19 +809,6 @@ class GameScene extends Phaser.Scene {
         document.getElementById('fatal-error-message').textContent = error.message || String(error);
         panel.hidden = false;
     }
-}
-
-function outcomeReason(reason) {
-    if (reason === 'koropokkuru_captured') {
-        return 'The Koropokkuru was captured.';
-    }
-    if (reason === 'koropokkuru_reached_goal') {
-        return 'The Koropokkuru reached the opposite camp.';
-    }
-    if (reason === 'opponent_has_no_legal_action') {
-        return 'The opponent has no legal action left.';
-    }
-    return 'The game is over.';
 }
 
 function sleep(milliseconds) {

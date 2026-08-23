@@ -210,10 +210,6 @@ pub struct ArenaConfig {
     pub opening_plies: usize,
     /// Minimum candidate score, counting a draw as one half, for promotion.
     pub score_threshold: f32,
-    /// Noise-free candidate-versus-itself games used as a cycle diagnostic.
-    pub mirror_games: usize,
-    /// Diagnostic draw-rate reference for deterministic mirror games.
-    pub max_mirror_draw_rate: f32,
     /// Noisy candidate self-play games used to catch exploration-only cycles.
     pub candidate_self_play_games: usize,
     /// Maximum noisy self-play draw rate allowed for promotion.
@@ -415,24 +411,24 @@ impl TrainingConfig {
                 "replay buffer limits must be positive",
             ));
         }
-        if self.arena.games < 200
+        // Two games is the technical minimum (one color-swapped pair). Real
+        // promotion decisions need a statistically meaningful sample; the
+        // checked-in configuration uses 200. The low floor exists so smoke
+        // tests and quick local experiments stay possible.
+        if self.arena.games < 2
             || !self.arena.games.is_multiple_of(2)
             || self.arena.workers == 0
             || self.arena.simulations == 0
             || self.arena.search_batch_size == 0
             || self.arena.opening_plies >= self.self_play.max_game_plies
-            || self.arena.mirror_games == 0
-            || !self.arena.mirror_games.is_multiple_of(2)
             || self.arena.candidate_self_play_games == 0
             || !self.arena.score_threshold.is_finite()
             || !(0.5..=1.0).contains(&self.arena.score_threshold)
-            || !self.arena.max_mirror_draw_rate.is_finite()
-            || !(0.0..=1.0).contains(&self.arena.max_mirror_draw_rate)
             || !self.arena.max_candidate_self_play_draw_rate.is_finite()
             || !(0.0..=1.0).contains(&self.arena.max_candidate_self_play_draw_rate)
         {
             return Err(TrainingConfigError::Invalid(
-                "arena requires at least 200 paired games, a bounded opening, a positive even mirror sample, simulations, and valid diagnostic thresholds",
+                "arena requires a positive even game count, a bounded opening, simulations, and valid diagnostic thresholds",
             ));
         }
         if self.paths.models.trim().is_empty() || self.paths.self_play.trim().is_empty() {

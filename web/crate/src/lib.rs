@@ -8,10 +8,11 @@ use burn::{
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use yokai::{
-    Action, AlphaZeroNetwork, AlphaZeroNetworkConfig, AsyncEvaluator, ENCODER_VERSION, Evaluation,
-    EvaluationError, EvaluationRequest, Evaluator, Game, Mcts, Outcome, POLICY_ACTIONS, Piece,
-    Player, RULES_VERSION, SearchConfig, SearchError, Transition, encode_position_with_history,
-    encoded_batch_tensor, global_batch_tensor, policy_context_batch_tensor,
+    Action, AlphaZeroNetwork, AlphaZeroNetworkConfig, AsyncEvaluator, DrawReason, ENCODER_VERSION,
+    Evaluation, EvaluationError, EvaluationRequest, Evaluator, Game, Mcts, Outcome, POLICY_ACTIONS,
+    Piece, Player, RULES_VERSION, SearchConfig, SearchError, Transition, WinReason,
+    encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
+    policy_context_batch_tensor,
 };
 
 #[cfg(all(feature = "flex", feature = "webgpu"))]
@@ -64,6 +65,10 @@ struct BrowserEvaluator {
     device: burn::tensor::Device<WebBackend>,
 }
 
+// `Mcts<E>` requires the synchronous `Evaluator` bound even when only the
+// asynchronous entry points run. In the browser a synchronous WebGPU tensor
+// readback is impossible, so this impl exists purely to satisfy the bound and
+// reports any accidental synchronous call as an explicit error.
 impl Evaluator for BrowserEvaluator {
     fn evaluate_batch(
         &mut self,
@@ -146,9 +151,27 @@ struct Snapshot<'a> {
     hands: &'a [[u8; 3]; 2],
     side_to_move: Player,
     outcome: Outcome,
+    /// Human-readable end-of-game sentence; `null` while the game is ongoing.
+    /// Rendering this text in Rust keeps JavaScript decoupled from the serde
+    /// names of `WinReason`/`DrawReason` variants.
+    outcome_text: Option<&'static str>,
     legal_actions: Vec<Action>,
     ply: usize,
     human: Player,
+}
+
+const fn outcome_text(outcome: Outcome) -> Option<&'static str> {
+    match outcome {
+        Outcome::Ongoing => None,
+        Outcome::Win { reason, .. } => Some(match reason {
+            WinReason::KoropokkuruCaptured => "The Koropokkuru was captured.",
+            WinReason::KoropokkuruReachedGoal => "The Koropokkuru reached the opposite camp.",
+            WinReason::OpponentHasNoLegalAction => "The opponent has no legal action left.",
+        }),
+        Outcome::Draw {
+            reason: DrawReason::ThreefoldRepetition,
+        } => Some("The position was repeated three times."),
+    }
 }
 
 #[derive(Serialize)]
@@ -242,6 +265,7 @@ impl WebGame {
             hands: self.game.position().hands(),
             side_to_move: self.game.position().side_to_move(),
             outcome: self.game.outcome(),
+            outcome_text: outcome_text(self.game.outcome()),
             legal_actions: self.game.legal_actions(),
             ply: self.game.actions().len(),
             human: self.human,

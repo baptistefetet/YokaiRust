@@ -16,9 +16,9 @@ use yokai::{
     SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule, TrainingConfig,
     TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_champion,
     dataset_diagnostics, endgame_distance_report, generate_self_play,
-    generate_self_play_with_restarts, load_champion, load_generation, load_replay_buffer,
-    planned_restart_count, run_arena, run_arena_with_progress, run_generation_with_progress,
-    save_generation, train_candidate, validate_model,
+    generate_self_play_with_restarts_and_progress, load_champion, load_generation,
+    load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
+    run_generation_with_progress, save_generation, train_candidate, validate_model,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -73,8 +73,6 @@ fn test_config() -> TrainingConfig {
             search_batch_size: 1,
             opening_plies: 4,
             score_threshold: 0.55,
-            mirror_games: 4,
-            max_mirror_draw_rate: 0.0,
             candidate_self_play_games: 64,
             max_candidate_self_play_draw_rate: 0.20,
         },
@@ -330,8 +328,15 @@ fn visited_state_restarts_cover_the_trajectory_and_preserve_prefix_history() {
         bootstrap: SelfPlayBootstrapConfig::default(),
     };
     assert_eq!(planned_restart_count(&config, archive.len()), 2);
-    let games = generate_self_play_with_restarts(&UniformEvaluator, &config, 1, 900, &archive[..1])
-        .expect("archive-restarted self-play must finish");
+    let games = generate_self_play_with_restarts_and_progress(
+        &UniformEvaluator,
+        &config,
+        1,
+        900,
+        &archive[..1],
+        &|_, _| {},
+    )
+    .expect("archive-restarted self-play must finish");
     let restarted = games
         .iter()
         .filter(|game| game.restart_ply > 0)
@@ -476,96 +481,57 @@ fn endgame_distance_diagnostic_uses_only_whole_validation_games() {
 }
 
 #[test]
-fn checked_in_training_configuration_is_valid_and_strict() {
+fn checked_in_training_configuration_loads_and_validates() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/training.toml");
     let config = TrainingConfig::load(path).expect("checked-in config must be valid");
 
-    assert_eq!(config.network.filters, 64);
-    assert_eq!(config.network.residual_blocks, 4);
-    assert_eq!(config.network.shared_hidden, 64);
-    assert_eq!(config.self_play.workers, 16);
-    assert_eq!(config.self_play.inference_wait_ms, 1);
-    assert_eq!(config.self_play.exploration_plies, 12);
-    assert!((config.self_play.exploration_temperature - 1.0).abs() < f32::EPSILON);
-    assert!(config.self_play.repetition_contempt.abs() < f32::EPSILON);
-    assert!((config.self_play.starter_draw_value - 0.75).abs() < f32::EPSILON);
-    assert!((config.self_play.restart_fraction - 0.25).abs() < f32::EPSILON);
-    assert_eq!(config.self_play.restart_simulations, Some(800));
+    // Spot-check only the structural choices other code paths rely on;
+    // hyperparameter values belong to the TOML alone, so tuning them must
+    // not require editing this test.
     assert_eq!(
-        config.self_play.bootstrap,
-        SelfPlayBootstrapConfig {
-            mode: SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion,
-            rollout_max_plies: 512,
-        }
+        config.self_play.bootstrap.mode,
+        SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion
     );
-    assert_eq!(config.optimization.steps_per_generation, 400);
-    assert_eq!(config.optimization.validation_interval_steps, 100);
-    assert!(config.optimization.non_starter_draw_policy_weight.abs() < f32::EPSILON);
-    assert!((config.optimization.scalar_value_loss_weight - 0.25).abs() < f32::EPSILON);
-    assert_eq!(config.optimization.terminal_window_plies, None);
-    assert_eq!(
-        config.optimization.learning_rate_schedule,
-        vec![LearningRateStage {
-            source_generation: 7,
-            learning_rate: 0.00025,
-        }]
-    );
-    assert_eq!(
-        config.optimization.terminal_window_schedule,
-        Some(TerminalWindowSchedule {
-            initial_plies: 1,
-            growth_factor: 2,
-            decisive_fraction: 0.25,
-            full_dataset_generation: 11,
-        })
-    );
-    assert_eq!(config.arena.games, 200);
-    assert_eq!(config.arena.workers, 128);
-    assert_eq!(config.arena.search_batch_size, 1);
-    assert_eq!(config.arena.opening_plies, 4);
-    assert!((config.arena.score_threshold - 0.55).abs() < f32::EPSILON);
-    assert_eq!(config.arena.mirror_games, 4);
-    assert!(config.arena.max_mirror_draw_rate.abs() < f32::EPSILON);
-    assert_eq!(config.arena.candidate_self_play_games, 64);
-    assert!((config.arena.max_candidate_self_play_draw_rate - 0.20).abs() < f32::EPSILON);
-    assert_eq!(
-        config.paths.models,
-        "models/alpha-zero-visited-restarts-v26"
-    );
-    assert_eq!(
-        config.paths.self_play,
-        "data/alpha-zero-visited-restarts-v26"
-    );
+    assert!(config.optimization.terminal_window_schedule.is_some());
+    assert!(!config.optimization.learning_rate_schedule.is_empty());
+}
 
-    let mut invalid = config;
-    invalid.arena.games = 199;
+#[test]
+fn config_validation_rejects_out_of_range_values() {
+    let mut invalid = test_config();
+    invalid.arena.games = 3;
+    assert!(matches!(
+        invalid.validate(),
+        Err(TrainingConfigError::Invalid(_))
+    ));
+    invalid.arena.games = 0;
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
 
-    invalid.arena.games = 200;
+    let mut invalid = test_config();
     invalid.optimization.terminal_window_plies = Some(0);
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
 
-    invalid.optimization.terminal_window_plies = None;
+    let mut invalid = test_config();
     invalid.optimization.non_starter_draw_policy_weight = 1.1;
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
 
-    invalid.optimization.non_starter_draw_policy_weight = 0.0;
+    let mut invalid = test_config();
     invalid.optimization.scalar_value_loss_weight = -0.1;
     assert!(matches!(
         invalid.validate(),
         Err(TrainingConfigError::Invalid(_))
     ));
 
-    invalid.optimization.scalar_value_loss_weight = 0.25;
+    let mut invalid = test_config();
     invalid.network.shared_hidden = 0;
     assert!(matches!(
         invalid.validate(),
@@ -574,10 +540,9 @@ fn checked_in_training_configuration_is_valid_and_strict() {
 }
 
 #[test]
-fn deterministic_mirror_draws_are_diagnostic_not_a_promotion_veto() {
+fn promotion_requires_both_the_arena_and_the_exploratory_gate() {
     let productive_candidate = PromotionDecision {
         arena_passed: true,
-        mirror_draw_limit_met: false,
         exploratory_draw_gate_passed: true,
     };
     assert!(productive_candidate.promoted());
@@ -587,6 +552,12 @@ fn deterministic_mirror_draws_are_diagnostic_not_a_promotion_veto() {
         ..productive_candidate
     };
     assert!(!unproductive_candidate.promoted());
+
+    let weak_candidate = PromotionDecision {
+        arena_passed: false,
+        ..productive_candidate
+    };
+    assert!(!weak_candidate.promoted());
 }
 
 #[test]
@@ -800,8 +771,6 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
             search_batch_size: 1,
             opening_plies: 4,
             score_threshold: 0.55,
-            mirror_games: 2,
-            max_mirror_draw_rate: 1.0,
             candidate_self_play_games: 2,
             max_candidate_self_play_draw_rate: 1.0,
         },
@@ -835,8 +804,6 @@ fn arena_progress_reports_consistent_running_outcomes() {
             search_batch_size: 1,
             opening_plies: 4,
             score_threshold: 0.55,
-            mirror_games: 4,
-            max_mirror_draw_rate: 1.0,
             candidate_self_play_games: 2,
             max_candidate_self_play_draw_rate: 1.0,
         },
@@ -928,14 +895,14 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             },
         },
         arena: ArenaConfig {
-            games: 200,
+            // The production floor is 2; four games keep this end-to-end test
+            // fast while still covering both color-swapped pairs.
+            games: 4,
             workers: 2,
             simulations: 1,
             search_batch_size: 1,
             opening_plies: 4,
             score_threshold: 0.55,
-            mirror_games: 2,
-            max_mirror_draw_rate: 1.0,
             candidate_self_play_games: 2,
             max_candidate_self_play_draw_rate: 1.0,
         },
@@ -976,7 +943,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     assert_eq!(report.restart_ply_min, None);
     assert_eq!(report.restart_ply_max, None);
     assert!(report.mean_restart_ply.abs() < f32::EPSILON);
-    assert_eq!(report.self_play_source_generation, 0);
+    assert_eq!(report.source_generation, 0);
     assert_eq!(report.self_play_evaluator, SelfPlayEvaluator::Neural);
     let selected_validation = report
         .training
@@ -996,13 +963,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     assert_eq!(report.self_play_outcomes.unclassified_wins, 0);
     assert_eq!(
         report.arena.candidate_wins + report.arena.reference_wins + report.arena.draws,
-        200
-    );
-    assert_eq!(
-        report.candidate_mirror.candidate_wins
-            + report.candidate_mirror.reference_wins
-            + report.candidate_mirror.draws,
-        2
+        4
     );
     assert_eq!(reloaded_buffer.len(), 2);
     let persisted_report: yokai::GenerationReport = serde_json::from_slice(
@@ -1057,7 +1018,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     assert!(events.iter().any(|event| matches!(
         event,
         TrainingProgress::ArenaAdvanced { progress }
-            if progress.completed == 200 && progress.total == 200
+            if progress.completed == 4 && progress.total == 4
     )));
     assert!(events.iter().any(|event| matches!(
         event,
@@ -1138,10 +1099,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
             _ => None,
         })
         .expect("training start event");
-    assert_eq!(
-        resumed_report.self_play_source_generation,
-        expected_champion
-    );
+    assert_eq!(resumed_report.source_generation, expected_champion);
     assert_eq!(optimizer_was_resumed, report.promoted());
     let (_, latest) =
         load_champion::<CpuBackend>(&models, &device).expect("resumed champion model");

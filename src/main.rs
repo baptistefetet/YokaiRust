@@ -313,6 +313,15 @@ fn print_endgame_distance_report(report: &yokai::EndgameDistanceReport) {
             ("draw", bucket.draws),
             ("decisive", bucket.decisive),
         ] {
+            // An empty bucket would otherwise print a perfect-looking 0.0000.
+            if metrics.examples == 0 {
+                println!(
+                    "distance={} outcome={} examples=0 metrics=n/a",
+                    bucket.distance.label(),
+                    outcome,
+                );
+                continue;
+            }
             println!(
                 "distance={} outcome={} examples={} policy_loss={:.4} policy_top1={:.3} WDL_loss={:.4} WDL_top1={:.3} scalar_value_MSE={:.4}",
                 bucket.distance.label(),
@@ -499,31 +508,6 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             print_inference_stats(&elapsed, "candidate inference", candidate_inference);
             print_inference_stats(&elapsed, "reference inference", reference_inference);
         }
-        TrainingProgress::CandidateMirrorStarted {
-            games,
-            simulations,
-            max_draw_rate,
-        } => eprintln!(
-            "[{elapsed}] candidate mirror started: {games} games, {simulations} simulations/move, maximum draw rate={:.1}%",
-            max_draw_rate * 100.0
-        ),
-        TrainingProgress::CandidateMirrorAdvanced { progress } => eprintln!(
-            "[{elapsed}] candidate mirror {}/{} ({:.1}%): draws={}",
-            progress.completed,
-            progress.total,
-            percentage(progress.completed, progress.total),
-            progress.draws,
-        ),
-        TrainingProgress::CandidateMirrorFinished {
-            result,
-            draw_rate,
-            within_configured_limit,
-        } => eprintln!(
-            "[{elapsed}] candidate mirror finished: draws={}/{} ({:.1}%), diagnostic_limit_met={within_configured_limit}",
-            result.draws,
-            result.candidate_wins + result.reference_wins + result.draws,
-            draw_rate * 100.0,
-        ),
         TrainingProgress::CandidateSelfPlayStarted {
             games,
             simulations,
@@ -558,10 +542,8 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             decision,
         } => {
             eprintln!(
-                "[{elapsed}] candidate {generation} rejected: arena={} mirror_draw_limit={} exploratory_draw_gate={}; champion unchanged",
-                decision.arena_passed,
-                decision.mirror_draw_limit_met,
-                decision.exploratory_draw_gate_passed,
+                "[{elapsed}] candidate {generation} rejected: arena={} exploratory_draw_gate={}; champion unchanged",
+                decision.arena_passed, decision.exploratory_draw_gate_passed,
             );
         }
     }
@@ -597,10 +579,9 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
-        "generation={} source_champion={} self_play_source={} self_play_evaluator={:?} promoted={} games={} restarted_games={} restart_archive={} restart_ply={:?}-{:?} mean_restart_ply={:.1} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
+        "generation={} source_champion={} self_play_evaluator={:?} promoted={} games={} restarted_games={} restart_archive={} restart_ply={:?}-{:?} mean_restart_ply={:.1} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
         report.candidate_generation,
         report.source_generation,
-        report.self_play_source_generation,
         report.self_play_evaluator,
         report.promoted(),
         report.generated_games,
@@ -670,15 +651,6 @@ fn print_generation_report(report: &yokai::GenerationReport) {
         report.arena_threshold_reached()
     );
     print_arena_seats("summary", &report.arena);
-    let mirror_games = report.candidate_mirror.candidate_wins
-        + report.candidate_mirror.reference_wins
-        + report.candidate_mirror.draws;
-    println!(
-        "candidate mirror draws={}/{} ({:.1}%)",
-        report.candidate_mirror.draws,
-        mirror_games,
-        percentage(report.candidate_mirror.draws, mirror_games),
-    );
     let outcomes = report.candidate_self_play;
     let games = outcomes.first_wins + outcomes.second_wins + outcomes.draws;
     println!(

@@ -403,11 +403,11 @@ A candidate must pass two independent checks:
 2. stay at or below 20% draws in 64 noisy self-play games.
 
 Each arena pair shares a random legal 0–4 ply opening and swaps candidate color.
-This avoids counting one deterministic trajectory hundreds of times. Mirror
-games stay on the official initial positions because they answer a different
-question: does the candidate deterministically enter a repetition cycle? Four
-mirror games are recorded, but they do not veto a candidate that is strong and
-still produces decisive exploratory games.
+This avoids counting one deterministic trajectory hundreds of times. Earlier
+versions also recorded a small deterministic candidate-versus-itself "mirror"
+diagnostic; it never influenced promotion and was removed — identical players
+can settle into one stable line even when their noisy self-play stays
+productive, so only the noisy probe measures what training actually sees.
 
 The strength and exploratory checks protect publication; none of these
 measurements is a training label.

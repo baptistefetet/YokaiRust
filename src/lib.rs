@@ -23,6 +23,10 @@ pub mod search;
 #[cfg(feature = "native")]
 pub mod training;
 
+// ---------------------------------------------------------------------------
+// Engine API: rules, search and replays. Start here as a library user.
+// ---------------------------------------------------------------------------
+
 pub use game::{
     Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, HandPiece, MoveError,
     Outcome, Piece, PieceKind, Player, Position, PositionError, RULES_VERSION, Square, Transition,
@@ -54,6 +58,12 @@ pub use search::{
     EvaluationRequest, Evaluator, LeafEvaluation, Mcts, SearchConfig, SearchError, SearchResult,
     TemperatureSchedule, UniformEvaluator, random_rollout_value,
 };
+// ---------------------------------------------------------------------------
+// Training pipeline: re-exported for the CLI, the tests and the tools.
+// These names are implementation surface of the AlphaZero loop, not part of
+// the engine API a typical game client needs.
+// ---------------------------------------------------------------------------
+
 #[cfg(feature = "native")]
 pub use training::arena::{
     ArenaError, ArenaProgress, ArenaResult, ArenaSeatResult, run_arena, run_arena_with_progress,
@@ -79,18 +89,16 @@ pub use training::diagnostics::{
 #[cfg(feature = "native")]
 pub use training::pipeline::{
     GameOutcomeStats, GenerationReport, PipelineError, PromotionDecision, TrainingProgress,
-    bootstrap_champion, load_replay_buffer, run_generation, run_generation_with_progress,
-    save_replay_buffer,
+    bootstrap_champion, load_replay_buffer, run_generation_with_progress, save_replay_buffer,
 };
 #[cfg(feature = "native")]
 pub use training::self_play::{
-    SelfPlayError, generate_self_play, generate_self_play_with_progress,
-    generate_self_play_with_restarts, generate_self_play_with_restarts_and_progress,
-    planned_restart_count, play_self_play_game, play_self_play_game_from_restart,
+    SelfPlayError, generate_self_play, generate_self_play_with_restarts_and_progress,
+    planned_restart_count, play_self_play_game_from_restart,
 };
 #[cfg(feature = "native")]
 pub use training::trainer::{
     AlphaZeroOptimizer, AlphaZeroTrainingState, LossMetrics, TrainingReport, TrainingStepReport,
-    new_optimizer, train_candidate, train_candidate_with_progress, train_state_with_progress,
-    validate_model, validate_model_with_policy_weight,
+    new_optimizer, train_candidate, train_state_with_progress, validate_model,
+    validate_model_with_policy_weight,
 };

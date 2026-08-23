@@ -39,6 +39,13 @@ name = "export-web-model"
 path = "src/bin/export_web_model.rs"
 required-features = ["native"]
 
+# Manual benchmarks (not statistical tests), run explicitly with
+# `cargo bench --bench performance -- <name>|all`.
+[[bench]]
+name = "performance"
+harness = false
+required-features = ["native"]
+
 [dependencies]
 burn = { version = "=0.21.0", default-features = false, features = ["std"] }
 crossbeam-channel = { version = "=0.5.16", optional = true }

@@ -60,13 +60,13 @@ pub struct TrainingExample {
     /// Whether the player to move also made the first move of the game.
     pub current_player_is_starter: bool,
     /// Resulting occurrence count for each legal policy action; zero elsewhere.
-    #[serde(with = "action_repetition_serde")]
+    #[serde(with = "policy_array_serde")]
     pub action_repetition_counts: [u8; POLICY_ACTIONS],
     /// Runtime-only preceding states, reconstructed from the containing game.
     /// Keeping this out of JSON avoids duplicating history for every ply.
     #[serde(skip)]
     pub history: [Option<Position>; HISTORY_POSITIONS],
-    #[serde(with = "policy_serde")]
+    #[serde(with = "policy_array_serde")]
     /// Normalized MCTS visit distribution over the fixed policy vector.
     pub policy: [f32; POLICY_ACTIONS],
     /// Final game result from `position.side_to_move()`'s perspective.
@@ -92,15 +92,6 @@ impl SelfPlayEvaluator {
     #[must_use]
     pub const fn is_neural(&self) -> bool {
         matches!(self, Self::Neural)
-    }
-
-    /// Returns a stable short label for progress reports and filenames.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Neural => "neural",
-            Self::RandomRollout { .. } => "random_rollout",
-        }
     }
 }
 
@@ -727,13 +718,12 @@ impl PolicyTargetAccumulator {
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
-fn ratio(numerator: usize, denominator: usize) -> f32 {
+/// Shared by the training modules; a zero denominator yields zero, not NaN.
+pub(crate) fn ratio(numerator: usize, denominator: usize) -> f32 {
     numerator as f32 / denominator.max(1) as f32
 }
 
-#[allow(clippy::cast_precision_loss)]
-fn count_as_f32(count: usize) -> f32 {
+pub(crate) fn count_as_f32(count: usize) -> f32 {
     count as f32
 }
 
@@ -841,23 +831,7 @@ fn history_is_empty(history: &[Option<Position>; HISTORY_POSITIONS]) -> bool {
 /// Mirrors a canonical policy horizontally while preserving invalid slots.
 #[must_use]
 pub fn mirror_policy(policy: &[f32; POLICY_ACTIONS], player: Player) -> [f32; POLICY_ACTIONS] {
-    let mut mirrored = [0.0; POLICY_ACTIONS];
-    for (raw_index, &probability) in policy.iter().enumerate() {
-        let Ok(raw_index_u8) = u8::try_from(raw_index) else {
-            continue;
-        };
-        let Some(index) = PolicyIndex::new(raw_index_u8) else {
-            continue;
-        };
-        let Some(action) = Action::from_policy_index(index, player) else {
-            continue;
-        };
-        let Some(mirrored_index) = action.mirrored_horizontally().policy_index(player) else {
-            continue;
-        };
-        mirrored[mirrored_index.as_usize()] = probability;
-    }
-    mirrored
+    mirror_action_values(policy, player)
 }
 
 fn mirror_action_values<T: Copy + Default>(
@@ -947,54 +921,32 @@ fn outcome_value(outcome: Outcome, perspective: Player) -> f32 {
     }
 }
 
-mod policy_serde {
+/// Serde support for any `[T; POLICY_ACTIONS]` field: serde only derives
+/// arrays up to 32 elements, so fixed policy-width arrays round-trip through
+/// a `Vec` with an explicit length check.
+mod policy_array_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
     use crate::POLICY_ACTIONS;
 
-    pub fn serialize<S>(policy: &[f32; POLICY_ACTIONS], serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<T, S>(values: &[T; POLICY_ACTIONS], serializer: S) -> Result<S::Ok, S::Error>
     where
+        T: Serialize,
         S: Serializer,
     {
-        policy.as_slice().serialize(serializer)
+        values.as_slice().serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[f32; POLICY_ACTIONS], D::Error>
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<[T; POLICY_ACTIONS], D::Error>
     where
+        T: Deserialize<'de>,
         D: Deserializer<'de>,
     {
-        Vec::<f32>::deserialize(deserializer)?
+        Vec::<T>::deserialize(deserializer)?
             .try_into()
-            .map_err(|values: Vec<f32>| {
+            .map_err(|values: Vec<T>| {
                 D::Error::custom(format_args!(
-                    "expected {POLICY_ACTIONS} policy values, got {}",
-                    values.len()
-                ))
-            })
-    }
-}
-
-mod action_repetition_serde {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-
-    use crate::POLICY_ACTIONS;
-
-    pub fn serialize<S>(counts: &[u8; POLICY_ACTIONS], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        counts.as_slice().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; POLICY_ACTIONS], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Vec::<u8>::deserialize(deserializer)?
-            .try_into()
-            .map_err(|values: Vec<u8>| {
-                D::Error::custom(format_args!(
-                    "expected {POLICY_ACTIONS} action repetition counts, got {}",
+                    "expected {POLICY_ACTIONS} values, got {}",
                     values.len()
                 ))
             })

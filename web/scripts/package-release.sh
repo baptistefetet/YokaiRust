@@ -20,7 +20,11 @@ repository_root=$(CDPATH= cd -- "$script_directory/../.." && pwd)
 release_directory=${2:-"$repository_root/web/release"}
 configuration="$repository_root/config/training.toml"
 
-model_directory=$(sed -n 's/^[[:space:]]*models[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$configuration" | tail -n 1)
+# Resolve paths.models with the project's own TOML parser instead of
+# re-parsing the configuration with text tools.
+model_directory=$(cargo run --release --bin export-web-model \
+    --manifest-path "$repository_root/Cargo.toml" -- \
+    --print-models-path "$configuration")
 if [ -z "$model_directory" ]; then
     echo "Could not read paths.models from $configuration" >&2
     exit 1

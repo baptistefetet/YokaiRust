@@ -321,7 +321,7 @@ pub fn load_generation<B: Backend>(
 /// Returns [`ModelStoreError`] when the generation is absent or the pointer
 /// cannot be written.
 pub fn publish_champion(root: impl AsRef<Path>, generation: u32) -> Result<(), ModelStoreError> {
-    publish_pointer(root.as_ref(), LATEST_FILE, generation)
+    publish_pointer(root.as_ref(), generation)
 }
 
 /// Loads the generation referenced by the accepted-champion pointer.
@@ -391,13 +391,13 @@ pub fn stored_generations(root: impl AsRef<Path>) -> Result<Vec<u32>, ModelStore
     Ok(generations)
 }
 
-fn publish_pointer(root: &Path, filename: &str, generation: u32) -> Result<(), ModelStoreError> {
+fn publish_pointer(root: &Path, generation: u32) -> Result<(), ModelStoreError> {
     if !generation_directory(root, generation).is_dir() {
         return Err(ModelStoreError::GenerationMissing(generation));
     }
-    let temporary = root.join(format!(".{filename}-{}.tmp", std::process::id()));
+    let temporary = root.join(format!(".{LATEST_FILE}-{}.tmp", std::process::id()));
     fs::write(&temporary, format!("{generation}\n"))?;
-    fs::rename(temporary, root.join(filename))?;
+    fs::rename(temporary, root.join(LATEST_FILE))?;
     Ok(())
 }
 

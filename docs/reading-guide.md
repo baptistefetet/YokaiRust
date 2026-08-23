@@ -142,7 +142,7 @@ steps:
    sampled mini-batch updates;
 5. save the candidate without changing the champion;
 6. `run_official_arena` against the champion;
-7. `run_candidate_diagnostics` with mirror and exploratory draw measurements;
+7. `run_exploratory_diagnostic`, a noisy self-play draw-rate probe;
 8. publish the candidate only when the strength and exploratory checks pass.
 
 Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
@@ -195,6 +195,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-The ignored tests in `tests/performance.rs` are local Metal benchmarks. They are
-not part of the fast correctness suite because they load saved checkpoints and
-can take minutes.
+Local Metal benchmarks live in `benches/performance.rs` and run only when
+named explicitly (`cargo bench --bench performance -- <name>|all`). They are
+not part of the correctness suite because they load saved checkpoints, can
+take minutes, and measure speed rather than verify behavior.

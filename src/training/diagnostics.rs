@@ -1,7 +1,7 @@
 //! Read-only diagnostics over the stable validation split.
 
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
 };
 
@@ -281,17 +281,7 @@ pub fn save_endgame_distance_report(
     path: impl AsRef<Path>,
     report: &EndgameDistanceReport,
 ) -> Result<(), EndgameDiagnosticError> {
-    let path = path.as_ref();
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("endgame-distance.json");
-    let temporary = path.with_file_name(format!(".{name}-{}.tmp", std::process::id()));
-    fs::write(&temporary, serde_json::to_vec(report)?)?;
-    fs::rename(temporary, path)?;
-    Ok(())
+    super::pipeline::atomic_json_write(path.as_ref(), report)
 }
 
 /// Persistence failures for endgame diagnostic reports.

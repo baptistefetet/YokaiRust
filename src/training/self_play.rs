@@ -13,20 +13,6 @@ use crate::{
     TrainingDataError, training::config::SelfPlayConfig,
 };
 
-/// Plays one complete game with exploration enabled only at the MCTS root.
-///
-/// # Errors
-///
-/// Returns [`SelfPlayError`] for search, move, target, or safety-limit errors.
-pub fn play_self_play_game<E: Evaluator>(
-    evaluator: E,
-    config: &SelfPlayConfig,
-    source_generation: u32,
-    seed: u64,
-) -> Result<SelfPlayGame, SelfPlayError> {
-    play_self_play_game_from_restart(evaluator, config, source_generation, seed, None)
-}
-
 /// Plays one trajectory from the official initial state or a complete ongoing
 /// historical prefix.
 ///
@@ -103,7 +89,8 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
     Ok(self_play_game)
 }
 
-/// Generates a stable seed-ordered batch on a dedicated Rayon pool.
+/// Generates a stable seed-ordered batch on a dedicated Rayon pool, without
+/// restarts or progress reporting.
 ///
 /// # Errors
 ///
@@ -127,64 +114,12 @@ where
     )
 }
 
-/// Generates self-play with a deterministic fraction of games restarted from
-/// states sampled from the recent visited-state archive.
-///
-/// # Errors
-///
-/// Returns [`SelfPlayError`] when the pool cannot start or any game fails.
-pub fn generate_self_play_with_restarts<E>(
-    evaluator: &E,
-    config: &SelfPlayConfig,
-    source_generation: u32,
-    base_seed: u64,
-    restart_archive: &[Replay],
-) -> Result<Vec<SelfPlayGame>, SelfPlayError>
-where
-    E: Evaluator + Clone + Send + Sync,
-{
-    generate_self_play_with_restarts_and_progress(
-        evaluator,
-        config,
-        source_generation,
-        base_seed,
-        restart_archive,
-        &|_, _| {},
-    )
-}
-
-/// Generates self-play and reports each successfully completed game.
+/// Generates deterministic seed-ordered self-play with archive restarts and
+/// reports each completed trajectory.
 ///
 /// The callback can run concurrently on any self-play worker. `completed` is a
 /// unique, monotonically allocated count in `1..=total`, although callbacks
 /// from different threads may be observed a few lines out of order.
-///
-/// # Errors
-///
-/// Returns [`SelfPlayError`] when the pool cannot start or any game fails.
-pub fn generate_self_play_with_progress<E, F>(
-    evaluator: &E,
-    config: &SelfPlayConfig,
-    source_generation: u32,
-    base_seed: u64,
-    progress: &F,
-) -> Result<Vec<SelfPlayGame>, SelfPlayError>
-where
-    E: Evaluator + Clone + Send + Sync,
-    F: Fn(usize, usize) + Sync,
-{
-    generate_self_play_with_restarts_and_progress(
-        evaluator,
-        config,
-        source_generation,
-        base_seed,
-        &[],
-        progress,
-    )
-}
-
-/// Generates deterministic seed-ordered self-play with archive restarts and
-/// reports each completed trajectory.
 ///
 /// # Errors
 ///

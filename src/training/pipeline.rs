@@ -16,10 +16,11 @@ use crate::{
     InferenceService, InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError,
     NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError,
     SelfPlayError, SelfPlayEvaluator, SelfPlayGame, TrainingConfig, TrainingExample,
-    TrainingReport, TrainingStepReport, dataset_diagnostics, generate_self_play_with_progress,
+    TrainingReport, TrainingStepReport, dataset_diagnostics,
     generate_self_play_with_restarts_and_progress, load_champion, load_generation,
     load_training_generation, next_generation, planned_restart_count, publish_champion,
     run_arena_with_progress, save_generation, save_training_generation, train_state_with_progress,
+    training::data::ratio,
 };
 
 /// Guard proving that rollout bootstrap never falls back to scalar-zero leaves.
@@ -60,11 +61,9 @@ pub struct GameOutcomeStats {
 /// Persisted audit trail for every phase of one candidate attempt.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GenerationReport {
-    /// Accepted checkpoint used as the official arena reference.
+    /// Accepted checkpoint used as the official arena reference and as the
+    /// source of this generation's self-play games.
     pub source_generation: u32,
-    /// Checkpoint that generated this generation's self-play games.
-    #[serde(default)]
-    pub self_play_source_generation: u32,
     /// Leaf evaluator used for this generation's persisted self-play.
     #[serde(default)]
     pub self_play_evaluator: SelfPlayEvaluator,
@@ -118,8 +117,6 @@ pub struct GenerationReport {
     pub training: TrainingReport,
     /// Official candidate-versus-champion comparison.
     pub arena: ArenaResult,
-    /// Deterministic candidate-versus-itself diagnostic.
-    pub candidate_mirror: ArenaResult,
     /// Outcomes from the noisy productivity probe.
     pub candidate_self_play: GameOutcomeStats,
     /// Individual checks and final publication decision.
@@ -146,17 +143,12 @@ impl GenerationReport {
 pub struct PromotionDecision {
     /// Candidate met the configured paired-arena score.
     pub arena_passed: bool,
-    /// Whether the deterministic mirror draw rate stayed within its configured
-    /// diagnostic limit. This is deliberately not a promotion veto: identical
-    /// deterministic players can draw even when noisy self-play is productive.
-    #[serde(default)]
-    pub mirror_draw_limit_met: bool,
     /// Noisy self-play draw rate stayed below its productivity limit.
     pub exploratory_draw_gate_passed: bool,
 }
 
 impl PromotionDecision {
-    /// Combines the two actual promotion gates.
+    /// Combines the two promotion gates.
     #[must_use]
     pub const fn promoted(self) -> bool {
         self.arena_passed && self.exploratory_draw_gate_passed
@@ -305,29 +297,6 @@ pub enum TrainingProgress {
         /// Reference backend throughput and batching statistics.
         reference_inference: InferenceStats,
     },
-    /// Deterministic candidate-versus-itself diagnostic is beginning.
-    CandidateMirrorStarted {
-        /// Mirror games scheduled.
-        games: usize,
-        /// MCTS simulations per move.
-        simulations: u32,
-        /// Configured diagnostic draw-rate reference.
-        max_draw_rate: f32,
-    },
-    /// A throttled deterministic-mirror snapshot is available.
-    CandidateMirrorAdvanced {
-        /// Current mirror totals.
-        progress: ArenaProgress,
-    },
-    /// Deterministic mirror diagnostic completed.
-    CandidateMirrorFinished {
-        /// Detailed mirror result.
-        result: ArenaResult,
-        /// Observed official draw fraction.
-        draw_rate: f32,
-        /// Whether the diagnostic reference was met; this is not a veto.
-        within_configured_limit: bool,
-    },
     /// Noisy candidate self-play productivity probe is beginning.
     CandidateSelfPlayStarted {
         /// Probe trajectories scheduled.
@@ -390,34 +359,18 @@ pub fn bootstrap_champion<B: Backend>(
     Ok(metadata)
 }
 
-/// Runs a complete candidate and atomically promotes it only on success.
+/// Runs one complete candidate generation and atomically promotes it only on
+/// success: official strength and the exploratory draw gate must both pass
+/// before the champion changes. A rejected candidate never becomes a training
+/// or self-play source.
+///
+/// The progress callback may be invoked concurrently by self-play and arena
+/// workers. Events for those phases are deliberately throttled to roughly
+/// twenty lines.
 ///
 /// # Errors
 ///
-/// Official strength and the exploratory draw gate must pass before the
-/// champion changes. Deterministic mirror draws remain diagnostic.
-/// A rejected candidate never becomes a training or self-play source.
-pub fn run_generation<B>(
-    config: &TrainingConfig,
-    buffer: &mut ReplayBuffer,
-    device: &B::Device,
-) -> Result<GenerationReport, PipelineError>
-where
-    B: AutodiffBackend<FloatElem = f32> + 'static,
-    B::InnerBackend: Backend<FloatElem = f32> + 'static,
-    NetworkEvaluator<B::InnerBackend>: Send,
-{
-    run_generation_with_progress::<B, _>(config, buffer, device, &|_| {})
-}
-
-/// Runs a complete candidate generation with coarse-grained progress events.
-///
-/// The callback may be invoked concurrently by self-play and arena workers.
-/// Events for those phases are deliberately throttled to roughly twenty lines.
-///
-/// # Errors
-///
-/// Returns [`PipelineError`] under the same conditions as [`run_generation`].
+/// Returns [`PipelineError`] when any phase fails.
 #[allow(clippy::too_many_lines)]
 pub fn run_generation_with_progress<B, F>(
     config: &TrainingConfig,
@@ -710,12 +663,12 @@ where
         candidate_inference,
         reference_inference,
     });
-    let candidate_diagnostics =
-        run_candidate_diagnostics(&candidate_client, config, candidate_generation, progress)?;
+    let exploratory =
+        run_exploratory_diagnostic(&candidate_client, config, candidate_generation, progress)?;
     drop(candidate_service);
     drop(reference_service);
 
-    let promotion = promotion_decision(&arena, &candidate_diagnostics, config);
+    let promotion = promotion_decision(&arena, exploratory, config);
     if promotion.promoted() {
         publish_champion(models_root, candidate_generation)?;
         progress(TrainingProgress::ChampionPromoted {
@@ -730,7 +683,6 @@ where
 
     let report = GenerationReport {
         source_generation: source_metadata.generation,
-        self_play_source_generation: source_metadata.generation,
         self_play_evaluator,
         candidate_generation,
         generated_games: games.len(),
@@ -751,8 +703,7 @@ where
         buffer_dataset_diagnostics,
         training,
         arena,
-        candidate_mirror: candidate_diagnostics.mirror,
-        candidate_self_play: candidate_diagnostics.exploratory,
+        candidate_self_play: exploratory,
         promotion,
     };
     save_generation_report(
@@ -764,31 +715,16 @@ where
     Ok(report)
 }
 
-struct CandidateDiagnostics {
-    mirror: ArenaResult,
-    exploratory: GameOutcomeStats,
-}
-
 fn promotion_decision(
     arena: &ArenaResult,
-    diagnostics: &CandidateDiagnostics,
+    exploratory: GameOutcomeStats,
     config: &TrainingConfig,
 ) -> PromotionDecision {
-    let mirror_games = diagnostics.mirror.candidate_wins
-        + diagnostics.mirror.reference_wins
-        + diagnostics.mirror.draws;
-    let exploratory_games = diagnostics.exploratory.first_wins
-        + diagnostics.exploratory.second_wins
-        + diagnostics.exploratory.draws;
-    let arena_passed = arena.threshold_reached;
-    let mirror_draw_limit_met =
-        ratio(diagnostics.mirror.draws, mirror_games) <= config.arena.max_mirror_draw_rate;
-    let exploratory_draw_gate_passed = ratio(diagnostics.exploratory.draws, exploratory_games)
-        <= config.arena.max_candidate_self_play_draw_rate;
+    let exploratory_games = exploratory.first_wins + exploratory.second_wins + exploratory.draws;
     PromotionDecision {
-        arena_passed,
-        mirror_draw_limit_met,
-        exploratory_draw_gate_passed,
+        arena_passed: arena.threshold_reached,
+        exploratory_draw_gate_passed: ratio(exploratory.draws, exploratory_games)
+            <= config.arena.max_candidate_self_play_draw_rate,
     }
 }
 
@@ -822,75 +758,6 @@ where
     )?)
 }
 
-/// Measures deterministic and exploratory draw behavior before promotion.
-fn run_candidate_diagnostics<F>(
-    candidate: &InferenceClient,
-    config: &TrainingConfig,
-    candidate_generation: u32,
-    progress: &F,
-) -> Result<CandidateDiagnostics, PipelineError>
-where
-    F: Fn(TrainingProgress) + Sync,
-{
-    let mirror = run_mirror_diagnostic(candidate, config, candidate_generation, progress)?;
-    let exploratory =
-        run_exploratory_diagnostic(candidate, config, candidate_generation, progress)?;
-    Ok(CandidateDiagnostics {
-        mirror,
-        exploratory,
-    })
-}
-
-/// Checks deterministic candidate-versus-candidate repetition behavior.
-fn run_mirror_diagnostic<F>(
-    candidate: &InferenceClient,
-    config: &TrainingConfig,
-    candidate_generation: u32,
-    progress: &F,
-) -> Result<ArenaResult, PipelineError>
-where
-    F: Fn(TrainingProgress) + Sync,
-{
-    progress(TrainingProgress::CandidateMirrorStarted {
-        games: config.arena.mirror_games,
-        simulations: config.arena.simulations,
-        max_draw_rate: config.arena.max_mirror_draw_rate,
-    });
-    let mirror_config = crate::ArenaConfig {
-        games: config.arena.mirror_games,
-        // Keep this diagnostic anchored to the real initial position. The
-        // promotion arena above is the diversified strength measurement.
-        opening_plies: 0,
-        score_threshold: 1.0,
-        ..config.arena.clone()
-    };
-    let result = run_arena_with_progress(
-        candidate,
-        candidate,
-        &mirror_config,
-        config.arena.workers.min(config.arena.mirror_games),
-        config.self_play.max_game_plies,
-        config
-            .seed
-            .wrapping_add(u64::from(candidate_generation) << 48),
-        &|mirror_progress| {
-            if progress_checkpoint(mirror_progress.completed, mirror_progress.total) {
-                progress(TrainingProgress::CandidateMirrorAdvanced {
-                    progress: mirror_progress,
-                });
-            }
-        },
-    )?;
-    let draw_rate = ratio(result.draws, config.arena.mirror_games);
-    let within_configured_limit = draw_rate <= config.arena.max_mirror_draw_rate;
-    progress(TrainingProgress::CandidateMirrorFinished {
-        result,
-        draw_rate,
-        within_configured_limit,
-    });
-    Ok(result)
-}
-
 /// Checks repetition behavior under the actual noisy self-play settings.
 fn run_exploratory_diagnostic<F>(
     candidate: &InferenceClient,
@@ -909,13 +776,14 @@ where
     let mut probe_config = config.self_play.clone();
     probe_config.games_per_generation = config.arena.candidate_self_play_games;
     probe_config.workers = probe_config.workers.min(probe_config.games_per_generation);
-    let probe_games = generate_self_play_with_progress(
+    let probe_games = generate_self_play_with_restarts_and_progress(
         candidate,
         &probe_config,
         candidate_generation,
         config
             .seed
             .wrapping_add(u64::from(candidate_generation) << 56),
+        &[],
         &|completed, total| {
             if progress_checkpoint(completed, total) {
                 progress(TrainingProgress::CandidateSelfPlayAdvanced { completed, total });
@@ -931,11 +799,6 @@ where
         within_configured_limit,
     });
     Ok(outcomes)
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn ratio(numerator: usize, denominator: usize) -> f32 {
-    numerator as f32 / denominator as f32
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -1058,12 +921,22 @@ fn save_self_play_replays(
             continue;
         };
         replay.to_game()?;
-        atomic_json_write(&directory.join(format!("game-{index:04}.json")), replay)?;
+        atomic_json_write::<_, PipelineError>(
+            &directory.join(format!("game-{index:04}.json")),
+            replay,
+        )?;
     }
     Ok(())
 }
 
-fn atomic_json_write<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<(), PipelineError> {
+/// Serializes into a hidden sibling file, then renames it into place, so an
+/// interruption can never leave a truncated JSON file behind. Generic over
+/// the error so `pipeline` and `diagnostics` share one implementation.
+pub(crate) fn atomic_json_write<T, E>(path: &Path, value: &T) -> Result<(), E>
+where
+    T: Serialize + ?Sized,
+    E: From<io::Error> + From<serde_json::Error>,
+{
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
     let temporary = temporary_path(path);

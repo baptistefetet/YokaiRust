@@ -1,7 +1,15 @@
-//! Ignored local Metal benchmarks and retained-checkpoint comparison tools.
+//! Local Metal benchmarks and retained-checkpoint comparison tools.
 //!
-//! They are intentionally excluded from the normal correctness suite because
-//! they load runtime checkpoints and may occupy the GPU for several minutes.
+//! These used to be `#[ignore]`d tests, but a "test" that prints timings and
+//! cannot fail is a false signal. As a manual bench binary they must now be
+//! named explicitly:
+//!
+//! ```bash
+//! cargo bench --bench performance -- <name-substring>|all
+//! ```
+//!
+//! They are excluded from the correctness suite because they load runtime
+//! checkpoints and may occupy the GPU for several minutes.
 
 use std::{
     env,
@@ -19,24 +27,71 @@ use yokai::{
 
 const BATCH_SIZES: [usize; 6] = [1, 8, 16, 32, 64, 128];
 
-#[test]
-#[ignore = "manual CPU throughput benchmark"]
+const BENCHMARKS: &[(&str, fn())] = &[
+    ("cpu_inference_batches", benchmark_cpu_inference_batches),
+    ("metal_inference_batches", benchmark_metal_inference_batches),
+    (
+        "metal_self_play_worker_counts",
+        benchmark_metal_self_play_worker_counts,
+    ),
+    (
+        "metal_self_play_wait_times",
+        benchmark_metal_self_play_wait_times,
+    ),
+    ("metal_full_concurrency", benchmark_metal_full_concurrency),
+    ("metal_default_self_play", benchmark_metal_default_self_play),
+    (
+        "metal_search_batch_sizes",
+        benchmark_metal_search_batch_sizes,
+    ),
+    ("metal_default_arena", benchmark_metal_default_arena),
+    (
+        "compare_saved_generations",
+        compare_saved_generations_from_environment,
+    ),
+    (
+        "compare_saved_champion_search_modes",
+        compare_saved_champion_search_modes,
+    ),
+];
+
+fn main() {
+    // `cargo bench` forwards everything after `--` to this binary; libtest
+    // conventions such as `--bench` may still arrive and are ignored.
+    let filter = env::args().skip(1).find(|arg| !arg.starts_with('-'));
+    let Some(filter) = filter else {
+        eprintln!("Run one benchmark by name substring, or `all`:");
+        for (name, _) in BENCHMARKS {
+            eprintln!("  {name}");
+        }
+        return;
+    };
+    let mut ran = 0;
+    for (name, benchmark) in BENCHMARKS {
+        if filter == "all" || name.contains(&filter) {
+            eprintln!("=== {name} ===");
+            benchmark();
+            ran += 1;
+        }
+    }
+    if ran == 0 {
+        eprintln!("no benchmark matches `{filter}`");
+        std::process::exit(1);
+    }
+}
+
 fn benchmark_cpu_inference_batches() {
     let device = burn::backend::flex::FlexDevice;
     CpuBackend::seed(&device, 42);
     benchmark_backend::<CpuBackend>("cpu", device);
 }
 
-#[test]
-#[ignore = "manual Metal throughput benchmark"]
 fn benchmark_metal_inference_batches() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     MetalBackend::seed(&device, 42);
     benchmark_backend::<MetalBackend>("metal", device);
 }
 
-#[test]
-#[ignore = "manual Metal self-play concurrency benchmark"]
 fn benchmark_metal_self_play_worker_counts() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     for workers in [16, 32, 64, 128] {
@@ -44,8 +99,6 @@ fn benchmark_metal_self_play_worker_counts() {
     }
 }
 
-#[test]
-#[ignore = "manual Metal self-play batching wait benchmark"]
 fn benchmark_metal_self_play_wait_times() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     for wait_ms in [0, 1, 2, 4] {
@@ -53,8 +106,6 @@ fn benchmark_metal_self_play_wait_times() {
     }
 }
 
-#[test]
-#[ignore = "manual Metal full-generation concurrency benchmark"]
 fn benchmark_metal_full_concurrency() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     for workers in [64, 128, 256] {
@@ -62,15 +113,11 @@ fn benchmark_metal_full_concurrency() {
     }
 }
 
-#[test]
-#[ignore = "manual full-size Metal self-play benchmark"]
 fn benchmark_metal_default_self_play() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     benchmark_metal_self_play_case_with_config(&device, 16, 1, 256, 400, 8);
 }
 
-#[test]
-#[ignore = "manual batched MCTS concurrency benchmark"]
 fn benchmark_metal_search_batch_sizes() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     for (workers, search_batch_size) in [
@@ -86,8 +133,6 @@ fn benchmark_metal_search_batch_sizes() {
     }
 }
 
-#[test]
-#[ignore = "manual full-size Metal arena benchmark"]
 fn benchmark_metal_default_arena() {
     let device = burn::backend::wgpu::WgpuDevice::default();
     MetalBackend::seed(&device, 42);
@@ -118,8 +163,6 @@ fn benchmark_metal_default_arena() {
             search_batch_size: 1,
             opening_plies: 4,
             score_threshold: 0.55,
-            mirror_games: 4,
-            max_mirror_draw_rate: 0.35,
             candidate_self_play_games: 64,
             max_candidate_self_play_draw_rate: 0.20,
         },
@@ -145,8 +188,6 @@ fn benchmark_metal_default_arena() {
     );
 }
 
-#[test]
-#[ignore = "manual saved-generation arena diagnostic"]
 fn compare_saved_generations_from_environment() {
     let candidate_models = env::var("YOKAI_CANDIDATE_MODELS")
         .expect("YOKAI_CANDIDATE_MODELS must name the candidate model directory");
@@ -202,8 +243,6 @@ fn compare_saved_generations_from_environment() {
         search_batch_size: 1,
         opening_plies: 4,
         score_threshold: 0.55,
-        mirror_games: 4,
-        max_mirror_draw_rate: 1.0,
         candidate_self_play_games: 64,
         max_candidate_self_play_draw_rate: 1.0,
     };
@@ -223,8 +262,6 @@ fn compare_saved_generations_from_environment() {
     );
 }
 
-#[test]
-#[ignore = "manual saved-champion self-play diagnostic"]
 #[allow(clippy::cast_precision_loss)]
 fn compare_saved_champion_search_modes() {
     let models = env::var("YOKAI_DIAGNOSTIC_MODELS").unwrap_or_else(|_| "models".to_owned());

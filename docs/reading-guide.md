@@ -102,9 +102,9 @@ The following boundaries are intentional and should remain stable for the TUI:
 - Illegal policy logits are masked before probabilities reach MCTS.
 - Repetition contempt changes self-play search, never official outcomes.
 
-These boundaries mean the future Ratatui layer can render a `Game`, submit an
-`Action`, display `ActionAnalysis`, and navigate a `Replay` without depending on
-Burn or the training pipeline.
+These boundaries let the Ratatui layer (`src/ui.rs`) render a `Game`, submit an
+`Action`, display `ActionAnalysis`, and navigate a `Replay` while confining
+Burn and champion loading to its background worker (`src/ui/ai.rs`).
 
 ## Reading the MCTS arena
 
@@ -133,7 +133,7 @@ steps:
 8. publish the candidate only when the strength and exploratory checks pass.
 
 Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
-`main.rs` decides how to print it. Ratatui can later consume the same events.
+`main.rs` decides how to print it.
 
 ## Why the training code is split into modules
 

@@ -25,6 +25,66 @@ fn square(row: u8, column: u8) -> Square {
     Square::new(row, column).expect("test square must be valid")
 }
 
+/// Small, valid baseline configuration for tests.
+///
+/// This is deliberately a test fixture, not a library `Default`: the active
+/// experiment configuration lives only in `config/training.toml`.
+fn test_config() -> TrainingConfig {
+    TrainingConfig {
+        seed: 42,
+        backend: BackendKind::Metal,
+        network: AlphaZeroNetworkConfig::new(),
+        self_play: SelfPlayConfig {
+            games_per_generation: 256,
+            workers: 16,
+            simulations: 200,
+            search_batch_size: 8,
+            max_game_plies: 512,
+            inference_batch_size: 128,
+            inference_wait_ms: 1,
+            exploration_plies: 12,
+            exploration_temperature: 1.0,
+            final_temperature: 0.0,
+            repetition_contempt: 0.0,
+            starter_draw_value: 0.25,
+            restart_fraction: 0.25,
+            restart_simulations: None,
+            bootstrap: SelfPlayBootstrapConfig::default(),
+        },
+        optimization: OptimizationConfig {
+            steps_per_generation: 400,
+            validation_interval_steps: 100,
+            batch_size: 256,
+            learning_rate: 0.001,
+            learning_rate_schedule: Vec::new(),
+            weight_decay: 1.0e-4,
+            validation_fraction: 0.1,
+            mirror_augmentation: true,
+            non_starter_draw_policy_weight: 1.0,
+            scalar_value_loss_weight: 0.0,
+            terminal_window_plies: None,
+            terminal_window_schedule: None,
+            replay_buffer: ReplayBufferConfig::default(),
+        },
+        arena: ArenaConfig {
+            games: 200,
+            workers: 128,
+            simulations: 400,
+            search_batch_size: 1,
+            opening_plies: 4,
+            score_threshold: 0.55,
+            mirror_games: 4,
+            max_mirror_draw_rate: 0.0,
+            candidate_self_play_games: 64,
+            max_candidate_self_play_draw_rate: 0.20,
+        },
+        paths: PathsConfig {
+            models: "models".to_owned(),
+            self_play: "data/self-play".to_owned(),
+        },
+    }
+}
+
 fn immediate_win_game() -> Game {
     let mut board = [None; BOARD_SQUARES];
     board[square(3, 0).index()] = Some(Piece::new(PieceKind::Koropokkuru, Player::First));
@@ -183,7 +243,7 @@ fn validation_assignment_stays_stable_when_the_buffer_grows() {
     let first_validation = first
         .validation_games
         .iter()
-        .map(|game| (game.generation, game.seed))
+        .map(|game| (game.source_generation, game.seed))
         .collect::<HashSet<_>>();
     assert!(!first_validation.is_empty());
 
@@ -194,7 +254,7 @@ fn validation_assignment_stays_stable_when_the_buffer_grows() {
     let second_validation = second
         .validation_games
         .iter()
-        .map(|game| (game.generation, game.seed))
+        .map(|game| (game.source_generation, game.seed))
         .collect::<HashSet<_>>();
 
     for seed in 1_000..1_100 {
@@ -215,6 +275,21 @@ fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
 
     assert_eq!(decoded.len(), 1);
     assert_eq!(decoded.example_count(), 1);
+}
+
+#[test]
+fn replay_buffer_still_reads_the_legacy_generation_field_name() {
+    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).expect("valid buffer");
+    buffer.push(recorded_game(3, 99));
+
+    // Buffers written before the `source_generation` rename used `generation`.
+    let json = serde_json::to_string(&buffer).expect("buffer serialization");
+    assert!(json.contains("\"source_generation\""));
+    let legacy = json.replace("\"source_generation\"", "\"generation\"");
+    let decoded: ReplayBuffer = serde_json::from_str(&legacy).expect("legacy deserialization");
+
+    assert_eq!(decoded.len(), 1);
+    assert!(decoded.contains(3, 99));
 }
 
 #[test]
@@ -516,7 +591,7 @@ fn deterministic_mirror_draws_are_diagnostic_not_a_promotion_veto() {
 
 #[test]
 fn rollout_bootstrap_follows_the_accepted_source_after_rejection_and_promotion() {
-    let mut self_play = TrainingConfig::default().self_play;
+    let mut self_play = test_config().self_play;
     self_play.bootstrap = SelfPlayBootstrapConfig {
         mode: SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion,
         rollout_max_plies: 512,
@@ -536,7 +611,7 @@ fn rollout_bootstrap_follows_the_accepted_source_after_rejection_and_promotion()
     self_play.bootstrap.rollout_max_plies = 0;
     let invalid = TrainingConfig {
         self_play,
-        ..TrainingConfig::default()
+        ..test_config()
     };
     assert!(matches!(
         invalid.validate(),
@@ -546,7 +621,7 @@ fn rollout_bootstrap_follows_the_accepted_source_after_rejection_and_promotion()
 
 #[test]
 fn terminal_window_schedule_expands_then_restores_full_alphazero_data() {
-    let mut optimization = TrainingConfig::default().optimization;
+    let mut optimization = test_config().optimization;
     optimization.terminal_window_schedule = Some(TerminalWindowSchedule {
         initial_plies: 1,
         growth_factor: 2,
@@ -564,7 +639,7 @@ fn terminal_window_schedule_expands_then_restores_full_alphazero_data() {
 
 #[test]
 fn learning_rate_schedule_follows_the_accepted_source_generation() {
-    let mut optimization = TrainingConfig::default().optimization;
+    let mut optimization = test_config().optimization;
     optimization.learning_rate_schedule = vec![
         LearningRateStage {
             source_generation: 3,
@@ -685,7 +760,7 @@ fn parallel_self_play_is_seed_ordered_and_reproducible() {
 
 #[test]
 fn rollout_self_play_is_explicit_in_saved_games_and_switches_after_promotion() {
-    let mut config = TrainingConfig::default().self_play;
+    let mut config = test_config().self_play;
     config.games_per_generation = 1;
     config.workers = 1;
     config.simulations = 8;
@@ -1015,7 +1090,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     )
     .expect("persisted game JSON");
     for game in &mut persisted_games {
-        game.generation = expected_champion;
+        game.source_generation = expected_champion;
         game.seed = game.seed.wrapping_add(10_000);
     }
     fs::write(

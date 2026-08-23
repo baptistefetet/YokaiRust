@@ -437,6 +437,9 @@ pub enum SearchError {
     /// A reused tree edge no longer matches the reconstructed game path.
     #[error("tree action became illegal while reconstructing a simulation")]
     InvalidTreeAction,
+    /// An expanded non-terminal node unexpectedly has no children.
+    #[error("search tree contains an expanded node without children")]
+    InconsistentTree,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -789,8 +792,10 @@ impl<E: Evaluator> Mcts<E> {
                 game,
             }))
         } else {
-            self.backpropagate(&path, 0.0);
-            Ok(PreparedSimulation::Completed)
+            // `expand` never leaves an expanded, non-terminal node without
+            // children, so reaching this state means the tree is corrupted.
+            // Failing loudly beats silently counting a zero-value visit.
+            Err(SearchError::InconsistentTree)
         }
     }
 
@@ -1285,8 +1290,10 @@ fn normalize_or_uniform(values: &mut [f32]) {
             *value /= sum;
         }
     } else if !values.is_empty() {
-        let value_count = u16::try_from(values.len())
-            .expect("a Yokai policy cannot contain more than 132 legal actions");
+        // Slices here are at most `POLICY_ACTIONS` (132) long, so the count
+        // always converts losslessly to `f32` through `u16`.
+        let value_count =
+            u16::try_from(values.len()).expect("normalized slices stay far below the u16 range");
         let uniform = 1.0 / f32::from(value_count);
         values.fill(uniform);
     }

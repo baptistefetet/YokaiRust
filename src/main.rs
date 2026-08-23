@@ -15,15 +15,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use burn::prelude::Backend;
+use burn::{prelude::Backend, tensor::backend::AutodiffBackend};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use yokai::{
-    BackendKind, CachedEvaluator, CpuBackend, CpuTrainingBackend, Game, Mcts, MetalBackend,
-    MetalTrainingBackend, Replay, SearchConfig, TrainingConfig, TrainingProgress, UniformEvaluator,
-    bootstrap_champion, endgame_distance_report, endgame_distance_report_path, load_generation,
-    load_replay_buffer, run_generation_with_progress, save_endgame_distance_report,
-    stored_generations,
+    BackendKind, CachedEvaluator, CpuBackend, CpuTrainingBackend, Evaluator, Game, Mcts,
+    MetalBackend, MetalTrainingBackend, NetworkEvaluator, Replay, SearchConfig, TrainingConfig,
+    TrainingProgress, UniformEvaluator, bootstrap_champion, endgame_distance_report,
+    endgame_distance_report_path, load_champion, load_generation, load_replay_buffer,
+    run_generation_with_progress, save_endgame_distance_report, stored_generations,
 };
 
 fn main() -> ExitCode {
@@ -138,15 +138,6 @@ fn parse_train_arguments(arguments: &[String]) -> Result<TrainArguments, io::Err
                         .ok_or_else(|| invalid_input("--config requires a TOML path"))?,
                 );
             }
-            "--resume" => {
-                index += 1;
-                let resume = arguments
-                    .get(index)
-                    .ok_or_else(|| invalid_input("--resume requires `latest`"))?;
-                if resume != "latest" {
-                    return Err(invalid_input("only `--resume latest` is supported"));
-                }
-            }
             "--generations" => {
                 index += 1;
                 generations = arguments
@@ -158,7 +149,6 @@ fn parse_train_arguments(arguments: &[String]) -> Result<TrainArguments, io::Err
                     return Err(invalid_input("--generations must be greater than zero"));
                 }
             }
-            "--headless" => {}
             argument => {
                 return Err(invalid_input(format!(
                     "unexpected train argument `{argument}`"
@@ -186,69 +176,53 @@ fn train(arguments: &[String]) -> Result<(), Box<dyn Error>> {
         config_path,
         config.backend
     );
+    // The match only selects the device and the autodiff backend type; the
+    // actual run is backend-independent, like `diagnose_endgames` below.
     match config.backend {
         BackendKind::Cpu => {
             let device = burn::backend::flex::FlexDevice;
-            // Inference and autodiff are distinct Burn backend types, so both
-            // deterministic random-number generators receive the same seed.
-            CpuBackend::seed(&device, config.seed);
-            CpuTrainingBackend::seed(&device, config.seed);
-            let champion = bootstrap_champion::<CpuBackend>(
-                &config.paths.models,
-                config.network.clone(),
-                &device,
-            )?;
-            eprintln!(
-                "[{}] champion network generation={} ready",
-                elapsed_text(started.elapsed()),
-                champion.generation
-            );
-            let mut buffer = load_replay_buffer(
-                Path::new(&config.paths.self_play).join("buffer.json"),
-                config.optimization.replay_buffer,
-            )?;
-            let progress = |event| print_training_progress(started, &event);
-            for _ in 0..generations {
-                let report = run_generation_with_progress::<CpuTrainingBackend, _>(
-                    &config,
-                    &mut buffer,
-                    &device,
-                    &progress,
-                )?;
-                print_generation_report(&report);
-            }
+            train_with_backend::<CpuTrainingBackend>(&config, &device, generations, started)
         }
         BackendKind::Metal => {
             let device = burn::backend::wgpu::WgpuDevice::default();
-            // The Metal aliases share this WGPU device but retain separate
-            // inference/autodiff type-level capabilities.
-            MetalBackend::seed(&device, config.seed);
-            MetalTrainingBackend::seed(&device, config.seed);
-            let champion = bootstrap_champion::<MetalBackend>(
-                &config.paths.models,
-                config.network.clone(),
-                &device,
-            )?;
-            eprintln!(
-                "[{}] champion network generation={} ready",
-                elapsed_text(started.elapsed()),
-                champion.generation
-            );
-            let mut buffer = load_replay_buffer(
-                Path::new(&config.paths.self_play).join("buffer.json"),
-                config.optimization.replay_buffer,
-            )?;
-            let progress = |event| print_training_progress(started, &event);
-            for _ in 0..generations {
-                let report = run_generation_with_progress::<MetalTrainingBackend, _>(
-                    &config,
-                    &mut buffer,
-                    &device,
-                    &progress,
-                )?;
-                print_generation_report(&report);
-            }
+            train_with_backend::<MetalTrainingBackend>(&config, &device, generations, started)
         }
+    }
+}
+
+fn train_with_backend<B>(
+    config: &TrainingConfig,
+    device: &B::Device,
+    generations: usize,
+    started: Instant,
+) -> Result<(), Box<dyn Error>>
+where
+    B: AutodiffBackend<FloatElem = f32> + 'static,
+    B::InnerBackend: Backend<FloatElem = f32> + 'static,
+    NetworkEvaluator<B::InnerBackend>: Send,
+{
+    // Inference (`B::InnerBackend`) and autodiff (`B`) are distinct Burn
+    // backend types, so both deterministic RNGs receive the same seed.
+    B::InnerBackend::seed(device, config.seed);
+    B::seed(device, config.seed);
+    let champion = bootstrap_champion::<B::InnerBackend>(
+        &config.paths.models,
+        config.network.clone(),
+        device,
+    )?;
+    eprintln!(
+        "[{}] champion network generation={} ready",
+        elapsed_text(started.elapsed()),
+        champion.generation
+    );
+    let mut buffer = load_replay_buffer(
+        Path::new(&config.paths.self_play).join("buffer.json"),
+        config.optimization.replay_buffer,
+    )?;
+    let progress = |event| print_training_progress(started, &event);
+    for _ in 0..generations {
+        let report = run_generation_with_progress::<B, _>(config, &mut buffer, device, &progress)?;
+        print_generation_report(&report);
     }
     Ok(())
 }
@@ -759,10 +733,40 @@ fn analyze_initial_position(simulations: u32, seed: u64) -> Result<(), Box<dyn E
         simulations,
         ..SearchConfig::default()
     };
-    let evaluator = CachedEvaluator::new(UniformEvaluator, 16_384);
-    let mut search = Mcts::new(evaluator, config, seed)?;
-    let result = search.search(&game, 0.0)?;
+    // Analysis always runs on the CPU backend: checkpoints are stored
+    // backend-agnostically and a few hundred simulations do not justify GPU
+    // startup. Without a trained champion the search falls back to uniform
+    // priors, which is still a valid (if much weaker) MCTS.
+    let device = burn::backend::flex::FlexDevice;
+    let champion = TrainingConfig::load(ui::ACTIVE_TRAINING_CONFIG)
+        .map_err(|error| error.to_string())
+        .and_then(|training| {
+            load_champion::<CpuBackend>(&training.paths.models, &device)
+                .map_err(|error| error.to_string())
+        });
+    match champion {
+        Ok((model, metadata)) => {
+            println!("evaluator=champion generation={}", metadata.generation);
+            let evaluator = CachedEvaluator::new(NetworkEvaluator::new(model, device), 16_384);
+            print_analysis(evaluator, &game, config, simulations, seed)
+        }
+        Err(reason) => {
+            println!("evaluator=uniform (no champion available: {reason})");
+            let evaluator = CachedEvaluator::new(UniformEvaluator, 16_384);
+            print_analysis(evaluator, &game, config, simulations, seed)
+        }
+    }
+}
 
+fn print_analysis<E: Evaluator>(
+    evaluator: E,
+    game: &Game,
+    config: SearchConfig,
+    simulations: u32,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let mut search = Mcts::new(evaluator, config, seed)?;
+    let result = search.search(game, 0.0)?;
     println!(
         "starting_player={:?} simulations={} seed={} root_value={:+.3}",
         game.initial_player(),
@@ -815,9 +819,10 @@ Commands:
   yokai play [human-vs-human|human-vs-cpu]
                                        Start the Ratatui match interface
   yokai watch <file.json>              Open a replay in the Ratatui viewer
-  yokai analyze [simulations] [seed]  Analyze the initial position with pure MCTS
+  yokai analyze [simulations] [seed]  Analyze the initial position with the
+                                       champion network (uniform fallback)
   yokai replay <file.json>             Validate and print a recorded game
-  yokai train [--config FILE] [--resume latest] [--generations N] [--headless]
+  yokai train [--config FILE] [--generations N]
                                        Run N AlphaZero generations (default: 1)
   yokai diagnose-endgames [--config FILE]
                                        Evaluate all checkpoints by terminal distance"
@@ -842,11 +847,16 @@ mod tests {
             "custom.toml".to_owned(),
             "--generations".to_owned(),
             "5".to_owned(),
-            "--headless".to_owned(),
         ];
         let parsed = parse_train_arguments(&arguments).expect("explicit train arguments");
         assert_eq!(parsed.config_path, "custom.toml");
         assert_eq!(parsed.generations, 5);
+    }
+
+    #[test]
+    fn train_arguments_reject_the_removed_flags() {
+        assert!(parse_train_arguments(&["--headless".to_owned()]).is_err());
+        assert!(parse_train_arguments(&["--resume".to_owned(), "latest".to_owned()]).is_err());
     }
 
     #[test]

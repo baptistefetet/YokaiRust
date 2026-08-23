@@ -78,24 +78,29 @@ policy example because they have no legal move distribution.
 
 ### How generation zero is bootstrapped
 
-The current Rust pipeline saves a randomly initialized network as champion
-generation zero. Generation one's MCTS therefore already uses its random policy
-priors and random WDL estimates. Training can overcome those initial biases,
-but the first policy targets partly reflect them.
+The pipeline always saves a randomly initialized network as champion
+generation zero. What is configurable — via `[self_play.bootstrap]` in
+`config/training.toml` — is the evaluator self-play uses until the first
+candidate is accepted:
 
-The earlier JavaScript implementation used a different bootstrap. It disabled
-the network until the first promotion: legal actions began with uniform priors,
-and a random rollout from each leaf supplied the search value. After this
-rules-only search produced the first dataset and an accepted network, later
-generations switched to neural policy and value evaluation. If the first model
-was rejected, rollout self-play remained active until one was accepted.
+- `mode = "neural"` searches with the random network immediately. Generation
+  one's MCTS then uses its random policy priors and random WDL estimates;
+  training can overcome those initial biases, but the first policy targets
+  partly reflect them. This mirrors
+  [AlphaGo Zero](https://deepmind.google/blog/alphago-zero-starting-from-scratch/),
+  whose search used a randomly initialized network and deliberately omitted
+  rollouts.
+- `mode = "random_rollout_until_first_promotion"` — the checked-in default of
+  the active run — disables the network until the first promotion: legal
+  actions begin with uniform priors, and a random rollout from each leaf
+  supplies the search value. After this rules-only search produces the first
+  dataset and an accepted network, later generations switch to neural policy
+  and value evaluation. If the first model is rejected, rollout self-play
+  remains active until one is accepted.
 
-These are two distinct from-scratch strategies. The Rust approach is closer to
-[AlphaGo Zero](https://deepmind.google/blog/alphago-zero-starting-from-scratch/),
-whose search used a randomly initialized network and deliberately omitted
-rollouts. The JavaScript approach provides a less arbitrary but noisier
-bootstrap target. Comparing them while holding every later generation constant
-is a useful experiment.
+The rollout mode provides a less arbitrary but noisier bootstrap target. Both
+strategies stay implemented and tested precisely so they can be compared while
+holding every later generation constant.
 
 ## Where the input numbers come from
 

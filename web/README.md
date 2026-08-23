@@ -17,6 +17,13 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.127 --locked
 ```
 
+The build also needs the accepted champion checkpoint on disk: the script
+exports the generation referenced by `latest` under the model path configured
+in `config/training.toml` (ignored by Git). Train one first, or download the
+checkpoint archive from the
+[latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+and extract it at that path.
+
 Then build the accepted champion and both browser backends:
 
 ```bash

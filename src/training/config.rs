@@ -230,6 +230,10 @@ pub struct PathsConfig {
 }
 
 /// Complete top-level training configuration loaded from TOML.
+///
+/// `config/training.toml` is the single source of truth for the active
+/// experiment. There is deliberately no `Default` implementation: an
+/// in-code default would inevitably drift away from the checked-in file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrainingConfig {
     /// Root deterministic seed from which generation and game seeds derive.
@@ -246,64 +250,6 @@ pub struct TrainingConfig {
     pub arena: ArenaConfig,
     /// Runtime artifact locations.
     pub paths: PathsConfig,
-}
-
-impl Default for TrainingConfig {
-    fn default() -> Self {
-        Self {
-            seed: 42,
-            backend: BackendKind::Metal,
-            network: AlphaZeroNetworkConfig::new(),
-            self_play: SelfPlayConfig {
-                games_per_generation: 256,
-                workers: 16,
-                simulations: 200,
-                search_batch_size: 8,
-                max_game_plies: 512,
-                inference_batch_size: 128,
-                inference_wait_ms: 1,
-                exploration_plies: 12,
-                exploration_temperature: 1.0,
-                final_temperature: 0.0,
-                repetition_contempt: 0.0,
-                starter_draw_value: default_starter_draw_value(),
-                restart_fraction: default_restart_fraction(),
-                restart_simulations: None,
-                bootstrap: SelfPlayBootstrapConfig::default(),
-            },
-            optimization: OptimizationConfig {
-                steps_per_generation: 400,
-                validation_interval_steps: 100,
-                batch_size: 256,
-                learning_rate: 0.001,
-                learning_rate_schedule: Vec::new(),
-                weight_decay: 1.0e-4,
-                validation_fraction: 0.1,
-                mirror_augmentation: true,
-                non_starter_draw_policy_weight: 1.0,
-                scalar_value_loss_weight: 0.0,
-                terminal_window_plies: None,
-                terminal_window_schedule: None,
-                replay_buffer: ReplayBufferConfig::default(),
-            },
-            arena: ArenaConfig {
-                games: 200,
-                workers: 128,
-                simulations: 400,
-                search_batch_size: 1,
-                opening_plies: 4,
-                score_threshold: 0.55,
-                mirror_games: 4,
-                max_mirror_draw_rate: 0.0,
-                candidate_self_play_games: 64,
-                max_candidate_self_play_draw_rate: 0.20,
-            },
-            paths: PathsConfig {
-                models: "models".to_owned(),
-                self_play: "data/self-play".to_owned(),
-            },
-        }
-    }
 }
 
 const fn default_arena_opening_plies() -> usize {

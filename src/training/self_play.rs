@@ -21,10 +21,10 @@ use crate::{
 pub fn play_self_play_game<E: Evaluator>(
     evaluator: E,
     config: &SelfPlayConfig,
-    generation: u32,
+    source_generation: u32,
     seed: u64,
 ) -> Result<SelfPlayGame, SelfPlayError> {
-    play_self_play_game_from_restart(evaluator, config, generation, seed, None)
+    play_self_play_game_from_restart(evaluator, config, source_generation, seed, None)
 }
 
 /// Plays one trajectory from the official initial state or a complete ongoing
@@ -37,7 +37,7 @@ pub fn play_self_play_game<E: Evaluator>(
 pub fn play_self_play_game_from_restart<E: Evaluator>(
     evaluator: E,
     config: &SelfPlayConfig,
-    generation: u32,
+    source_generation: u32,
     seed: u64,
     restart: Option<&Replay>,
 ) -> Result<SelfPlayGame, SelfPlayError> {
@@ -60,7 +60,7 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         config.restart_simulations,
         restart.is_some(),
     );
-    let self_play_evaluator = config.evaluator_for_source_generation(generation);
+    let self_play_evaluator = config.evaluator_for_source_generation(source_generation);
     let leaf_evaluation = match self_play_evaluator {
         SelfPlayEvaluator::Neural => LeafEvaluation::Evaluator,
         SelfPlayEvaluator::RandomRollout { max_plies } => {
@@ -97,7 +97,7 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         let _reused = search.advance_root(result.selected_action, &game);
     }
     let mut self_play_game = recorder
-        .finish_from_game(generation, seed, &game, restart_ply)
+        .finish_from_game(source_generation, seed, &game, restart_ply)
         .map_err(SelfPlayError::from)?;
     self_play_game.evaluator = self_play_evaluator;
     Ok(self_play_game)
@@ -111,7 +111,7 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
 pub fn generate_self_play<E>(
     evaluator: &E,
     config: &SelfPlayConfig,
-    generation: u32,
+    source_generation: u32,
     base_seed: u64,
 ) -> Result<Vec<SelfPlayGame>, SelfPlayError>
 where
@@ -120,7 +120,7 @@ where
     generate_self_play_with_restarts_and_progress(
         evaluator,
         config,
-        generation,
+        source_generation,
         base_seed,
         &[],
         &|_, _| {},
@@ -136,7 +136,7 @@ where
 pub fn generate_self_play_with_restarts<E>(
     evaluator: &E,
     config: &SelfPlayConfig,
-    generation: u32,
+    source_generation: u32,
     base_seed: u64,
     restart_archive: &[Replay],
 ) -> Result<Vec<SelfPlayGame>, SelfPlayError>
@@ -146,7 +146,7 @@ where
     generate_self_play_with_restarts_and_progress(
         evaluator,
         config,
-        generation,
+        source_generation,
         base_seed,
         restart_archive,
         &|_, _| {},
@@ -165,7 +165,7 @@ where
 pub fn generate_self_play_with_progress<E, F>(
     evaluator: &E,
     config: &SelfPlayConfig,
-    generation: u32,
+    source_generation: u32,
     base_seed: u64,
     progress: &F,
 ) -> Result<Vec<SelfPlayGame>, SelfPlayError>
@@ -176,7 +176,7 @@ where
     generate_self_play_with_restarts_and_progress(
         evaluator,
         config,
-        generation,
+        source_generation,
         base_seed,
         &[],
         progress,
@@ -192,7 +192,7 @@ where
 pub fn generate_self_play_with_restarts_and_progress<E, F>(
     evaluator: &E,
     config: &SelfPlayConfig,
-    generation: u32,
+    source_generation: u32,
     base_seed: u64,
     restart_archive: &[Replay],
     progress: &F,
@@ -214,7 +214,7 @@ where
                 let game = play_self_play_game_from_restart(
                     (*evaluator).clone(),
                     config,
-                    generation,
+                    source_generation,
                     base_seed.wrapping_add(index as u64),
                     starts[index].as_ref(),
                 )?;
@@ -235,6 +235,11 @@ pub fn planned_restart_count(config: &SelfPlayConfig, archive_len: usize) -> usi
     fraction_count(config.games_per_generation, config.restart_fraction)
 }
 
+/// Assigns the supplied restart prefixes to randomly chosen game slots.
+///
+/// The archive is expected to already be a uniform sample of visited states
+/// (see `ReplayBuffer::sample_restart_replays`); entries cycle when fewer
+/// prefixes exist than planned restarts.
 fn planned_restarts(config: &SelfPlayConfig, seed: u64, archive: &[Replay]) -> Vec<Option<Replay>> {
     let mut starts = vec![None; config.games_per_generation];
     let count = planned_restart_count(config, archive.len());
@@ -244,10 +249,8 @@ fn planned_restarts(config: &SelfPlayConfig, seed: u64, archive: &[Replay]) -> V
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0x4359_434c_455f_5253);
     let mut slots = (0..config.games_per_generation).collect::<Vec<_>>();
     slots.shuffle(&mut rng);
-    let mut prefix_indices = (0..archive.len()).collect::<Vec<_>>();
-    prefix_indices.shuffle(&mut rng);
     for (offset, slot) in slots.into_iter().take(count).enumerate() {
-        starts[slot] = Some(archive[prefix_indices[offset % prefix_indices.len()]].clone());
+        starts[slot] = Some(archive[offset % archive.len()].clone());
     }
     starts
 }

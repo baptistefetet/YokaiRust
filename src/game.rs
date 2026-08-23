@@ -748,8 +748,11 @@ impl Game {
         if !self.is_legal_action(action) {
             return None;
         }
-        // Applying on a fresh shell avoids cloning the potentially long action,
-        // position and repetition histories for every legal policy slot.
+        // Applying on a fresh shell avoids cloning this game's action,
+        // position and repetition histories, at the cost of a few small
+        // allocations per call. This runs for every legal action of every
+        // evaluated leaf, so it is a candidate for a cheaper incremental
+        // implementation if search throughput ever becomes a priority.
         let mut next = Self::from_position(self.position);
         let transition = next.apply(action).ok()?;
         if matches!(transition.outcome, Outcome::Win { .. }) {

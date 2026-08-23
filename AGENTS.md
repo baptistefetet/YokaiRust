@@ -34,7 +34,6 @@ cargo doc --no-deps
   checkpoint history.
 - Prefer isolated, comparable changes: tune loss weighting or decisive
   endgame sampling before considering another architecture change.
-- Prefer `--headless` for non-interactive training runs.
 
 ## Repository conventions
 

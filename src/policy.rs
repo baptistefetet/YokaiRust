@@ -107,6 +107,9 @@ const fn canonical_square(square: Square, player: Player) -> Square {
     }
 }
 
+/// Inverse of [`canonical_square`]. The 180° rotation is an involution
+/// (applying it twice is the identity), so the inverse is the same function —
+/// this alias only exists to make encode/decode call sites read symmetrically.
 const fn decanonical_square(square: Square, player: Player) -> Square {
     canonical_square(square, player)
 }

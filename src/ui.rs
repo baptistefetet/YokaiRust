@@ -33,7 +33,7 @@ use self::ai::{AiEvent, AiWorker};
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const AI_SOURCE_FOCUS_DURATION: Duration = Duration::from_millis(800);
 const AI_MOVE_DELAY: Duration = Duration::from_millis(1_500);
-const ACTIVE_TRAINING_CONFIG: &str = "config/training.toml";
+pub(crate) const ACTIVE_TRAINING_CONFIG: &str = "config/training.toml";
 const MINIMUM_WIDTH: u16 = 70;
 const MINIMUM_HEIGHT: u16 = 24;
 
@@ -257,11 +257,11 @@ impl MatchSession {
                 result,
                 search_started,
                 search_finished,
-            } if ai.state.matches_request(request_id) => {
-                let purpose = ai
-                    .state
-                    .search_purpose(request_id)
-                    .expect("matching search has a purpose");
+            } => {
+                // A result is only consumed while its request is still
+                // `Thinking`; anything stale or duplicated is ignored rather
+                // than crashing the terminal UI.
+                let purpose = ai.state.search_purpose(request_id)?;
                 let player = self.game.position().side_to_move();
                 let search_duration = search_finished.saturating_duration_since(search_started);
                 self.predictions = Some(PredictionSnapshot {
@@ -303,7 +303,7 @@ impl MatchSession {
                 ai.state = AiState::Failed(message.clone());
                 Some(MatchUpdate::notice(format!("CPU error: {message}")))
             }
-            AiEvent::SearchReady { .. } | AiEvent::Failed { .. } => None,
+            AiEvent::Failed { .. } => None,
         }
     }
 
@@ -312,14 +312,14 @@ impl MatchSession {
         if !matches!(ai.state, AiState::WaitingToPlay { apply_at, .. } if now >= apply_at) {
             return None;
         }
-        let state = std::mem::replace(&mut ai.state, AiState::Idle);
         let AiState::WaitingToPlay {
             result,
             search_duration,
             ..
-        } = state
+        } = std::mem::replace(&mut ai.state, AiState::Idle)
         else {
-            unreachable!("due CPU move must be waiting to play");
+            // Guarded by the `matches!` above; never panic inside the TUI.
+            return None;
         };
         let action = result.best_action;
         match self.game.apply(action) {

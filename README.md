@@ -65,6 +65,13 @@ histories and generated web files are ignored by Git.
 
 ## Commands
 
+Playing against or analyzing with the champion (`play human-vs-cpu`, `analyze`,
+the web build) needs a trained model under the path configured in
+`config/training.toml` (`models/…`, ignored by Git). Either train one first,
+or download the accepted checkpoint archive from the
+[latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+and extract it at that path.
+
 ```bash
 # Play a local two-human match in the Ratatui interface.
 cargo run -- play
@@ -75,15 +82,16 @@ cargo run --release -- play human-vs-cpu
 # Open a validated replay and step through it with the arrow keys.
 cargo run -- watch path/to/game.json
 
-# Pure MCTS from the official initial position.
+# Analyze the initial position with the champion (uniform priors if none).
 cargo run -- analyze [simulations] [seed]
 
 # Validate every action and print a versioned replay.
 cargo run -- replay path/to/game.json
 
 # Start or continue AlphaZero training in the configured active paths.
-cargo run --release -- train --config config/training.toml --generations 15 --headless
-cargo run --release -- train --resume latest --generations 5 --headless
+# Training always resumes from the accepted champion and any persisted
+# self-play games of the attempt in progress.
+cargo run --release -- train --config config/training.toml --generations 15
 
 # Evaluate every checkpoint on the active run's final stable validation split.
 cargo run --release -- diagnose-endgames --config config/training.toml

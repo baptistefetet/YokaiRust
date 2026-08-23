@@ -443,8 +443,7 @@ where
         .self_play
         .evaluator_for_source_generation(source_metadata.generation);
 
-    let restart_archive = buffer.visited_restart_replays()?;
-    let restart_archive_prefixes = restart_archive.len();
+    let restart_archive_prefixes = buffer.restart_prefix_count();
     let persisted_games = load_self_play_generation(
         &config.paths.self_play,
         candidate_generation,
@@ -462,7 +461,7 @@ where
         });
         games
     } else {
-        let planned_restarts = planned_restart_count(&config.self_play, restart_archive.len());
+        let planned_restarts = planned_restart_count(&config.self_play, restart_archive_prefixes);
         progress(TrainingProgress::SelfPlayStarted {
             evaluator: self_play_evaluator,
             games: config.self_play.games_per_generation,
@@ -475,12 +474,15 @@ where
                 .self_play
                 .restart_simulations
                 .unwrap_or(config.self_play.simulations),
-            restart_archive: restart_archive.len(),
+            restart_archive: restart_archive_prefixes,
             planned_restarts,
         });
         let base_seed = config
             .seed
             .wrapping_add(u64::from(candidate_generation) << 32);
+        // Materialize only the prefixes that will actually seed a restart; the
+        // complete visited-state archive is far too large to build eagerly.
+        let restart_archive = buffer.sample_restart_replays(planned_restarts, base_seed)?;
         let report_progress = |completed, total| {
             if progress_checkpoint(completed, total) {
                 progress(TrainingProgress::SelfPlayAdvanced { completed, total });
@@ -551,7 +553,7 @@ where
     let (restart_ply_min, restart_ply_max, mean_restart_ply) = restart_ply_stats(&games);
     let generated_dataset_diagnostics = dataset_diagnostics(&games);
     for game in &games {
-        if !buffer.contains(game.generation, game.seed) {
+        if !buffer.contains(game.source_generation, game.seed) {
             buffer.push(game.clone());
         }
     }
@@ -1028,7 +1030,8 @@ fn load_self_play_generation(
     let games: Vec<SelfPlayGame> = serde_json::from_slice(&bytes)?;
     if games.is_empty()
         || games.iter().any(|game| {
-            game.generation != expected_source_generation || game.evaluator != expected_evaluator
+            game.source_generation != expected_source_generation
+                || game.evaluator != expected_evaluator
         })
     {
         return Err(PipelineError::InvalidPersistedSelfPlay {

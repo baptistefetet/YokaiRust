@@ -2,6 +2,8 @@
 
 use std::collections::VecDeque;
 
+use rand::{SeedableRng, seq::SliceRandom};
+use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -126,8 +128,11 @@ impl TrainingExample {
 /// Persisted experience and provenance for one complete self-play trajectory.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelfPlayGame {
-    /// Candidate generation for which this game was generated.
-    pub generation: u32,
+    /// Champion generation whose network produced this game (the self-play
+    /// *source*), not the candidate that trains on it. Replay-buffer age
+    /// eviction is keyed on this number, so it only advances on promotion.
+    #[serde(alias = "generation")]
+    pub source_generation: u32,
     /// Deterministic per-game seed.
     pub seed: u64,
     /// Explicitly disambiguates bootstrap data from neural self-play.
@@ -155,6 +160,15 @@ impl SelfPlayGame {
         self.selected_examples(mirror, None)
     }
 
+    /// Number of restartable visited states (non-initial, non-terminal) this
+    /// game can contribute to the restart archive.
+    #[must_use]
+    pub fn restart_prefix_count(&self) -> usize {
+        self.replay
+            .as_ref()
+            .map_or(0, |replay| replay.actions.len().saturating_sub(1))
+    }
+
     /// Reconstructs every non-initial, non-terminal state visited in this game.
     ///
     /// Multiple games may contribute the same state. Retaining those
@@ -169,18 +183,9 @@ impl SelfPlayGame {
             return Ok(Vec::new());
         };
         replay.to_game()?;
-        let mut prefixes = Vec::with_capacity(replay.actions.len().saturating_sub(1));
-        for prefix_len in 1..replay.actions.len() {
-            let prefix = Replay::from_actions(
-                replay.initial_player,
-                replay.actions[..prefix_len].to_vec(),
-                Outcome::Ongoing,
-                replay.seed,
-            );
-            prefix.to_game()?;
-            prefixes.push(prefix);
-        }
-        Ok(prefixes)
+        (1..replay.actions.len())
+            .map(|prefix_len| prefix_replay(replay, prefix_len))
+            .collect()
     }
 
     /// Selects the complete game, or a tactical tail from a decisive game.
@@ -221,6 +226,18 @@ impl SelfPlayGame {
         });
         example
     }
+}
+
+/// Builds and rules-validates one visited prefix of a completed replay.
+fn prefix_replay(replay: &Replay, prefix_len: usize) -> Result<Replay, ReplayError> {
+    let prefix = Replay::from_actions(
+        replay.initial_player,
+        replay.actions[..prefix_len].to_vec(),
+        Outcome::Ongoing,
+        replay.seed,
+    );
+    prefix.to_game()?;
+    Ok(prefix)
 }
 
 fn augment_examples(examples: &[TrainingExample], mirror: bool) -> Vec<TrainingExample> {
@@ -299,7 +316,7 @@ impl SelfPlayRecorder {
     /// or no policy target was recorded.
     pub fn finish(
         self,
-        generation: u32,
+        source_generation: u32,
         seed: u64,
         outcome: Outcome,
     ) -> Result<SelfPlayGame, TrainingDataError> {
@@ -323,7 +340,7 @@ impl SelfPlayRecorder {
         let replay = (initial_position == Position::initial(initial_player))
             .then(|| Replay::from_actions(initial_player, actions, outcome, Some(seed)));
         self.finish_with_replay(
-            generation,
+            source_generation,
             seed,
             outcome,
             0,
@@ -340,7 +357,7 @@ impl SelfPlayRecorder {
     /// suffix does not match the recorded policy targets.
     pub fn finish_from_game(
         self,
-        generation: u32,
+        source_generation: u32,
         seed: u64,
         game: &Game,
         restart_ply: usize,
@@ -367,7 +384,7 @@ impl SelfPlayRecorder {
                 .map(|index| positions[index])
         });
         self.finish_with_replay(
-            generation,
+            source_generation,
             seed,
             game.outcome(),
             restart_ply,
@@ -378,7 +395,7 @@ impl SelfPlayRecorder {
 
     fn finish_with_replay(
         self,
-        generation: u32,
+        source_generation: u32,
         seed: u64,
         outcome: Outcome,
         restart_ply: usize,
@@ -402,7 +419,7 @@ impl SelfPlayRecorder {
             })
             .collect();
         Ok(SelfPlayGame {
-            generation,
+            source_generation,
             seed,
             evaluator: SelfPlayEvaluator::Neural,
             outcome,
@@ -458,11 +475,11 @@ impl ReplayBuffer {
     /// Adds a game, then evicts entries outside age and capacity limits.
     pub fn push(&mut self, game: SelfPlayGame) {
         let oldest_generation = game
-            .generation
+            .source_generation
             .saturating_add(1)
             .saturating_sub(self.config.generations_to_keep);
         self.games
-            .retain(|stored| stored.generation >= oldest_generation);
+            .retain(|stored| stored.source_generation >= oldest_generation);
         self.games.push_back(game);
         while self.games.len() > self.config.max_games {
             self.games.pop_front();
@@ -486,7 +503,7 @@ impl ReplayBuffer {
     pub fn contains(&self, generation: u32, seed: u64) -> bool {
         self.games
             .iter()
-            .any(|game| game.generation == generation && game.seed == seed)
+            .any(|game| game.source_generation == generation && game.seed == seed)
     }
 
     /// Returns the number of recorded nonterminal positions before augmentation.
@@ -495,17 +512,65 @@ impl ReplayBuffer {
         self.games.iter().map(|game| game.examples.len()).sum()
     }
 
-    /// Returns every validated non-initial, non-terminal visited prefix.
+    /// Total number of restartable visited states across the whole buffer.
+    #[must_use]
+    pub fn restart_prefix_count(&self) -> usize {
+        self.games
+            .iter()
+            .map(SelfPlayGame::restart_prefix_count)
+            .sum()
+    }
+
+    /// Materializes `count` uniformly sampled visited prefixes.
+    ///
+    /// Multiple games may contribute the same state, and sampling flat prefix
+    /// indices deliberately weights frequently visited regions. Only the
+    /// chosen prefixes are rebuilt and validated — never one `Replay` per
+    /// visited state in the buffer, which would not scale.
     ///
     /// # Errors
     ///
-    /// Returns [`ReplayError`] if a stored full-game replay is invalid.
-    pub fn visited_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
-        let mut replays = Vec::new();
-        for game in &self.games {
-            replays.extend(game.visited_restart_replays()?);
+    /// Returns [`ReplayError`] if a sampled prefix fails rules validation.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the per-game prefix bookkeeping became inconsistent,
+    /// which would be an internal bug: every sampled index is below the
+    /// freshly computed prefix total.
+    pub fn sample_restart_replays(
+        &self,
+        count: usize,
+        seed: u64,
+    ) -> Result<Vec<Replay>, ReplayError> {
+        let total = self.restart_prefix_count();
+        if count == 0 || total == 0 {
+            return Ok(Vec::new());
         }
-        Ok(replays)
+        let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0x0052_4553_5441_5254); // "RESTART"
+        let mut indices = (0..total).collect::<Vec<_>>();
+        indices.shuffle(&mut rng);
+        indices.truncate(count.min(total));
+        indices
+            .into_iter()
+            .map(|index| {
+                let (replay, prefix_len) = self
+                    .restart_location(index)
+                    .expect("shuffled indices stay below the prefix total");
+                prefix_replay(replay, prefix_len)
+            })
+            .collect()
+    }
+
+    /// Maps a flat prefix index to the owning game's replay and prefix length.
+    fn restart_location(&self, mut index: usize) -> Option<(&Replay, usize)> {
+        for game in &self.games {
+            let prefixes = game.restart_prefix_count();
+            if index < prefixes {
+                return game.replay.as_ref().map(|replay| (replay, index + 1));
+            }
+            index -= prefixes;
+        }
+        None
     }
 
     /// Computes policy-target health aggregates over the current buffer.
@@ -835,7 +900,7 @@ fn belongs_to_validation(game: &SelfPlayGame, fraction: f32, seed: u64) -> bool 
     }
     let identity = seed
         ^ game.seed.rotate_left(17)
-        ^ u64::from(game.generation).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        ^ u64::from(game.source_generation).wrapping_mul(0x9e37_79b9_7f4a_7c15);
     splitmix64(identity) % (BUCKETS as u64) < threshold as u64
 }
 

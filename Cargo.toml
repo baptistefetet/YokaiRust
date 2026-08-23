@@ -59,6 +59,10 @@ proptest = "=1.11.0"
 [lints.rust]
 unsafe_code = "forbid"
 
+# `clippy::all` catches probable mistakes. The blanket `pedantic` group was
+# removed on purpose: its style rules (exhaustive match arms, clone_into,
+# const-fn getters, …) made the code noticeably harder to read for the
+# maintainer without preventing bugs. Re-add individual pedantic lints here
+# if they prove their worth.
 [lints.clippy]
 all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }

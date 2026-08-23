@@ -1,7 +1,19 @@
-//! Human-readable coordinates and actions used by the CLI and future TUI.
+//! Human-readable coordinates and actions used by the CLI and the TUI.
 //!
 //! Notation is deliberately kept outside the rules engine: formatting `b2-b3`
 //! is a presentation concern, while [`Action`] remains the shared typed value.
+//!
+//! # Examples
+//!
+//! ```
+//! use yokai::Action;
+//!
+//! let push: Action = "b2-b3".parse().unwrap();
+//! assert_eq!(push.to_string(), "b2-b3");
+//!
+//! let drop: Action = "kodama@a4".parse().unwrap();
+//! assert_eq!(drop.to_string(), "kodama@a4");
+//! ```
 
 use std::{fmt, str::FromStr};
 

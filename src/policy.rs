@@ -3,6 +3,23 @@
 //! The network always sees the side to move as if it were [`Player::First`].
 //! Rotating Second's actions here lets one set of weights learn both seats and
 //! prevents board-orientation details from leaking into MCTS or the UI.
+//!
+//! Layout of the 132-slot policy vector (canonical perspective):
+//!
+//! ```text
+//! slots  0..96   board moves — index = origin_square × 8 + direction
+//!                (12 origin squares × 8 king-move directions)
+//! slots 96..132  drops       — index = 96 + destination_square × 3 + piece
+//!                (12 destination squares × 3 droppable hand pieces)
+//!
+//! direction codes as (row delta, column delta):
+//!    0:(-1,-1)  1:(-1, 0)  2:(-1,+1)
+//!    3:( 0,-1)             4:( 0,+1)
+//!    5:(+1,-1)  6:(+1, 0)  7:(+1,+1)
+//! ```
+//!
+//! Most slots are geometrically valid but illegal in a given position; the
+//! search masks them with the position's actual legal actions.
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +60,20 @@ impl PolicyIndex {
 
 impl Action {
     /// Encodes an action from the current player's canonical perspective.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use yokai::{Action, Player, Square};
+    ///
+    /// let from = Square::new(2, 1).unwrap(); // square index 7
+    /// let to = Square::new(1, 1).unwrap(); // one row toward the top
+    /// let action = Action::Move { from, to };
+    ///
+    /// let index = action.policy_index(Player::First).unwrap();
+    /// assert_eq!(index.as_usize(), 7 * 8 + 1); // origin × 8 + direction
+    /// assert_eq!(Action::from_policy_index(index, Player::First), Some(action));
+    /// ```
     #[must_use]
     pub fn policy_index(self, player: Player) -> Option<PolicyIndex> {
         match self {
@@ -114,30 +145,32 @@ const fn decanonical_square(square: Square, player: Player) -> Square {
     canonical_square(square, player)
 }
 
+/// The eight king-move directions in canonical perspective, indexed by their
+/// policy code. Both lookup functions below read this single table, so the
+/// encoding and its inverse can never drift apart.
+#[rustfmt::skip]
+const DIRECTIONS: [(i8, i8); 8] = [
+    (-1, -1), (-1, 0), (-1, 1),
+    ( 0, -1),          ( 0, 1),
+    ( 1, -1), ( 1, 0), ( 1, 1),
+];
+
 const fn direction_index(row_delta: i16, column_delta: i16) -> Option<u8> {
-    match (row_delta, column_delta) {
-        (-1, -1) => Some(0),
-        (-1, 0) => Some(1),
-        (-1, 1) => Some(2),
-        (0, -1) => Some(3),
-        (0, 1) => Some(4),
-        (1, -1) => Some(5),
-        (1, 0) => Some(6),
-        (1, 1) => Some(7),
-        _ => None,
+    let mut direction = 0;
+    while direction < DIRECTIONS.len() {
+        let (row, column) = DIRECTIONS[direction];
+        if row as i16 == row_delta && column as i16 == column_delta {
+            return Some(direction as u8);
+        }
+        direction += 1;
     }
+    None
 }
 
 const fn direction_delta(direction: u8) -> Option<(i8, i8)> {
-    match direction {
-        0 => Some((-1, -1)),
-        1 => Some((-1, 0)),
-        2 => Some((-1, 1)),
-        3 => Some((0, -1)),
-        4 => Some((0, 1)),
-        5 => Some((1, -1)),
-        6 => Some((1, 0)),
-        7 => Some((1, 1)),
-        _ => None,
+    if (direction as usize) < DIRECTIONS.len() {
+        Some(DIRECTIONS[direction as usize])
+    } else {
+        None
     }
 }

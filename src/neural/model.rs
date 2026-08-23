@@ -5,6 +5,15 @@
 //! while the WDL (Win / Draw / Loss) head returns three outcome logits. Burn's
 //! `Tensor<B, 4>` is a rank-four tensor on backend `B`, analogous to a C++
 //! template parameter constrained by the [`Backend`] trait.
+//!
+//! A note on [`BatchNorm`]: Burn switches its behavior with the backend type —
+//! batch statistics while training (autodiff backend), stored running
+//! statistics during inference. That switch matters here because search
+//! evaluates tiny batches (often one position), which would be meaningless to
+//! normalize on their own; it happens when checkpointing calls `.valid()`.
+//!
+//! The architecture and each layer's role are walked through in
+//! `docs/alphazero-guide.md` at the repository root.
 
 use burn::{
     nn::{

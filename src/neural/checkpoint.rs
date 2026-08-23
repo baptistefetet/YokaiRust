@@ -149,7 +149,14 @@ where
     B: AutodiffBackend<FloatElem = f32>,
     B::InnerBackend: Backend<FloatElem = f32>,
 {
+    // `.valid()` is Burn's autodiff → inference conversion: it strips the
+    // gradient-tracking wrapper (and switches BatchNorm to its stored running
+    // statistics), producing the plain network that search and the UIs load.
     let inference_model = state.model.clone().valid();
+    // Two formats are written on purpose: `model.safetensors` holds only the
+    // inference weights in a portable, backend-agnostic layout, while the two
+    // Bin records below additionally capture the autodiff model and the Adam
+    // optimizer moments needed to *resume training* exactly where it stopped.
     save_generation_with_extra(root, metadata, &inference_model, |directory| {
         let recorder = BinFileRecorder::<FullPrecisionSettings>::default();
         recorder

@@ -78,6 +78,19 @@ impl Replay {
 
     /// Replays and validates every stored action.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use yokai::{Action, Game, Player, Position, Replay};
+    ///
+    /// let mut game = Game::from_position(Position::initial(Player::First));
+    /// game.apply("b2-b3".parse::<Action>().unwrap()).unwrap();
+    ///
+    /// let replay = Replay::from_game(&game, None);
+    /// let restored = replay.to_game().unwrap();
+    /// assert_eq!(restored.position(), game.position());
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`ReplayError`] for unsupported versions, illegal actions, or an

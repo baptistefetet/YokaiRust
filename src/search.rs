@@ -1,8 +1,14 @@
 //! Deterministic PUCT Monte-Carlo tree search and evaluator abstractions.
 //!
-//! Search knows only the [`Evaluator`] trait, not Burn or a particular device.
+//! Search never touches Burn or a device: it sees leaf evaluation only
+//! through the [`Evaluator`] trait, plus the encoder shape constants
+//! (`POLICY_ACTIONS`, `HISTORY_POSITIONS`) shared via [`EvaluationRequest`].
 //! That separation allows the same tree code to use neural inference, random
 //! rollout bootstrapping, a cache, or small deterministic test doubles.
+//!
+//! The MCTS/AlphaZero vocabulary used here — PUCT, priors, Dirichlet noise,
+//! temperature, virtual loss — is defined with context in
+//! `docs/alphazero-guide.md` at the repository root.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -339,6 +345,14 @@ impl Default for SearchConfig {
 }
 
 /// Move-sampling temperatures before and after the exploratory opening.
+///
+/// The temperature `T` reshapes visit counts into selection probabilities via
+/// `visits^(1/T)`: `T = 1` samples proportionally to visit counts, and as
+/// `T → 0` the distribution collapses onto the most visited action (argmax).
+/// Early plies keep `T = 1` so self-play games diverge and cover many
+/// openings; after `exploration_plies` (default 12, roughly the opening phase
+/// of this 3x4 game) play turns deterministic so middlegames and endgames are
+/// learned from strong moves rather than random ones.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TemperatureSchedule {
     /// Number of initial plies using `exploration_temperature`.
@@ -493,9 +507,12 @@ impl Node {
     }
 }
 
-// A pending leaf temporarily looks favorable from its own perspective, hence
-// unfavorable to its parent. This steers the next selection to another leaf
-// while the whole group is waiting for one batched neural-network evaluation.
+// Classic MCTS "virtual loss": while a leaf waits for its batched network
+// evaluation, every node on its path temporarily receives +1 from its own
+// perspective. Because PUCT reads a child through negation
+// (`-child.mean_value()`), that bonus makes the busy path look bad to its
+// parent, steering the next simulation elsewhere until the batch returns.
+// The +1 sign is therefore correct even though the concept is named a loss.
 const VIRTUAL_LOSS: f32 = 1.0;
 
 struct PendingSimulation {
@@ -878,6 +895,14 @@ impl<E: Evaluator> Mcts<E> {
             })
     }
 
+    /// Computes the PUCT score ("Predictor + Upper Confidence bounds applied
+    /// to Trees"), AlphaZero's child-selection rule:
+    /// `Q + c_puct · prior · √N_parent / (1 + N_child)`.
+    ///
+    /// The `Q` term exploits what the search has already measured; the second
+    /// term explores actions the network believes in (`prior`) but that have
+    /// few visits so far. `c_puct` balances the two — the default `1.5` sits
+    /// in the range AlphaZero-style engines typically use for small games.
     fn puct_score(&self, child_index: usize, parent_visits: f32) -> f32 {
         let child = self.arena[child_index];
         // Child Q is stored for the opponent, so the parent negates it before
@@ -888,6 +913,15 @@ impl<E: Evaluator> Mcts<E> {
         q_from_parent + exploration
     }
 
+    /// Mixes Dirichlet noise into the root priors for self-play exploration.
+    ///
+    /// Sampling i.i.d. `Gamma(alpha, 1)` values and normalizing their sum to
+    /// one is the standard way to draw a sample from a symmetric
+    /// `Dirichlet(alpha)` distribution — which is why no explicit Dirichlet
+    /// type appears below. With `alpha = 0.3` most of the noise mass lands on
+    /// a few random actions, so each self-play game explores different
+    /// openings while `1 - dirichlet_weight` (75%) of the learned prior is
+    /// preserved. Official play (arena, TUI, web) never applies this noise.
     fn apply_root_noise(&mut self) -> Result<(), SearchError> {
         let children = self.children(self.root).collect::<Vec<_>>();
         if children.is_empty() {

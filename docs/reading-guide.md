@@ -6,25 +6,38 @@ is to explain the language features that this project actually uses.
 
 ## Recommended reading order
 
-1. [`game.rs`](../src/game.rs): domain types, board representation and rules.
-2. [`policy.rs`](../src/policy.rs): the bijection between legal actions and the
+1. [`tests/engine.rs`](../tests/engine.rs): start here — the integration tests
+   are the shortest executable specification of the official rules, and each
+   test name states the rule it pins down.
+2. [`notation.rs`](../src/notation.rs): the smallest source file. A complete
+   `Display`/`FromStr` round trip with typed errors — a comfortable first
+   contact with idiomatic Rust.
+3. [`game.rs`](../src/game.rs): domain types, board representation and rules.
+4. [`policy.rs`](../src/policy.rs): the bijection between legal actions and the
    132 neural-network outputs.
-3. [`replay.rs`](../src/replay.rs): a small example of validated serialization.
-4. [`search.rs`](../src/search.rs): PUCT and the contiguous node arena.
-5. [`neural.rs`](../src/neural.rs) and the `neural/` directory: canonical input,
+5. [`replay.rs`](../src/replay.rs): a small example of validated serialization.
+6. [`search.rs`](../src/search.rs): PUCT and the contiguous node arena; its
+   executable specification is [`tests/search.rs`](../tests/search.rs).
+7. [`neural.rs`](../src/neural.rs) and the `neural/` directory: canonical input,
    residual network, checkpoints and batched inference.
-6. [`training/data.rs`](../src/training/data.rs): supervised examples and the
+8. [`training/data.rs`](../src/training/data.rs): supervised examples and the
    rolling replay buffer.
-7. [`training/trainer.rs`](../src/training/trainer.rs): losses and optimization.
-8. [`training/pipeline.rs`](../src/training/pipeline.rs): orchestration only;
-   read it after understanding the components it calls.
-9. [`main.rs`](../src/main.rs): CLI parsing and presentation of progress events.
+9. [`training/trainer.rs`](../src/training/trainer.rs): losses and optimization.
+10. [`training/pipeline.rs`](../src/training/pipeline.rs): orchestration only;
+    read it after understanding the components it calls, alongside
+    [`tests/training.rs`](../tests/training.rs).
+11. [`main.rs`](../src/main.rs): CLI parsing and presentation of progress
+    events.
+12. [`ui.rs`](../src/ui.rs) and [`ui/ai.rs`](../src/ui/ai.rs): the Ratatui
+    interface — the largest file in the project, and the most rewarding place
+    to make a first visible change. `ui/ai.rs` is a compact, readable example
+    of the channel-plus-worker-thread pattern.
+13. [`web/crate/src/lib.rs`](../web/crate/src/lib.rs): the WebAssembly
+    boundary — the same engine driven asynchronously from the browser.
 
-The integration tests are often the shortest executable specification. Start
-with [`tests/engine.rs`](../tests/engine.rs), then `search.rs` and `training.rs`.
 For machine-learning vocabulary, read the glossary at the start of
-[`alphazero-guide.md`](alphazero-guide.md); the code-reading guide assumes those
-terms but does not assume prior neural-network experience.
+[`alphazero-guide.md`](alphazero-guide.md); this code-reading guide assumes
+those terms but does not assume prior neural-network experience.
 
 Every public Rust item now has `///` API documentation, and each source module
 starts with a `//!` overview. `cargo doc --no-deps --open` builds a browsable

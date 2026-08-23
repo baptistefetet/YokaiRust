@@ -1,4 +1,8 @@
 //! Versioned neural representation shared by every inference backend.
+//!
+//! Every constant below derives from a game rule; the derivation table and
+//! the reasoning behind the 8-frame history live in
+//! `docs/alphazero-guide.md` ("Where the input numbers come from").
 
 #[cfg(feature = "native")]
 pub mod checkpoint;

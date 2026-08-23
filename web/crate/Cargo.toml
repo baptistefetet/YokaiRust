@@ -19,6 +19,8 @@ console_error_panic_hook = "=0.1.7"
 js-sys = "=0.3.104"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+# Must match the globally installed wasm-bindgen-cli exactly; the build
+# script checks this. Bump both together.
 wasm-bindgen = "=0.2.127"
 wasm-bindgen-futures = "=0.4.77"
 yokai = { path = "../..", default-features = false, features = ["web"] }
@@ -29,6 +31,7 @@ getrandom = { version = "=0.4.3", features = ["wasm_js"] }
 [lints.rust]
 unsafe_code = "forbid"
 
+# Matches the root crate: `all` only, no blanket `pedantic` (see the root
+# Cargo.toml for the rationale).
 [lints.clippy]
 all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }

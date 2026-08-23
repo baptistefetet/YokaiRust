@@ -36,6 +36,10 @@ These terms occur in logs, configuration and source names:
 | **Adam** | The optimizer updating parameters from gradients while remembering moving averages of past gradients. |
 | **learning rate** | Size of each optimizer update. Too large can damage a mature policy; too small slows learning. |
 | **Dirichlet noise** | Random probability mass mixed into root priors during self-play so different actions are explored. |
+| **temperature** | Sharpness dial when sampling a move from visit counts: `T = 1` samples proportionally, `T → 0` always plays the most visited action. |
+| **subtree reuse** | Keeping the search tree below the action actually played, so the next search starts warm instead of from scratch. |
+| **virtual loss** | Temporary penalty on a path whose leaf is still waiting for its batched evaluation, so parallel simulations spread out instead of piling onto one line. |
+| **contempt** | A search-only bias against (or toward) draws. It changes move choice during search, never the official game result. |
 | **training set** | Examples used to update parameters. |
 | **validation set** | Held-out examples used only to measure generalization, never to update parameters. |
 
@@ -70,7 +74,20 @@ The WDL target is the official final result:
 Training retains categorical WDL cross-entropy and adds a small auxiliary loss:
 `0.25 × (P(win) - P(loss) - result)²`, where the result is `+1`, `0` or `-1`.
 The auxiliary term supplies an ordered value signal; WDL cross-entropy still
-forces a certain draw to differ from balanced win/loss uncertainty.
+forces a certain draw to differ from balanced win/loss uncertainty. This
+auxiliary loss is a project addition, not standard AlphaZero; its weight is
+the `scalar_value_loss_weight` key in `config/training.toml`.
+
+Two further dataset-shaping options exist in the configuration:
+
+- `mirror_augmentation` — each sampled example may be reflected left-to-right
+  (the 3×4 board is symmetric in its columns), doubling effective data
+  diversity at no self-play cost. A classic technique from the AlphaGo Zero
+  lineage.
+- `[optimization.terminal_window_schedule]` — a bootstrap-only schedule that
+  first trains on a growing tail of *decisive* endgames before switching to
+  the complete buffer at a configured generation. A project invention aimed
+  at teaching conversions before full-game subtleties.
 
 Official search converts WDL to `P(win) - P(loss)`. A certain draw is therefore
 different from an uncertain 50/50 win/loss mixture. Terminal states have no
@@ -288,7 +305,7 @@ performs cheaper inference during self-play and arenas.
 | Fixed optimizer steps + staged learning rate | Cost stays constant while later updates can become gentler. | Not every example is visited in every generation. |
 | One accepted champion | Rejected candidates cannot generate the next dataset. | Escaping a plateau may take several attempts from the same weights. |
 | Whole-game validation | Positions from one outcome never leak across train and validation. | Game lengths make the exact position fraction vary slightly. |
-| Structured progress enum | CLI today and Ratatui later consume the same typed events. | Adding an event requires updating every exhaustive `match`. |
+| Structured progress enum | The pipeline emits typed events; the CLI decides how to print them. | Adding an event requires updating every exhaustive `match`. |
 | Atomic files at boundaries | Interruption leaves the previous complete state resumable. | Temporary files briefly require additional disk space. |
 
 These choices favor explicit ownership and testable boundaries over framework
@@ -310,6 +327,14 @@ target.
 
 YokaiRust instead separates four responsibilities.
 
+> **Note — these mechanisms are project inventions.** Mechanisms 2 and 4
+> below, the auxiliary scalar loss, and `repetition_contempt` are *not* part
+> of standard AlphaZero: searching for their names in the literature will
+> find nothing. They were designed for this project to handle repetition
+> draws on a 3×4 board. Their configuration keys in `config/training.toml`
+> are named in each subsection. Mechanism 3 follows the published Go-Exploit
+> "Visited States" variant ([paper](https://arxiv.org/abs/2302.12359)).
+
 ### 1. WDL keeps the outcome observable
 
 The value head learns draw probability explicitly. Stored targets and official
@@ -328,6 +353,11 @@ non-starter: win - loss - 0.75 * draw
 Both still rank win above draw above loss. The starter learns its best defence;
 the non-starter is pushed to search for a conversion.
 
+Configuration key: `starter_draw_value` (0.75 in the active run). The code
+also implements a mutually exclusive alternative, `repetition_contempt`,
+which penalizes only the exact action causing a repetition; it is disabled
+(`0.0`) in the checked-in configuration.
+
 ### 3. Restarts explore recent visited states
 
 One quarter of trajectories restart from a uniformly sampled non-initial,
@@ -341,6 +371,8 @@ These trajectories use 800 MCTS simulations per move instead of the regular
 200. Their local temperature schedule restarts at ply zero, adding exploration
 throughout the game tree and producing shorter, more independent value targets.
 The current network, rules and PUCT search still produce every target.
+
+Configuration keys: `restart_fraction` (0.25) and `restart_simulations` (800).
 
 ### 4. Policy supervision rejects a known repeating action
 
@@ -359,6 +391,9 @@ an unwanted result for the converter. MCTS still decides the relative preference
 among every alternative. If it visited none, policy supervision stays omitted.
 The official draw remains a full WDL target in all cases, and policy for the
 non-starter is still learned normally from every decisive game.
+
+Configuration key: `non_starter_draw_policy_weight` (0.0 in the active run,
+meaning the non-starter's drawn-game policy targets are fully omitted).
 
 ## Promotion measurements
 

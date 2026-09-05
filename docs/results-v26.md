@@ -1,5 +1,9 @@
 # v26 training results
 
+This page preserves the original generation 16 measurements. See
+[generations 17–19](results-continuation-17-19.md) for the September 2026
+continuation and the current accepted champion.
+
 This is the frozen research log of the **v26** training line, the current
 regression and publication baseline. The concepts used below (arena, gating,
 WDL, restarts, …) are all defined in the

@@ -17,7 +17,9 @@ and every public item documented.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
 - [v26 training results](docs/results-v26.md) — the frozen research log of the
-  current accepted champion (generation 16).
+  generation 16 reference.
+- [Generations 17–19](docs/results-continuation-17-19.md) — continuation after
+  the correctness fixes, including the accepted generation 19 champion.
 - [Web build guide](web/README.md) — building and deploying the browser mode.
 
 ## Current state
@@ -29,10 +31,9 @@ and every public item documented.
   on Burn with WGPU/Metal acceleration on Apple Silicon.
 - A Ratatui interface for local play, playing the champion and replay
   analysis, plus the same engine compiled to WebAssembly for the browser.
-- The stable training line is **v26** (accepted champion: generation 16),
-  frozen as the regression baseline. The next planned feature is the 5×6
-  variant; learning would resume only as an isolated experiment against
-  v26/g16.
+- The active training line is **v26**, with generation **19** accepted after
+  three further attempts. Generation **16** remains the frozen regression
+  reference; all earlier checkpoints are retained.
 
 ## Board coordinates
 

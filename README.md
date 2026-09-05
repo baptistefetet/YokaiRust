@@ -18,6 +18,8 @@ and every public item documented.
   concept the code relies on, from the glossary to the promotion gates.
 - [Training results](docs/training-results.md) — the champion, evaluation
   protocol, generation results and limits of the measurements.
+- [Next steps](docs/next-steps.md) — proposed priorities, their rationale and
+  completion criteria for future work.
 - [Web build guide](web/README.md) — building and deploying the browser mode.
 
 ## Current state

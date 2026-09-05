@@ -307,6 +307,60 @@ fn validation_assignment_stays_stable_when_the_buffer_grows() {
 }
 
 #[test]
+fn tiny_dataset_membership_never_changes_to_fill_an_empty_bucket() {
+    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).unwrap();
+    let mut assignments = Vec::new();
+    for seed in 0..16 {
+        buffer.push(recorded_game(1, seed));
+        let split = buffer.split(0.1, 42).unwrap();
+        let held_out = |seed| split.validation_games.iter().any(|game| game.seed == seed);
+        for &(old_seed, was_held_out) in &assignments {
+            assert_eq!(held_out(old_seed), was_held_out);
+        }
+        assignments.push((seed, held_out(seed)));
+    }
+    assert!(buffer.split(0.0, 42).unwrap().validation_games.is_empty());
+    assert!(buffer.split(1.0, 42).unwrap().training_games.is_empty());
+}
+
+#[test]
+fn restart_families_keep_their_partition_after_reload_and_parent_eviction() {
+    let mut buffer = ReplayBuffer::new(ReplayBufferConfig {
+        max_games: 3,
+        generations_to_keep: 20,
+    })
+    .unwrap();
+    let mut parent = recorded_game(1, 0);
+    // Select a held-out parent using the public partition API.
+    for seed in 0..100 {
+        parent.seed = seed;
+        let mut probe = ReplayBuffer::new(ReplayBufferConfig::default()).unwrap();
+        probe.push(parent.clone());
+        if !probe.split(0.5, 42).unwrap().validation_games.is_empty() {
+            break;
+        }
+    }
+    buffer.push(parent.clone());
+    for seed in 100..103 {
+        let mut child = recorded_game(2, seed);
+        child.origin = Some(parent.validation_origin());
+        buffer.push(child);
+    }
+    assert!(!buffer.contains(parent.source_generation, parent.seed));
+    let json = serde_json::to_string(&buffer).unwrap();
+    let restored: ReplayBuffer = serde_json::from_str(&json).unwrap();
+    let split = restored.split(0.5, 42).unwrap();
+    assert!(split.training_games.is_empty());
+    assert_eq!(split.validation_games.len(), 3);
+    assert!(
+        split
+            .validation_games
+            .iter()
+            .all(|game| game.validation_origin() == parent.validation_origin())
+    );
+}
+
+#[test]
 fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
     let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).expect("valid buffer");
     buffer.push(recorded_game(3, 99));
@@ -341,14 +395,15 @@ fn visited_state_restarts_cover_the_trajectory_and_preserve_prefix_history() {
     drawn.outcome = terminal.outcome();
     drawn.replay = Some(replay);
     let archive = drawn
-        .visited_restart_replays()
+        .visited_restarts()
         .expect("visited prefixes must validate");
 
     assert_eq!(archive.len(), 19);
-    assert_eq!(archive[0].actions.len(), 1);
-    assert_eq!(archive[18].actions.len(), 19);
+    assert_eq!(archive[0].replay.actions.len(), 1);
+    assert_eq!(archive[18].replay.actions.len(), 19);
     assert!(archive.iter().all(|prefix| {
         prefix
+            .replay
             .to_game()
             .is_ok_and(|game| !game.outcome().is_terminal())
     }));
@@ -387,8 +442,15 @@ fn visited_state_restarts_cover_the_trajectory_and_preserve_prefix_history() {
 
     assert_eq!(restarted.len(), 2);
     for game in restarted {
-        assert_eq!(game.restart_ply, archive[0].actions.len());
-        let prefix_game = archive[0].to_game().expect("restart prefix");
+        assert_eq!(game.origin, Some(drawn.validation_origin()));
+        assert!(
+            game.visited_restarts()
+                .unwrap()
+                .iter()
+                .all(|restart| restart.origin == drawn.validation_origin())
+        );
+        assert_eq!(game.restart_ply, archive[0].replay.actions.len());
+        let prefix_game = archive[0].replay.to_game().expect("restart prefix");
         let expected_previous = prefix_game.position_history()[game.restart_ply - 1];
         assert_eq!(game.restart_history[0], Some(expected_previous));
         assert_eq!(
@@ -398,9 +460,18 @@ fn visited_state_restarts_cover_the_trajectory_and_preserve_prefix_history() {
         assert!(
             game.replay
                 .as_ref()
-                .is_some_and(|full| full.actions.starts_with(&archive[0].actions))
+                .is_some_and(|full| full.actions.starts_with(&archive[0].replay.actions))
         );
     }
+    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).unwrap();
+    buffer.push(drawn.clone());
+    let sampled = buffer.sample_restarts(4, 123).unwrap();
+    assert_eq!(sampled.len(), 4);
+    assert!(
+        sampled
+            .iter()
+            .all(|restart| restart.origin == drawn.validation_origin())
+    );
 }
 
 #[test]

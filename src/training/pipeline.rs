@@ -435,7 +435,7 @@ where
             .wrapping_add(u64::from(candidate_generation) << 32);
         // Materialize only the prefixes that will actually seed a restart; the
         // complete visited-state archive is far too large to build eagerly.
-        let restart_archive = buffer.sample_restart_replays(planned_restarts, base_seed)?;
+        let restart_archive = buffer.sample_restarts(planned_restarts, base_seed)?;
         let report_progress = |completed, total| {
             if progress_checkpoint(completed, total) {
                 progress(TrainingProgress::SelfPlayAdvanced { completed, total });

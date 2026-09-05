@@ -116,6 +116,24 @@ impl TrainingExample {
     }
 }
 
+/// Stable identity keeping a trajectory and its restarts in one dataset bucket.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SelfPlayOrigin {
+    /// Source generation of the family's first recorded trajectory.
+    pub source_generation: u32,
+    /// Seed of that trajectory; descendants keep this identity after eviction.
+    pub seed: u64,
+}
+
+/// A visited prefix together with its inherited train/validation identity.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelfPlayRestart {
+    /// Complete prefix needed to restore the rules and neural history.
+    pub replay: Replay,
+    /// Family identity used by the whole-trajectory dataset split.
+    pub origin: SelfPlayOrigin,
+}
+
 /// Persisted experience and provenance for one complete self-play trajectory.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelfPlayGame {
@@ -126,6 +144,11 @@ pub struct SelfPlayGame {
     pub source_generation: u32,
     /// Deterministic per-game seed.
     pub seed: u64,
+    /// Inherited dataset identity for restarts. Initial and legacy games use
+    /// their own generation/seed when absent. Missing legacy ancestry cannot
+    /// retroactively repair validation contamination in previously trained models.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SelfPlayOrigin>,
     /// Explicitly disambiguates bootstrap data from neural self-play.
     #[serde(default, skip_serializing_if = "SelfPlayEvaluator::is_neural")]
     pub evaluator: SelfPlayEvaluator,
@@ -145,6 +168,15 @@ pub struct SelfPlayGame {
 }
 
 impl SelfPlayGame {
+    /// Returns the stable family identity used by this game and all its restarts.
+    #[must_use]
+    pub fn validation_origin(&self) -> SelfPlayOrigin {
+        self.origin.unwrap_or(SelfPlayOrigin {
+            source_generation: self.source_generation,
+            seed: self.seed,
+        })
+    }
+
     /// Returns owned examples, optionally interleaving every horizontal mirror.
     #[must_use]
     pub fn augmented_examples(&self, mirror: bool) -> Vec<TrainingExample> {
@@ -169,14 +201,25 @@ impl SelfPlayGame {
     /// # Errors
     ///
     /// Returns [`ReplayError`] if the stored complete replay is invalid.
-    pub fn visited_restart_replays(&self) -> Result<Vec<Replay>, ReplayError> {
+    pub fn visited_restarts(&self) -> Result<Vec<SelfPlayRestart>, ReplayError> {
         let Some(replay) = &self.replay else {
             return Ok(Vec::new());
         };
         replay.to_game()?;
         (1..replay.actions.len())
-            .map(|prefix_len| prefix_replay(replay, prefix_len))
+            .map(|prefix_len| self.restart_at(replay, prefix_len))
             .collect()
+    }
+
+    fn restart_at(
+        &self,
+        replay: &Replay,
+        prefix_len: usize,
+    ) -> Result<SelfPlayRestart, ReplayError> {
+        Ok(SelfPlayRestart {
+            replay: prefix_replay(replay, prefix_len)?,
+            origin: self.validation_origin(),
+        })
     }
 
     /// Selects the complete game, or a tactical tail from a decisive game.
@@ -412,6 +455,7 @@ impl SelfPlayRecorder {
         Ok(SelfPlayGame {
             source_generation,
             seed,
+            origin: None,
             evaluator: SelfPlayEvaluator::Neural,
             outcome,
             restart_ply,
@@ -551,11 +595,11 @@ impl ReplayBuffer {
     /// Panics only if the per-game prefix bookkeeping became inconsistent,
     /// which would be an internal bug: every sampled index is below the
     /// freshly computed prefix total.
-    pub fn sample_restart_replays(
+    pub fn sample_restarts(
         &self,
         count: usize,
         seed: u64,
-    ) -> Result<Vec<Replay>, ReplayError> {
+    ) -> Result<Vec<SelfPlayRestart>, ReplayError> {
         let total = self.restart_prefix_count();
         if count == 0 || total == 0 {
             return Ok(Vec::new());
@@ -567,20 +611,20 @@ impl ReplayBuffer {
         indices
             .into_iter()
             .map(|index| {
-                let (replay, prefix_len) = self
+                let (game, replay, prefix_len) = self
                     .restart_location(index)
                     .expect("shuffled indices stay below the prefix total");
-                prefix_replay(replay, prefix_len)
+                game.restart_at(replay, prefix_len)
             })
             .collect()
     }
 
     /// Maps a flat prefix index to the owning game's replay and prefix length.
-    fn restart_location(&self, mut index: usize) -> Option<(&Replay, usize)> {
+    fn restart_location(&self, mut index: usize) -> Option<(&SelfPlayGame, &Replay, usize)> {
         for game in &self.games {
             let prefixes = game.restart_prefix_count();
             if index < prefixes {
-                return game.replay.as_ref().map(|replay| (replay, index + 1));
+                return game.replay.as_ref().map(|replay| (game, replay, index + 1));
             }
             index -= prefixes;
         }
@@ -593,8 +637,9 @@ impl ReplayBuffer {
         dataset_diagnostics(&self.games)
     }
 
-    /// Splits whole games so positions from one game cannot leak across train
-    /// and validation sets.
+    /// Splits whole trajectory families, including inherited restart origins.
+    /// Buckets may be empty for tiny corpora: moving a game to fill a bucket
+    /// would change its membership later and leak training data into validation.
     ///
     /// # Errors
     ///
@@ -615,19 +660,6 @@ impl ReplayBuffer {
             } else {
                 training_games.push(game.clone());
             }
-        }
-        // Hash bucketing is stable as the buffer grows. These fallbacks matter
-        // only for tiny test/bootstrap corpora where a bucket can be empty.
-        if training_games.is_empty() && !validation_games.is_empty() {
-            if let Some(game) = validation_games.pop() {
-                training_games.push(game);
-            }
-        } else if validation_fraction > 0.0
-            && validation_games.is_empty()
-            && training_games.len() > 1
-            && let Some(game) = training_games.pop()
-        {
-            validation_games.push(game);
         }
         Ok(DatasetSplit {
             training_games,
@@ -895,9 +927,10 @@ fn belongs_to_validation(game: &SelfPlayGame, fraction: f32, seed: u64) -> bool 
     if threshold == 0 {
         return false;
     }
+    let origin = game.validation_origin();
     let identity = seed
-        ^ game.seed.rotate_left(17)
-        ^ u64::from(game.source_generation).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        ^ origin.seed.rotate_left(17)
+        ^ u64::from(origin.source_generation).wrapping_mul(0x9e37_79b9_7f4a_7c15);
     splitmix64(identity) % (BUCKETS as u64) < threshold as u64
 }
 

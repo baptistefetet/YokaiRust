@@ -8,8 +8,8 @@ use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    Evaluator, Game, LeafEvaluation, Mcts, MoveError, Replay, ReplayError, SearchConfig,
-    SearchError, SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, TemperatureSchedule,
+    Evaluator, Game, LeafEvaluation, Mcts, MoveError, ReplayError, SearchConfig, SearchError,
+    SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, SelfPlayRestart, TemperatureSchedule,
     TrainingDataError, training::config::SelfPlayConfig,
 };
 
@@ -25,10 +25,10 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
     config: &SelfPlayConfig,
     source_generation: u32,
     seed: u64,
-    restart: Option<&Replay>,
+    restart: Option<&SelfPlayRestart>,
 ) -> Result<SelfPlayGame, SelfPlayError> {
     let mut game = if let Some(restart) = restart {
-        let game = restart.to_game()?;
+        let game = restart.replay.to_game()?;
         if game.outcome().is_terminal() {
             return Err(SelfPlayError::TerminalRestart);
         }
@@ -86,6 +86,7 @@ pub fn play_self_play_game_from_restart<E: Evaluator>(
         .finish_from_game(source_generation, seed, &game, restart_ply)
         .map_err(SelfPlayError::from)?;
     self_play_game.evaluator = self_play_evaluator;
+    self_play_game.origin = restart.map(|restart| restart.origin);
     Ok(self_play_game)
 }
 
@@ -129,7 +130,7 @@ pub fn generate_self_play_with_restarts_and_progress<E, F>(
     config: &SelfPlayConfig,
     source_generation: u32,
     base_seed: u64,
-    restart_archive: &[Replay],
+    restart_archive: &[SelfPlayRestart],
     progress: &F,
 ) -> Result<Vec<SelfPlayGame>, SelfPlayError>
 where
@@ -173,9 +174,13 @@ pub fn planned_restart_count(config: &SelfPlayConfig, archive_len: usize) -> usi
 /// Assigns the supplied restart prefixes to randomly chosen game slots.
 ///
 /// The archive is expected to already be a uniform sample of visited states
-/// (see `ReplayBuffer::sample_restart_replays`); entries cycle when fewer
+/// (see `ReplayBuffer::sample_restarts`); entries cycle when fewer
 /// prefixes exist than planned restarts.
-fn planned_restarts(config: &SelfPlayConfig, seed: u64, archive: &[Replay]) -> Vec<Option<Replay>> {
+fn planned_restarts(
+    config: &SelfPlayConfig,
+    seed: u64,
+    archive: &[SelfPlayRestart],
+) -> Vec<Option<SelfPlayRestart>> {
     let mut starts = vec![None; config.games_per_generation];
     let count = planned_restart_count(config, archive.len());
     if count == 0 {

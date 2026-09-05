@@ -77,8 +77,8 @@ pub use training::config::{
 #[cfg(feature = "native")]
 pub use training::data::{
     DatasetDiagnostics, DatasetSplit, PolicyTargetDiagnostics, ReplayBuffer, ReplayBufferConfig,
-    SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, TrainingDataError, TrainingExample,
-    dataset_diagnostics, mirror_policy,
+    SelfPlayEvaluator, SelfPlayGame, SelfPlayOrigin, SelfPlayRecorder, SelfPlayRestart,
+    TrainingDataError, TrainingExample, dataset_diagnostics, mirror_policy,
 };
 #[cfg(feature = "native")]
 pub use training::diagnostics::{

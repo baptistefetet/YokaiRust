@@ -81,6 +81,36 @@ fn square(row: u8, column: u8) -> Square {
     Square::new(row, column).expect("test square must be valid")
 }
 
+#[test]
+fn a_small_positive_temperature_preserves_a_dominant_winning_move() {
+    let position = position_with(
+        &[
+            (3, 0, PieceKind::Koropokkuru, Player::First),
+            (1, 1, PieceKind::Koropokkuru, Player::Second),
+            (2, 1, PieceKind::Tanuki, Player::First),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    );
+    let game = Game::from_position(position);
+    for seed in 0..20 {
+        let mut search = Mcts::new(
+            UniformEvaluator,
+            SearchConfig {
+                simulations: 200,
+                ..SearchConfig::default()
+            },
+            seed,
+        )
+        .unwrap();
+        let result = search.search(&game, 0.01).unwrap();
+        assert_eq!(result.best_action.to_string(), "b2-b3");
+        assert_eq!(result.selected_action, result.best_action);
+        // Sampling temperature does not change the supervised visit target.
+        assert!(result.policy.iter().filter(|&&p| p > 0.0).count() > 1);
+    }
+}
+
 fn position_with(
     pieces: &[(u8, u8, PieceKind, Player)],
     hands: [[u8; 3]; 2],

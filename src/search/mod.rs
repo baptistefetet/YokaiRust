@@ -795,9 +795,20 @@ impl<E: Evaluator> Mcts<E> {
         }
 
         let inverse_temperature = 1.0 / temperature;
+        let maximum_visits = children
+            .iter()
+            .map(|&child| self.arena[child].visits)
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        // A common scale cancels during normalization. Keeping the bases in
+        // [0, 1] prevents overflow as a positive temperature approaches zero.
         let mut probabilities = children
             .iter()
-            .map(|&child| visits_as_f32(self.arena[child].visits).powf(inverse_temperature))
+            .map(|&child| {
+                (visits_as_f32(self.arena[child].visits) / visits_as_f32(maximum_visits))
+                    .powf(inverse_temperature)
+            })
             .collect::<Vec<_>>();
         normalize_or_uniform(&mut probabilities);
         probabilities
@@ -1054,7 +1065,7 @@ fn sample_probability_index<R: Rng + ?Sized>(probabilities: &[f32], rng: &mut R)
     let mut cumulative = 0.0;
     for (index, &probability) in probabilities.iter().enumerate() {
         cumulative += probability;
-        if threshold <= cumulative {
+        if threshold < cumulative {
             return index;
         }
     }

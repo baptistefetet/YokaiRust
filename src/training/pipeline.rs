@@ -839,6 +839,7 @@ pub fn save_replay_buffer(
 }
 
 /// Loads a replay buffer, or creates an empty one when the file is absent.
+/// Current retention limits replace the saved limits and apply immediately.
 ///
 /// # Errors
 ///
@@ -848,7 +849,13 @@ pub fn load_replay_buffer(
     config: ReplayBufferConfig,
 ) -> Result<ReplayBuffer, PipelineError> {
     match fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Ok(bytes) => {
+            let mut buffer: ReplayBuffer = serde_json::from_slice(&bytes)?;
+            buffer
+                .reconfigure(config)
+                .map_err(PipelineError::TrainingData)?;
+            Ok(buffer)
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             ReplayBuffer::new(config).map_err(PipelineError::TrainingData)
         }

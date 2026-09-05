@@ -465,13 +465,36 @@ impl ReplayBuffer {
 
     /// Adds a game, then evicts entries outside age and capacity limits.
     pub fn push(&mut self, game: SelfPlayGame) {
-        let oldest_generation = game
-            .source_generation
+        let generation = game.source_generation;
+        self.games.push_back(game);
+        self.enforce_limits(generation);
+    }
+
+    /// Applies current configuration when restoring a persisted buffer.
+    pub(crate) fn reconfigure(
+        &mut self,
+        config: ReplayBufferConfig,
+    ) -> Result<(), TrainingDataError> {
+        if config.max_games == 0 || config.generations_to_keep == 0 {
+            return Err(TrainingDataError::InvalidBufferConfiguration);
+        }
+        self.config = config;
+        let newest = self
+            .games
+            .iter()
+            .map(|game| game.source_generation)
+            .max()
+            .unwrap_or(0);
+        self.enforce_limits(newest);
+        Ok(())
+    }
+
+    fn enforce_limits(&mut self, generation: u32) {
+        let oldest_generation = generation
             .saturating_add(1)
             .saturating_sub(self.config.generations_to_keep);
         self.games
             .retain(|stored| stored.source_generation >= oldest_generation);
-        self.games.push_back(game);
         while self.games.len() > self.config.max_games {
             self.games.pop_front();
         }

@@ -232,6 +232,49 @@ fn replay_buffer_retains_generations_and_splits_whole_games() {
 }
 
 #[test]
+fn restored_buffer_applies_current_capacity_and_age_limits() {
+    let path =
+        std::env::temp_dir().join(format!("yokai-buffer-limits-{}.json", std::process::id()));
+    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).unwrap();
+    buffer.push(recorded_game(1, 1));
+    buffer.push(recorded_game(2, 2));
+    yokai::save_replay_buffer(&path, &buffer).unwrap();
+
+    let config = ReplayBufferConfig {
+        max_games: 1,
+        generations_to_keep: 1,
+    };
+    let mut restored = load_replay_buffer(&path, config).unwrap();
+    assert_eq!(restored.len(), 1);
+    assert!(restored.contains(2, 2));
+    restored.push(recorded_game(2, 3));
+    assert_eq!(restored.len(), 1);
+    assert!(restored.contains(2, 3));
+
+    let age_only = load_replay_buffer(
+        &path,
+        ReplayBufferConfig {
+            max_games: 10,
+            ..config
+        },
+    )
+    .unwrap();
+    assert_eq!(age_only.len(), 1);
+    assert!(age_only.contains(2, 2));
+    assert!(
+        load_replay_buffer(
+            &path,
+            ReplayBufferConfig {
+                max_games: 0,
+                ..config
+            }
+        )
+        .is_err()
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn validation_assignment_stays_stable_when_the_buffer_grows() {
     let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).expect("valid buffer");
     for seed in 1_000..1_100 {

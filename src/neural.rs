@@ -1,7 +1,7 @@
 //! Versioned neural representation shared by every inference backend.
 //!
-//! Every constant below derives from a game rule; the derivation table and
-//! the reasoning behind the 8-frame history live in
+//! Board and action counts follow the rules; history depth and feature layout
+//! are modeling choices. Their derivation and reasoning live in
 //! `docs/alphazero-guide.md` ("Where the input numbers come from").
 
 #[cfg(feature = "native")]

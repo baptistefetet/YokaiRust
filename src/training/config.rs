@@ -117,7 +117,7 @@ pub struct OptimizationConfig {
     /// Optional lower rates selected from the accepted champion generation.
     #[serde(default)]
     pub learning_rate_schedule: Vec<LearningRateStage>,
-    /// L2-style `AdamW` regularization discouraging unnecessarily large weights.
+    /// Coupled L2 regularization added to Adam's gradients before its moments.
     pub weight_decay: f32,
     /// Stable whole-game fraction reserved for metrics, never gradient updates.
     pub validation_fraction: f32,

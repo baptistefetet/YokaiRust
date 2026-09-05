@@ -85,13 +85,16 @@ Two further dataset-shaping options exist in the configuration:
   diversity at no self-play cost. A classic technique from the AlphaGo Zero
   lineage.
 - `[optimization.terminal_window_schedule]` — a bootstrap-only schedule that
-  first trains on a growing tail of *decisive* endgames before switching to
-  the complete buffer at a configured generation. A project invention aimed
-  at teaching conversions before full-game subtleties.
+  oversamples a growing tail of *decisive* endgames alongside the complete
+  training set, then stops oversampling at a configured generation. Validation
+  keeps the complete held-out games throughout. The separate fixed
+  `terminal_window_plies` option instead restricts both sets to decisive tails.
+  These are project experiments aimed at teaching endgame conversions.
 
-Official search converts WDL to `P(win) - P(loss)`. A certain draw is therefore
-different from an uncertain 50/50 win/loss mixture. Terminal states have no
-policy example because they have no legal move distribution.
+The WDL head distinguishes a certain draw from a 50/50 win/loss mixture.
+Official search converts both distributions to the same scalar value:
+`P(win) - P(loss) = 0`. This conversion discards that distinction. Terminal
+states have no policy example because they have no legal move distribution.
 
 ### How generation zero is bootstrapped
 
@@ -121,14 +124,14 @@ holding every later generation constant.
 
 ## Where the input numbers come from
 
-Every constant in the network signature derives from a game rule rather than
-from an arbitrary choice:
+Board and action counts follow the game rules. The eight-frame history and
+feature layout are modeling choices; the rules do not prescribe them:
 
 | Constant | Value | Derivation |
 | --- | --- | --- |
 | Board squares | 12 | 3 columns × 4 rows. |
 | Piece planes per frame | 10 | 5 piece types × 2 owners: one binary sheet per (owner, type) pair. |
-| History frames | 8 | The current position plus the seven preceding positions. |
+| History frames | 8 | Modeling choice: the current position plus seven preceding positions. |
 | Spatial input planes | 80 | 10 planes × 8 frames. |
 | Hand features per frame | 6 | Normalized count of each of the three droppable piece types, for both players. |
 | Global features | 50 | 6 per frame × 8 frames, plus the repetition count and the starter-role flag. |
@@ -304,7 +307,7 @@ Use a fresh self-play directory for an experiment requiring a clean split.
 | Run the network | [`neural/model.rs`](../src/neural/model.rs) | `AlphaZeroNetworkConfig::init`, then `forward` |
 | Get predictions | [`neural/evaluator.rs`](../src/neural/evaluator.rs) | `Evaluator for NetworkEvaluator` |
 | Batch requests | [`neural/service.rs`](../src/neural/service.rs) | `InferenceClient`, then `InferenceService` |
-| Search a move | [`search.rs`](../src/search.rs) | `Mcts::search_internal` and `Node` |
+| Search a move | [`search/mod.rs`](../src/search/mod.rs) | `Mcts::search_internal` and `Node` |
 | Record targets | [`training/data.rs`](../src/training/data.rs) | `SelfPlayRecorder::record`, then `finish_from_game` |
 | Compute losses | [`training/trainer.rs`](../src/training/trainer.rs) | `BatchTensors::new`, `forward_losses`, `scalar_value_loss_weight` |
 | Orchestrate | [`training/pipeline.rs`](../src/training/pipeline.rs) | `run_generation_with_progress` |

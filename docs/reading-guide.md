@@ -16,7 +16,7 @@ is to explain the language features that this project actually uses.
 4. [`policy.rs`](../src/policy.rs): the bijection between legal actions and the
    132 neural-network outputs.
 5. [`replay.rs`](../src/replay.rs): a small example of validated serialization.
-6. [`search.rs`](../src/search.rs): PUCT and the contiguous node arena; its
+6. [`search/mod.rs`](../src/search/mod.rs): PUCT and the contiguous node arena; its
    executable specification is [`tests/search.rs`](../tests/search.rs).
 7. [`neural.rs`](../src/neural.rs) and the `neural/` directory: canonical input,
    residual network, checkpoints and batched inference.

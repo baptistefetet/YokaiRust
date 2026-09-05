@@ -117,7 +117,7 @@ where
     }
 }
 
-/// Constructs the `AdamW` optimizer used for all candidate updates.
+/// Constructs Adam with coupled L2 regularization for all candidate updates.
 #[must_use]
 pub fn new_optimizer<B>(config: &OptimizationConfig) -> AlphaZeroOptimizer<B>
 where

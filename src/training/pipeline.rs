@@ -270,6 +270,11 @@ pub enum TrainingProgress {
         /// Saved generation identifier.
         generation: u32,
     },
+    /// A saved candidate is being evaluated again after an interrupted attempt.
+    CandidateResumed {
+        /// Existing checkpoint whose weights and optimization report are reused.
+        generation: u32,
+    },
     /// Official paired strength comparison is beginning.
     ArenaStarted {
         /// Paired games scheduled.
@@ -387,7 +392,25 @@ where
     config.validate().map_err(PipelineError::Configuration)?;
     let models_root = Path::new(&config.paths.models);
     let (_, source_metadata) = load_champion::<B::InnerBackend>(models_root, device)?;
-    let candidate_generation = next_generation(models_root)?;
+    let mut pending = match resume_generation(config, source_metadata.generation)? {
+        GenerationResume::Publish(report) => {
+            publish_decision(models_root, &report, progress)?;
+            return Ok(*report);
+        }
+        GenerationResume::Pending(pending) => *pending,
+        GenerationResume::New => {
+            let pending = PendingGeneration {
+                configuration: config.clone(),
+                source_generation: source_metadata.generation,
+                candidate_generation: next_generation(models_root)?,
+                restart_archive_prefixes: buffer.restart_prefix_count(),
+                training: None,
+            };
+            atomic_json_write::<_, PipelineError>(&pending_path(config), &pending)?;
+            pending
+        }
+    };
+    let candidate_generation = pending.candidate_generation;
     progress(TrainingProgress::GenerationStarted {
         source_generation: source_metadata.generation,
         candidate_generation,
@@ -396,13 +419,18 @@ where
         .self_play
         .evaluator_for_source_generation(source_metadata.generation);
 
-    let restart_archive_prefixes = buffer.restart_prefix_count();
+    let restart_archive_prefixes = pending.restart_archive_prefixes;
     let persisted_games = load_self_play_generation(
         &config.paths.self_play,
         candidate_generation,
         source_metadata.generation,
         self_play_evaluator,
     )?;
+    if persisted_games.is_none() && pending.training.is_some() {
+        return Err(PipelineError::InvalidPendingGeneration(
+            "trained candidate has no persisted self-play",
+        ));
+    }
     let games = if let Some(games) = persisted_games {
         let examples = games.iter().map(|game| game.examples.len()).sum();
         let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
@@ -574,52 +602,74 @@ where
     effective_optimization.learning_rate = config
         .optimization
         .learning_rate_for_source_generation(source_metadata.generation);
-    let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
-        models_root,
-        source_metadata.generation,
-        &effective_optimization,
-        device,
-    )? {
-        (state, true)
+    let candidate_directory = models_root.join(format!("generation-{candidate_generation:06}"));
+    let (candidate, training) = if candidate_directory.exists() {
+        let training = pending
+            .training
+            .clone()
+            .ok_or(PipelineError::InvalidPendingGeneration(
+                "saved candidate has no optimization report",
+            ))?;
+        let (candidate, _) =
+            load_generation::<B::InnerBackend>(models_root, candidate_generation, device)?;
+        progress(TrainingProgress::CandidateResumed {
+            generation: candidate_generation,
+        });
+        (candidate, training)
     } else {
-        let (source_for_training, _) =
-            load_generation::<B>(models_root, source_metadata.generation, device)?;
-        (
-            AlphaZeroTrainingState::new(source_for_training, &effective_optimization),
-            false,
-        )
+        let (training_state, optimizer_resumed) = if let Some((state, _)) =
+            load_training_generation::<B>(
+                models_root,
+                source_metadata.generation,
+                &effective_optimization,
+                device,
+            )? {
+            (state, true)
+        } else {
+            let (source_for_training, _) =
+                load_generation::<B>(models_root, source_metadata.generation, device)?;
+            (
+                AlphaZeroTrainingState::new(source_for_training, &effective_optimization),
+                false,
+            )
+        };
+        progress(TrainingProgress::TrainingStarted {
+            steps: config.optimization.steps_per_generation,
+            batch_size: config.optimization.batch_size,
+            learning_rate: effective_optimization.learning_rate,
+            validation_interval_steps: config.optimization.validation_interval_steps,
+            optimizer_resumed,
+        });
+        let (training_state, training) = train_state_with_progress(
+            training_state,
+            &training_examples,
+            &validation_examples,
+            &effective_optimization,
+            config.seed.wrapping_add(u64::from(candidate_generation)),
+            device,
+            &|report| {
+                progress(TrainingProgress::TrainingAdvanced {
+                    total_steps: config.optimization.steps_per_generation,
+                    report,
+                });
+            },
+        );
+        progress(TrainingProgress::TrainingFinished {
+            completed_steps: training.steps_completed,
+        });
+        let candidate_metadata =
+            ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
+        // Persist metrics before the checkpoint appears so resume never has to
+        // invent an optimization report or overwrite a saved generation.
+        pending.training = Some(training.clone());
+        atomic_json_write::<_, PipelineError>(&pending_path(config), &pending)?;
+        save_training_generation(models_root, &candidate_metadata, &training_state)?;
+        let candidate = training_state.model.valid();
+        progress(TrainingProgress::CandidateSaved {
+            generation: candidate_generation,
+        });
+        (candidate, training)
     };
-    progress(TrainingProgress::TrainingStarted {
-        steps: config.optimization.steps_per_generation,
-        batch_size: config.optimization.batch_size,
-        learning_rate: effective_optimization.learning_rate,
-        validation_interval_steps: config.optimization.validation_interval_steps,
-        optimizer_resumed,
-    });
-    let (training_state, training) = train_state_with_progress(
-        training_state,
-        &training_examples,
-        &validation_examples,
-        &effective_optimization,
-        config.seed.wrapping_add(u64::from(candidate_generation)),
-        device,
-        &|report| {
-            progress(TrainingProgress::TrainingAdvanced {
-                total_steps: config.optimization.steps_per_generation,
-                report,
-            });
-        },
-    );
-    progress(TrainingProgress::TrainingFinished {
-        completed_steps: training.steps_completed,
-    });
-    let candidate_metadata =
-        ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
-    save_training_generation(models_root, &candidate_metadata, &training_state)?;
-    let candidate = training_state.model.valid();
-    progress(TrainingProgress::CandidateSaved {
-        generation: candidate_generation,
-    });
     progress(TrainingProgress::ArenaStarted {
         games: config.arena.games,
         workers: config.arena.workers,
@@ -669,17 +719,6 @@ where
     drop(reference_service);
 
     let promotion = promotion_decision(&arena, exploratory, config);
-    if promotion.promoted() {
-        publish_champion(models_root, candidate_generation)?;
-        progress(TrainingProgress::ChampionPromoted {
-            generation: candidate_generation,
-        });
-    } else {
-        progress(TrainingProgress::CandidateRejected {
-            generation: candidate_generation,
-            decision: promotion,
-        });
-    }
 
     let report = GenerationReport {
         source_generation: source_metadata.generation,
@@ -706,13 +745,125 @@ where
         candidate_self_play: exploratory,
         promotion,
     };
-    save_generation_report(
-        Path::new(&config.paths.self_play)
-            .join("reports")
-            .join(format!("generation-{candidate_generation:06}.json")),
-        &report,
-    )?;
+    complete_generation(config, &report, progress)?;
     Ok(report)
+}
+
+/// Journal identity and optimization metrics before making a candidate visible.
+/// The completed report and `latest` determine whether this attempt is finished;
+/// leaving this small journal on disk avoids a fallible cleanup after promotion.
+#[derive(Serialize, Deserialize)]
+struct PendingGeneration {
+    configuration: TrainingConfig,
+    source_generation: u32,
+    candidate_generation: u32,
+    restart_archive_prefixes: usize,
+    training: Option<TrainingReport>,
+}
+
+enum GenerationResume {
+    New,
+    Pending(Box<PendingGeneration>),
+    Publish(Box<GenerationReport>),
+}
+
+fn pending_path(config: &TrainingConfig) -> PathBuf {
+    Path::new(&config.paths.self_play).join("pending-generation.json")
+}
+
+fn report_path(config: &TrainingConfig, generation: u32) -> PathBuf {
+    Path::new(&config.paths.self_play)
+        .join("reports")
+        .join(format!("generation-{generation:06}.json"))
+}
+
+fn read_optional_json<T: serde::de::DeserializeOwned>(
+    path: &Path,
+) -> Result<Option<T>, PipelineError> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn resume_generation(
+    config: &TrainingConfig,
+    champion: u32,
+) -> Result<GenerationResume, PipelineError> {
+    let Some(pending) = read_optional_json::<PendingGeneration>(&pending_path(config))? else {
+        return Ok(GenerationResume::New);
+    };
+    if let Some(report) =
+        read_optional_json::<GenerationReport>(&report_path(config, pending.candidate_generation))?
+    {
+        if report.source_generation != pending.source_generation
+            || report.candidate_generation != pending.candidate_generation
+            || report.promotion
+                != promotion_decision(
+                    &report.arena,
+                    report.candidate_self_play,
+                    &pending.configuration,
+                )
+        {
+            return Err(PipelineError::InvalidPendingGeneration(
+                "report does not match the journal and promotion gates",
+            ));
+        }
+        if report.promoted() && champion == pending.source_generation {
+            // The report was committed but the final pointer update was interrupted.
+            if pending.configuration != *config {
+                return Err(PipelineError::PendingConfigurationChanged);
+            }
+            return Ok(GenerationResume::Publish(Box::new(report)));
+        }
+        let expected = if report.promoted() {
+            pending.candidate_generation
+        } else {
+            pending.source_generation
+        };
+        if champion == expected {
+            return Ok(GenerationResume::New);
+        }
+    } else if champion == pending.source_generation {
+        if pending.configuration != *config {
+            return Err(PipelineError::PendingConfigurationChanged);
+        }
+        return Ok(GenerationResume::Pending(Box::new(pending)));
+    }
+    Err(PipelineError::InvalidPendingGeneration(
+        "accepted champion changed outside the pending attempt",
+    ))
+}
+
+fn complete_generation<F: Fn(TrainingProgress) + Sync>(
+    config: &TrainingConfig,
+    report: &GenerationReport,
+    progress: &F,
+) -> Result<(), PipelineError> {
+    save_generation_report(report_path(config, report.candidate_generation), report)?;
+    // Publication is the last fallible operation. A failed report write cannot
+    // change the champion; a failed pointer write can resume from this report.
+    publish_decision(Path::new(&config.paths.models), report, progress)
+}
+
+fn publish_decision<F: Fn(TrainingProgress) + Sync>(
+    models_root: &Path,
+    report: &GenerationReport,
+    progress: &F,
+) -> Result<(), PipelineError> {
+    if report.promoted() {
+        publish_champion(models_root, report.candidate_generation)?;
+        progress(TrainingProgress::ChampionPromoted {
+            generation: report.candidate_generation,
+        });
+    } else {
+        progress(TrainingProgress::CandidateRejected {
+            generation: report.candidate_generation,
+            decision: report.promotion,
+        });
+    }
+    Ok(())
 }
 
 fn promotion_decision(
@@ -1013,6 +1164,14 @@ fn restart_ply_stats(games: &[SelfPlayGame]) -> (Option<usize>, Option<usize>, f
 /// Typed failures from any phase of a recoverable candidate attempt.
 #[derive(Debug, Error)]
 pub enum PipelineError {
+    /// Continuing an incomplete attempt requires its original configuration.
+    #[error(
+        "pending generation uses a different configuration; resume with its original settings or use new experiment paths"
+    )]
+    PendingConfigurationChanged,
+    /// Journal, checkpoint, report or champion disagree about the active attempt.
+    #[error("invalid pending generation: {0}")]
+    InvalidPendingGeneration(&'static str),
     /// Training configuration failed semantic validation.
     #[error(transparent)]
     Configuration(crate::TrainingConfigError),
@@ -1055,4 +1214,91 @@ pub enum PipelineError {
     /// JSON artifact could not be serialized or parsed.
     #[error("training pipeline JSON error: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn publication_waits_for_the_report_and_recovers_a_failed_pointer_write() {
+        let root =
+            std::env::temp_dir().join(format!("yokai-publication-order-{}", std::process::id()));
+        assert!(!root.exists());
+        let mut config = TrainingConfig::load("config/training.toml").unwrap();
+        config.paths.models = root.join("models").to_string_lossy().into_owned();
+        config.paths.self_play = root.join("data").to_string_lossy().into_owned();
+        config.arena.games = 12;
+        config.arena.candidate_self_play_games = 2;
+        let models = Path::new(&config.paths.models);
+        fs::create_dir_all(models.join("generation-000000")).unwrap();
+        fs::create_dir_all(models.join("generation-000001")).unwrap();
+        publish_champion(models, 0).unwrap();
+
+        let report: GenerationReport = serde_json::from_value(serde_json::json!({
+            "source_generation": 0, "candidate_generation": 1,
+            "generated_games": 2, "buffer_games": 2, "buffer_examples": 2,
+            "self_play_outcomes": GameOutcomeStats::default(),
+            "training": { "checkpoints": [], "steps_completed": 1 },
+            "arena": {
+                "candidate_wins": 12, "reference_wins": 0, "draws": 0,
+                "score": 1.0, "threshold_reached": true,
+                "candidate_as_first": { "wins": 6, "losses": 0, "draws": 0 },
+                "candidate_as_second": { "wins": 6, "losses": 0, "draws": 0 },
+                "paired_score_counts": [0, 0, 0, 0, 6], "improvement_p_value": 0.015625
+            },
+            "candidate_self_play": { "first_wins": 2, "second_wins": 0, "draws": 0 },
+            "promotion": { "arena_passed": true, "exploratory_draw_gate_passed": true }
+        }))
+        .unwrap();
+        assert_eq!(
+            promotion_decision(&report.arena, report.candidate_self_play, &config),
+            report.promotion
+        );
+        let mut inconclusive = report.arena;
+        inconclusive.improvement_p_value = Some(0.1);
+        assert!(!promotion_decision(&inconclusive, report.candidate_self_play, &config).promoted());
+
+        let pending = PendingGeneration {
+            configuration: config.clone(),
+            source_generation: 0,
+            candidate_generation: 1,
+            restart_archive_prefixes: 0,
+            training: Some(report.training.clone()),
+        };
+        atomic_json_write::<_, PipelineError>(&pending_path(&config), &pending).unwrap();
+        let reports = Path::new(&config.paths.self_play).join("reports");
+        fs::write(&reports, "obstruct report directory").unwrap();
+        assert!(complete_generation(&config, &report, &|_| {}).is_err());
+        assert_eq!(
+            fs::read_to_string(models.join("latest")).unwrap().trim(),
+            "0"
+        );
+        fs::remove_file(&reports).unwrap();
+
+        // The decision is safely recorded even when the atomic rename's
+        // temporary pointer file cannot be created.
+        let obstruction = models.join(format!(".latest-{}.tmp", std::process::id()));
+        fs::create_dir(&obstruction).unwrap();
+        assert!(complete_generation(&config, &report, &|_| {}).is_err());
+        assert!(report_path(&config, 1).is_file());
+        assert_eq!(
+            fs::read_to_string(models.join("latest")).unwrap().trim(),
+            "0"
+        );
+        fs::remove_dir(obstruction).unwrap();
+        let GenerationResume::Publish(recovered) = resume_generation(&config, 0).unwrap() else {
+            panic!("saved decision should be recoverable");
+        };
+        publish_decision(models, &recovered, &|_| {}).unwrap();
+        assert_eq!(
+            fs::read_to_string(models.join("latest")).unwrap().trim(),
+            "1"
+        );
+        assert!(matches!(
+            resume_generation(&config, 1).unwrap(),
+            GenerationResume::New
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
 }

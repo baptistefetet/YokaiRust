@@ -472,6 +472,11 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
         TrainingProgress::CandidateSaved { generation } => {
             eprintln!("[{elapsed}] candidate generation {generation} saved");
         }
+        TrainingProgress::CandidateResumed { generation } => {
+            eprintln!(
+                "[{elapsed}] candidate generation {generation} resumed; reusing saved weights and optimization metrics"
+            );
+        }
         TrainingProgress::ArenaStarted {
             games,
             workers,

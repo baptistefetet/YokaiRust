@@ -266,6 +266,17 @@ Promotion protects playing strength and actual noisy self-play productivity;
 deterministic candidate-versus-itself cycles are retained as a diagnostic, not
 as a veto.
 
+A `pending-generation.json` journal reserves the attempt and snapshots its
+configuration. Self-play is reused after an interruption; once candidate
+weights exist, optimization metrics and weights are reused too. Arena and
+productivity checks may run again. The completed decision report is written
+before `latest`: if publishing the pointer fails, restarting finishes that
+decision without retraining. An incomplete attempt requires its original
+configuration; use new experiment paths to start with different settings.
+The last journal remains on disk and is replaced when the next attempt starts.
+These boundaries protect process-interruption recovery, not concurrent training
+processes writing to the same directories.
+
 Each generation uses a fixed optimizer-step budget. Buffer growth therefore
 does not silently increase training work. Checkpoints preserve both model
 parameters and Adam moments. The learning rate starts high enough for bootstrap

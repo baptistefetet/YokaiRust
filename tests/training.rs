@@ -83,6 +83,70 @@ fn test_config() -> TrainingConfig {
     }
 }
 
+fn small_pipeline_config(root: &std::path::Path) -> TrainingConfig {
+    let models = root.join("models");
+    let self_play = root.join("self-play");
+    TrainingConfig {
+        seed: 1234,
+        backend: BackendKind::Cpu,
+        network: AlphaZeroNetworkConfig::new()
+            .with_filters(4)
+            .with_residual_blocks(1)
+            .with_value_hidden(4),
+        self_play: SelfPlayConfig {
+            games_per_generation: 2,
+            workers: 4,
+            simulations: 2,
+            search_batch_size: 1,
+            max_game_plies: 512,
+            inference_batch_size: 16,
+            inference_wait_ms: 0,
+            exploration_plies: 4,
+            exploration_temperature: 1.0,
+            final_temperature: 0.0,
+            repetition_contempt: 0.0,
+            starter_draw_value: 0.0,
+            restart_fraction: 0.0,
+            restart_simulations: None,
+            bootstrap: SelfPlayBootstrapConfig::default(),
+        },
+        optimization: OptimizationConfig {
+            steps_per_generation: 1,
+            validation_interval_steps: 1,
+            batch_size: 16,
+            learning_rate: 0.001,
+            learning_rate_schedule: Vec::new(),
+            weight_decay: 0.0,
+            validation_fraction: 0.5,
+            mirror_augmentation: true,
+            non_starter_draw_policy_weight: 1.0,
+            scalar_value_loss_weight: 0.25,
+            terminal_window_plies: None,
+            terminal_window_schedule: None,
+            replay_buffer: ReplayBufferConfig {
+                max_games: 8,
+                generations_to_keep: 2,
+            },
+        },
+        arena: ArenaConfig {
+            // The production floor is 2; four games keep this end-to-end test
+            // fast while still covering both color-swapped pairs.
+            games: 4,
+            workers: 2,
+            simulations: 1,
+            search_batch_size: 1,
+            opening_plies: 4,
+            score_threshold: 0.55,
+            candidate_self_play_games: 2,
+            max_candidate_self_play_draw_rate: 1.0,
+        },
+        paths: PathsConfig {
+            models: models.to_string_lossy().into_owned(),
+            self_play: self_play.to_string_lossy().into_owned(),
+        },
+    }
+}
+
 fn immediate_win_game() -> Game {
     let mut board = [None; BOARD_SQUARES];
     board[square(3, 0).index()] = Some(Piece::new(PieceKind::Koropokkuru, Player::First));
@@ -1010,65 +1074,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     ));
     let models = root.join("models");
     let self_play = root.join("self-play");
-    let config = TrainingConfig {
-        seed: 1234,
-        backend: BackendKind::Cpu,
-        network: AlphaZeroNetworkConfig::new()
-            .with_filters(4)
-            .with_residual_blocks(1)
-            .with_value_hidden(4),
-        self_play: SelfPlayConfig {
-            games_per_generation: 2,
-            workers: 4,
-            simulations: 2,
-            search_batch_size: 1,
-            max_game_plies: 512,
-            inference_batch_size: 16,
-            inference_wait_ms: 0,
-            exploration_plies: 4,
-            exploration_temperature: 1.0,
-            final_temperature: 0.0,
-            repetition_contempt: 0.0,
-            starter_draw_value: 0.0,
-            restart_fraction: 0.0,
-            restart_simulations: None,
-            bootstrap: SelfPlayBootstrapConfig::default(),
-        },
-        optimization: OptimizationConfig {
-            steps_per_generation: 1,
-            validation_interval_steps: 1,
-            batch_size: 16,
-            learning_rate: 0.001,
-            learning_rate_schedule: Vec::new(),
-            weight_decay: 0.0,
-            validation_fraction: 0.5,
-            mirror_augmentation: true,
-            non_starter_draw_policy_weight: 1.0,
-            scalar_value_loss_weight: 0.25,
-            terminal_window_plies: None,
-            terminal_window_schedule: None,
-            replay_buffer: ReplayBufferConfig {
-                max_games: 8,
-                generations_to_keep: 2,
-            },
-        },
-        arena: ArenaConfig {
-            // The production floor is 2; four games keep this end-to-end test
-            // fast while still covering both color-swapped pairs.
-            games: 4,
-            workers: 2,
-            simulations: 1,
-            search_batch_size: 1,
-            opening_plies: 4,
-            score_threshold: 0.55,
-            candidate_self_play_games: 2,
-            max_candidate_self_play_draw_rate: 1.0,
-        },
-        paths: PathsConfig {
-            models: models.to_string_lossy().into_owned(),
-            self_play: self_play.to_string_lossy().into_owned(),
-        },
-    };
+    let config = small_pipeline_config(&root);
     let device = burn::backend::flex::FlexDevice;
     CpuTrainingBackend::seed(&device, config.seed);
     bootstrap_champion::<CpuBackend>(&models, config.network.clone(), &device)
@@ -1268,4 +1274,75 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
     };
     assert_eq!(latest.generation, expected_champion);
     fs::remove_dir_all(root).expect("pipeline test cleanup");
+}
+
+#[test]
+fn interrupted_candidate_resumes_without_retraining_or_changing_its_configuration() {
+    use burn::prelude::Backend;
+    let root = std::env::temp_dir().join(format!("yokai-resume-regression-{}", std::process::id()));
+    assert!(!root.exists());
+    let config = small_pipeline_config(&root);
+    let device = burn::backend::flex::FlexDevice;
+    CpuTrainingBackend::seed(&device, config.seed);
+    bootstrap_champion::<CpuBackend>(&config.paths.models, config.network.clone(), &device)
+        .unwrap();
+    let mut buffer = ReplayBuffer::new(config.optimization.replay_buffer).unwrap();
+    let data = std::path::Path::new(&config.paths.self_play);
+    fs::create_dir_all(data).unwrap();
+    fs::write(data.join("reports"), "obstruct report directory").unwrap();
+    assert!(
+        run_generation_with_progress::<CpuTrainingBackend, _>(
+            &config,
+            &mut buffer,
+            &device,
+            &|_| {}
+        )
+        .is_err()
+    );
+    let checkpoint = root.join("models/generation-000001/model.safetensors");
+    let weights_before = fs::read(&checkpoint).unwrap();
+    let games_before = buffer.len();
+    assert_eq!(
+        load_champion::<CpuBackend>(&config.paths.models, &device)
+            .unwrap()
+            .1
+            .generation,
+        0
+    );
+    fs::remove_file(data.join("reports")).unwrap();
+
+    let mut changed = config.clone();
+    changed.optimization.learning_rate *= 0.5;
+    assert!(matches!(
+        run_generation_with_progress::<CpuTrainingBackend, _>(
+            &changed,
+            &mut buffer,
+            &device,
+            &|_| {}
+        ),
+        Err(yokai::PipelineError::PendingConfigurationChanged)
+    ));
+    let events = Mutex::new(Vec::new());
+    let report = run_generation_with_progress::<CpuTrainingBackend, _>(
+        &config,
+        &mut buffer,
+        &device,
+        &|event| events.lock().unwrap().push(event),
+    )
+    .unwrap();
+    assert_eq!(report.candidate_generation, 1);
+    assert_eq!(buffer.len(), games_before);
+    assert_eq!(fs::read(checkpoint).unwrap(), weights_before);
+    assert!(data.join("reports/generation-000001.json").is_file());
+    let events = events.into_inner().unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, TrainingProgress::CandidateResumed { generation: 1 }))
+    );
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        TrainingProgress::TrainingStarted { .. } | TrainingProgress::TrainingAdvanced { .. }
+    )));
+    fs::remove_dir_all(root).unwrap();
 }

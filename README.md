@@ -12,14 +12,12 @@ and every public item documented.
 
 ## Documentation map
 
-- [Reading YokaiRust as a C++ developer learning Rust](docs/reading-guide.md) —
-  suggested reading order with a C++-to-Rust translation table.
+- [Reading the Rust code](docs/reading-guide.md) — suggested reading order,
+  ownership, error handling and module boundaries, with optional C++ parallels.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
-- [v26 training results](docs/results-v26.md) — the frozen research log of the
-  generation 16 reference.
-- [Generations 17–19](docs/results-continuation-17-19.md) — continuation after
-  the correctness fixes, including the accepted generation 19 champion.
+- [Training results](docs/training-results.md) — the champion, evaluation
+  protocol, generation results and limits of the measurements.
 - [Web build guide](web/README.md) — building and deploying the browser mode.
 
 ## Current state
@@ -31,9 +29,9 @@ and every public item documented.
   on Burn with WGPU/Metal acceleration on Apple Silicon.
 - A Ratatui interface for local play, playing the champion and replay
   analysis, plus the same engine compiled to WebAssembly for the browser.
-- The active training line is **v26**, with generation **19** accepted after
-  three further attempts. Generation **16** remains the frozen regression
-  reference; all earlier checkpoints are retained.
+- The accepted champion is **generation 19**. Generation **16** is the fixed
+  regression reference. The `latest` checkpoint pointer selects the model used
+  for play and training.
 
 ## Board coordinates
 
@@ -77,7 +75,7 @@ cargo run -- replay path/to/game.json
 # self-play games of the attempt in progress.
 cargo run --release -- train --config config/training.toml --generations 15
 
-# Evaluate every checkpoint on the active run's final stable validation split.
+# Evaluate every checkpoint on the buffer's validation split.
 cargo run --release -- diagnose-endgames --config config/training.toml
 ```
 

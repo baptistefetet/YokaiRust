@@ -1,15 +1,16 @@
-# Reading YokaiRust as a C++ developer learning Rust
+# Reading the Rust code
 
-This guide is a suggested route through the repository. It assumes solid C++
-experience, but no prior Rust fluency. The goal is not to teach all of Rust; it
-is to explain the language features that this project actually uses.
+This guide is a suggested route through the repository for someone learning
+Rust and neural networks. It explains the language features that this project
+uses. C++ comparisons provide optional parallels; the reading order does not
+require C++ experience.
 
 ## Recommended reading order
 
 1. [`tests/engine.rs`](../tests/engine.rs): start here — the integration tests
    are the shortest executable specification of the official rules, and each
    test name states the rule it pins down.
-2. [`notation.rs`](../src/notation.rs): the smallest source file. A complete
+2. [`notation.rs`](../src/notation.rs): a compact, complete
    `Display`/`FromStr` round trip with typed errors — a comfortable first
    contact with idiomatic Rust.
 3. [`game.rs`](../src/game.rs): domain types, board representation and rules.
@@ -29,8 +30,7 @@ is to explain the language features that this project actually uses.
 11. [`main.rs`](../src/main.rs): CLI parsing and presentation of progress
     events.
 12. [`ui.rs`](../src/ui.rs) and [`ui/ai.rs`](../src/ui/ai.rs): the Ratatui
-    interface — the largest file in the project, and the most rewarding place
-    to make a first visible change. `ui/ai.rs` is a compact, readable example
+    interface — a place to make a first visible change. `ui/ai.rs` is an example
     of the channel-plus-worker-thread pattern.
 13. [`web/crate/src/lib.rs`](../web/crate/src/lib.rs): the WebAssembly
     boundary — the same engine driven asynchronously from the browser.
@@ -39,12 +39,12 @@ For machine-learning vocabulary, read the glossary at the start of
 [`alphazero-guide.md`](alphazero-guide.md); this code-reading guide assumes
 those terms but does not assume prior neural-network experience.
 
-Every public Rust item now has `///` API documentation, and each source module
+Public Rust items use `///` API documentation, and each source module
 starts with a `//!` overview. `cargo doc --no-deps --open` builds a browsable
 local reference with links between those types. Comments inside functions are
 reserved for invariants and design choices that the code alone cannot explain.
 
-## A C++ to Rust translation table
+## Rust concepts and optional C++ parallels
 
 | Rust in this project | Approximate C++ mental model | Important difference |
 | --- | --- | --- |
@@ -105,7 +105,7 @@ valid Yokai position. Recoverable runtime failures use `Result` instead.
 
 ## Domain invariants
 
-The following boundaries are intentional and should remain stable for the TUI:
+The following boundaries connect the rules, network and interfaces:
 
 - `Position` stores absolute board orientation.
 - Neural encoding alone canonicalizes the player-to-move perspective.
@@ -132,18 +132,25 @@ The sign convention is tested explicitly in `tests/search.rs`.
 
 ## Reading one training generation
 
-The top-level function in `training/pipeline.rs` should now read as these named
-steps:
+For a new attempt, `run_generation_with_progress` in `training/pipeline.rs`
+performs these steps:
 
-1. load the accepted champion;
+1. load the accepted champion and record the attempt's configuration;
 2. generate self-play and persist replays;
-3. select whole-game train/validation splits;
+3. split whole trajectory families between training and validation, keeping
+   restarts with their source family;
 4. restore the trainable weights and Adam moments, then apply a fixed number of
    sampled mini-batch updates;
 5. save the candidate without changing the champion;
 6. `run_official_arena` against the champion;
 7. `run_exploratory_diagnostic`, a noisy self-play draw-rate probe;
-8. publish the candidate only when the strength and exploratory checks pass.
+8. save the decision report, then publish the candidate only when the strength
+   and exploratory checks pass.
+
+The journal also lets an interrupted attempt reuse completed self-play and a
+saved candidate. See [One generation](alphazero-guide.md#one-generation) for
+the persistence boundaries, and [Training results](training-results.md) for
+examples of accepted and rejected candidates.
 
 Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
 `main.rs` decides how to print it.
@@ -187,12 +194,13 @@ cargo test --test properties
 cargo test --test search
 ```
 
-After changing training code, also run:
+Before pushing changes, run the complete checks:
 
 ```bash
-cargo test --test training
-cargo clippy --all-targets -- -D warnings
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
+cargo doc --no-deps
 ```
 
 Local Metal benchmarks live in `benches/performance.rs` and run only when

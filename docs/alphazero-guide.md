@@ -1,9 +1,9 @@
 # AlphaZero in YokaiRust
 
 This guide explains what the network learns, how one generation works and why
-repetition draws need special handling. The implementation is self-contained:
-it learns from game rules, MCTS and self-play, and the same design is intended
-for the future 5×6 game.
+repetition draws need special handling. The implementation learns from the
+3×4 game rules, MCTS and self-play. Concrete measurements and the accepted
+champion are documented in [Training results](training-results.md).
 
 ## Vocabulary used in this project
 
@@ -71,9 +71,9 @@ The WDL target is the official final result:
 - loss if that player lost;
 - draw after an official repetition.
 
-Training retains categorical WDL cross-entropy and adds a small auxiliary loss:
+Training combines categorical WDL cross-entropy with a small auxiliary loss:
 `0.25 × (P(win) - P(loss) - result)²`, where the result is `+1`, `0` or `-1`.
-The auxiliary term supplies an ordered value signal; WDL cross-entropy still
+The auxiliary term supplies an ordered value signal; WDL cross-entropy
 forces a certain draw to differ from balanced win/loss uncertainty. This
 auxiliary loss is a project addition, not standard AlphaZero; its weight is
 the `scalar_value_loss_weight` key in `config/training.toml`.
@@ -110,17 +110,17 @@ candidate is accepted:
   [AlphaGo Zero](https://deepmind.google/blog/alphago-zero-starting-from-scratch/),
   whose search used a randomly initialized network and deliberately omitted
   rollouts.
-- `mode = "random_rollout_until_first_promotion"` — the checked-in default of
-  the active run — disables the network until the first promotion: legal
+- `mode = "random_rollout_until_first_promotion"` — the checked-in default —
+  disables the network until the first promotion: legal
   actions begin with uniform priors, and a random rollout from each leaf
   supplies the search value. After this rules-only search produces the first
   dataset and an accepted network, later generations switch to neural policy
   and value evaluation. If the first model is rejected, rollout self-play
   remains active until one is accepted.
 
-The rollout mode provides a less arbitrary but noisier bootstrap target. Both
-strategies stay implemented and tested precisely so they can be compared while
-holding every later generation constant.
+The rollout mode derives its initial targets from simulated games instead of
+random network predictions. These rollout targets can be noisy. The two modes
+allow bootstrap experiments with the same subsequent training process.
 
 ## Where the input numbers come from
 
@@ -208,9 +208,9 @@ callers apply softmax before treating them as probabilities, and search converts
 WDL logits to `P(win) - P(loss)` (see [Network targets](#network-targets)).
 
 With the default configuration, roughly two thirds of the 442,000 parameters sit
-in the residual tower. The size is deliberately small because MCTS queries the
-network thousands of times per move; every width remains a checkpointed setting
-in `AlphaZeroNetworkConfig`, so the future 5×6 game can scale it.
+in the residual tower. The size is deliberately small because MCTS evaluates
+many positions for each move. Each layer width is a checkpointed setting
+in `AlphaZeroNetworkConfig`.
 
 ### Canonical orientation
 
@@ -251,7 +251,7 @@ while `PolicyIndex` keeps the action mapping typed and tested.
 accepted champion --noisy self-play + visited-state restarts
        |
        v
-rolling replay buffer --stable game split--> validation
+rolling replay buffer --stable family split--> validation
        |
        v
 resume champion + Adam, then optimize
@@ -265,9 +265,7 @@ candidate --versus champion + exploratory draw gate--> publish champion
 One accepted checkpoint is deliberately used for all three roles: self-play
 source, optimization source and arena reference. The next attempt still differs
 after a rejection because the replay buffer grew and its random seed changed.
-Promotion protects playing strength and actual noisy self-play productivity;
-deterministic candidate-versus-itself cycles are retained as a diagnostic, not
-as a veto.
+Promotion checks both playing strength and the draw rate in noisy self-play.
 
 A `pending-generation.json` journal reserves the attempt and snapshots its
 configuration. Self-play is reused after an interruption; once candidate
@@ -293,11 +291,11 @@ is evicted. Tiny corpora may have an empty bucket: moving an example to fill
 it would break this guarantee. Keep the split seed and fraction fixed within
 one experiment.
 
-Legacy games without stored ancestry retain their previous hash assignment.
-This preserves readable checkpoint history, but cannot undo the leakage from
-old restarts that crossed the split. In particular, v26 validation metrics
-remain historical diagnostics, not uncontaminated generalization estimates.
-Use a fresh self-play directory for an experiment requiring a clean split.
+The family guarantee requires stored ancestry. A loaded game without it uses
+its own `(source_generation, seed)` as the split identity, which cannot establish
+separation from related trajectories. Use a fresh self-play directory when a
+clean split is required. The supplied dataset's limitations are documented with
+the [results](training-results.md#limits-of-the-measurements).
 
 ### Follow one generation in the source
 
@@ -327,7 +325,7 @@ performs cheaper inference during self-play and arenas.
 | Rolling replay buffer | Mixes recent generations so one noisy batch does not replace all knowledge. | Targets are generated by networks of different ages. |
 | Fixed optimizer steps + staged learning rate | Cost stays constant while later updates can become gentler. | Not every example is visited in every generation. |
 | One accepted champion | Rejected candidates cannot generate the next dataset. | Escaping a plateau may take several attempts from the same weights. |
-| Family-based validation | A trajectory and its recorded descendants stay in the same bucket. | Independent games may still revisit the same state; old missing ancestry cannot be repaired retroactively. |
+| Family-based validation | A trajectory and its recorded descendants stay in the same bucket. | Requires stored ancestry; independent games may still revisit the same state. |
 | Structured progress enum | The pipeline emits typed events; the CLI decides how to print them. | Adding an event requires updating every exhaustive `match`. |
 | Atomic files at boundaries | Interruption leaves the previous complete state resumable. | Temporary files briefly require additional disk space. |
 
@@ -350,12 +348,10 @@ target.
 
 YokaiRust instead separates four responsibilities.
 
-> **Note — these mechanisms are project inventions.** Mechanisms 2 and 4
-> below, the auxiliary scalar loss, and `repetition_contempt` are *not* part
-> of standard AlphaZero: searching for their names in the literature will
-> find nothing. They were designed for this project to handle repetition
-> draws on a 3×4 board. Their configuration keys in `config/training.toml`
-> are named in each subsection. Mechanism 3 follows the published Go-Exploit
+> **Project-specific experiments.** Mechanisms 2 and 4 below, the auxiliary
+> scalar loss, and `repetition_contempt` adapt training to repetition draws
+> on this 3×4 board. They are not standard AlphaZero components. Each subsection
+> names its configuration keys. Mechanism 3 follows the published Go-Exploit
 > "Visited States" variant ([paper](https://arxiv.org/abs/2302.12359)).
 
 ### 1. WDL keeps the outcome observable
@@ -376,8 +372,8 @@ non-starter: win - loss - 0.75 * draw
 Both still rank win above draw above loss. The starter learns its best defence;
 the non-starter is pushed to search for a conversion.
 
-Configuration key: `starter_draw_value` (0.75 in the active run). The code
-also implements a mutually exclusive alternative, `repetition_contempt`,
+Configuration key: `starter_draw_value` (0.75 in the checked-in configuration).
+The code also implements a mutually exclusive alternative, `repetition_contempt`,
 which penalizes only the exact action causing a repetition; it is disabled
 (`0.0`) in the checked-in configuration.
 
@@ -392,8 +388,8 @@ history.
 
 These trajectories use 800 MCTS simulations per move instead of the regular
 200. Their local temperature schedule restarts at ply zero, adding exploration
-throughout the game tree and producing shorter, more independent value targets.
-The current network, rules and PUCT search still produce every target.
+at later positions in the game tree. The network, rules and PUCT search produce
+the targets, and the trajectory remains related to its source family.
 
 Configuration keys: `restart_fraction` (0.25) and `restart_simulations` (800).
 
@@ -415,7 +411,7 @@ among every alternative. If it visited none, policy supervision stays omitted.
 The official draw remains a full WDL target in all cases, and policy for the
 non-starter is still learned normally from every decisive game.
 
-Configuration key: `non_starter_draw_policy_weight` (0.0 in the active run,
+Configuration key: `non_starter_draw_policy_weight` (0.0 in the checked-in configuration,
 meaning the non-starter's drawn-game policy targets are fully omitted).
 
 ## Promotion measurements
@@ -435,16 +431,14 @@ paired-sample permutation test described in the
 (`samples`, one sample, `greater`). The two colors are never treated as
 independent observations. The 5% threshold applies to one fixed-size arena;
 it does not control false promotions over an unlimited sequence of attempts.
-Confirm a research gain with an independent, preplanned comparison. Historical
-reports without pair counts keep their recorded decisions; missing evidence
-does not satisfy the new gate.
+Confirm a research gain with an independent, preplanned comparison. An arena
+result without paired statistics cannot establish a promotion under this gate.
 
 Each arena pair shares a random legal 0–4 ply opening and swaps candidate color.
-This avoids counting one deterministic trajectory hundreds of times. Earlier
-versions also recorded a small deterministic candidate-versus-itself "mirror"
-diagnostic; it never influenced promotion and was removed — identical players
-can settle into one stable line even when their noisy self-play stays
-productive, so only the noisy probe measures what training actually sees.
+Sampling openings exposes the models to different trajectories. The separate
+productivity probe uses the noisy self-play settings that generate training
+data. Deterministic play between identical models can settle into one stable
+line, so it cannot substitute for that probe.
 
 The strength and exploratory checks protect publication; none of these
 measurements is a training label.
@@ -483,11 +477,16 @@ that process into a proof.
 A convincing strong model should repeatedly show:
 
 - improving stable validation metrics;
-- positive paired results against the champion and a frozen previous baseline;
-- recorded deterministic draw behavior and controlled exploratory draw rates;
+- positive paired results against the champion and a fixed reference model;
+- controlled exploratory draw rates;
 - balanced results across absolute colors and starter roles;
 - reproducibility across several random seeds.
 
-The project goal is a genuinely from-scratch AlphaZero learner. Its success is
+The project goal is an AlphaZero learner trained from scratch. Its success is
 measured by internal learning and playing strength, with no external component
 in data generation, targets, search, promotion or runtime play.
+
+Winning sooner is not a separate learning target. Terminal wins all have value
+`+1` from the winner's perspective, and MCTS chooses by visit count without an
+explicit immediate-win override. A stronger network can therefore still choose
+a longer line over a legal capture that would end the game immediately.

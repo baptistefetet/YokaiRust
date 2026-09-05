@@ -697,6 +697,47 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
 }
 
 #[test]
+fn weighted_validation_is_independent_of_batch_boundaries_and_order() {
+    let device = burn::backend::flex::FlexDevice;
+    let model = AlphaZeroNetworkConfig::new()
+        .with_filters(4)
+        .with_residual_blocks(1)
+        .with_shared_hidden(4)
+        .with_value_hidden(4)
+        .init::<CpuBackend>(&device);
+    let mut starter = recorded_game(1, 77).augmented_examples(false).remove(0);
+    starter.value = 0.0;
+    starter.current_player_is_starter = true;
+    let mut non_starter = starter.mirrored();
+    non_starter.current_player_is_starter = false;
+    for draw_weight in [0.0, 0.25, 1.0] {
+        let mut examples = vec![starter.clone(), non_starter.clone(), non_starter.clone()];
+        let expected = yokai::validate_model_with_policy_weight(
+            &model,
+            &examples,
+            examples.len(),
+            draw_weight,
+            &device,
+        );
+        for batch_size in 1..=examples.len() {
+            examples.reverse();
+            let actual = yokai::validate_model_with_policy_weight(
+                &model,
+                &examples,
+                batch_size,
+                draw_weight,
+                &device,
+            );
+            assert!((actual.policy_loss - expected.policy_loss).abs() < 1e-4);
+            assert!((actual.total_loss - expected.total_loss).abs() < 1e-4);
+        }
+    }
+    let omitted = yokai::validate_model_with_policy_weight(&model, &[non_starter], 1, 0.0, &device);
+    assert_eq!(omitted.policy_loss, 0.0);
+    assert!(omitted.value_loss.is_finite() && omitted.value_loss > 0.0);
+}
+
+#[test]
 fn parallel_self_play_is_seed_ordered_and_reproducible() {
     let config = SelfPlayConfig {
         games_per_generation: 2,

@@ -228,7 +228,7 @@ where
             };
             let report = TrainingStepReport {
                 step,
-                training: std::mem::take(&mut accumulator).finish(),
+                training: std::mem::take(&mut accumulator).finish(config.scalar_value_loss_weight),
                 validation,
             };
             progress(report);
@@ -302,7 +302,7 @@ fn validate_model_with_objective_weights<B: Backend<FloatElem = f32>>(
         );
         accumulator.add(read_metrics(&losses), batch.len());
     }
-    accumulator.finish()
+    accumulator.finish(scalar_value_loss_weight)
 }
 
 struct BatchTensors<B: Backend> {
@@ -407,9 +407,12 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
     let policy_loss_per_position = (log_probabilities.clone() * batch.policy.clone())
         .sum_dim(1)
         .neg();
-    // The clamp also makes an artificial all-zero-weight test batch safe: its
-    // policy loss is zero while WDL still trains normally.
-    let policy_weight_sum = batch.policy_weight.clone().sum().clamp_min(1.0);
+    // Only an exactly empty denominator needs a fallback. Clamping positive
+    // sums to one would make fractional weights depend on the batch size.
+    let policy_weight_sum = batch.policy_weight.clone().sum();
+    let policy_weight_sum = policy_weight_sum
+        .clone()
+        .mask_fill(policy_weight_sum.equal_elem(0.0), 1.0);
     let policy_loss =
         (policy_loss_per_position * batch.policy_weight.clone()).sum() / policy_weight_sum;
     // WDL means Win / Draw / Loss. Unlike policy loss, every official outcome
@@ -539,8 +542,9 @@ struct MetricAccumulator {
 impl MetricAccumulator {
     fn add(&mut self, metrics: LossMetrics, examples: usize) {
         let weight = count_as_f32(examples);
-        self.weighted.total_loss += metrics.total_loss * weight;
-        self.weighted.policy_loss += metrics.policy_loss * weight;
+        // Reconstruct the policy numerator with its own denominator. WDL and
+        // the other metrics still give every example equal weight.
+        self.weighted.policy_loss += metrics.policy_loss * metrics.mean_policy_weight * weight;
         self.weighted.value_loss += metrics.value_loss * weight;
         self.weighted.scalar_value_loss += metrics.scalar_value_loss * weight;
         self.weighted.policy_entropy += metrics.policy_entropy * weight;
@@ -553,16 +557,23 @@ impl MetricAccumulator {
         self.examples += examples;
     }
 
-    fn finish(self) -> LossMetrics {
+    fn finish(self, scalar_value_loss_weight: f32) -> LossMetrics {
         if self.examples == 0 {
             return LossMetrics::default();
         }
         let divisor = count_as_f32(self.examples);
+        let policy_loss = if self.weighted.mean_policy_weight > 0.0 {
+            self.weighted.policy_loss / self.weighted.mean_policy_weight
+        } else {
+            0.0
+        };
+        let value_loss = self.weighted.value_loss / divisor;
+        let scalar_value_loss = self.weighted.scalar_value_loss / divisor;
         LossMetrics {
-            total_loss: self.weighted.total_loss / divisor,
-            policy_loss: self.weighted.policy_loss / divisor,
-            value_loss: self.weighted.value_loss / divisor,
-            scalar_value_loss: self.weighted.scalar_value_loss / divisor,
+            total_loss: policy_loss + value_loss + scalar_value_loss_weight * scalar_value_loss,
+            policy_loss,
+            value_loss,
+            scalar_value_loss,
             policy_entropy: self.weighted.policy_entropy / divisor,
             value_calibration_error: self.weighted.value_calibration_error / divisor,
             illegal_policy_mass: self.weighted.illegal_policy_mass / divisor,

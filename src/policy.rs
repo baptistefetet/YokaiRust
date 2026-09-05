@@ -30,9 +30,16 @@ pub const POLICY_ACTIONS: usize = 132;
 const BOARD_POLICY_ACTIONS: u8 = 96;
 
 /// A validated index into the fixed `AlphaZero` policy vector.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct PolicyIndex(u8);
+
+impl<'de> Deserialize<'de> for PolicyIndex {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let index = u8::deserialize(deserializer)?;
+        Self::new(index).ok_or_else(|| serde::de::Error::custom("policy index must be in 0..132"))
+    }
+}
 
 impl PolicyIndex {
     /// Validates and wraps a raw policy-vector index.

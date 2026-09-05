@@ -157,9 +157,17 @@ impl HandPiece {
 }
 
 /// A compact board coordinate, stored as a row-major index in `[0, 11]`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct Square(u8);
+
+impl<'de> Deserialize<'de> for Square {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let index = u8::deserialize(deserializer)?;
+        Self::from_index(index)
+            .ok_or_else(|| serde::de::Error::custom("square index must be in 0..12"))
+    }
+}
 
 impl Square {
     /// Every board square in row-major order.
@@ -343,11 +351,26 @@ impl Outcome {
 /// The type is [`Copy`] on purpose: a 3×4 position is small and MCTS creates
 /// many temporary states. Private fields ensure callers cannot bypass material
 /// invariants after construction.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct Position {
     board: [Option<Piece>; BOARD_SQUARES],
     hands: [[u8; 3]; 2],
     side_to_move: Player,
+}
+
+impl<'de> Deserialize<'de> for Position {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Decode storage first, then use the same material checks as Rust callers.
+        #[derive(Deserialize)]
+        struct Parts {
+            board: [Option<Piece>; BOARD_SQUARES],
+            hands: [[u8; 3]; 2],
+            side_to_move: Player,
+        }
+        let parts = Parts::deserialize(deserializer)?;
+        Self::from_parts(parts.board, parts.hands, parts.side_to_move)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /// Invalid material configurations rejected by [`Position::from_parts`].

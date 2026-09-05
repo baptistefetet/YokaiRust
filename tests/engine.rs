@@ -336,3 +336,36 @@ fn replay_rejects_truncated_json_and_unknown_versions() {
         Err(ReplayError::UnsupportedFormatVersion(99))
     ));
 }
+
+#[test]
+fn json_cannot_bypass_validated_indices_or_material_bounds() {
+    for index in 0..=u8::MAX {
+        let json = index.to_string();
+        assert_eq!(
+            serde_json::from_str::<Square>(&json).ok(),
+            Square::from_index(index)
+        );
+        assert_eq!(
+            serde_json::from_str::<yokai::PolicyIndex>(&json).ok(),
+            yokai::PolicyIndex::new(index)
+        );
+    }
+
+    let initial = Position::initial(Player::First);
+    let mut json = serde_json::to_value(initial).unwrap();
+    assert_eq!(
+        serde_json::from_value::<Position>(json.clone()).unwrap(),
+        initial
+    );
+    json["hands"][0][0] = 255.into();
+    assert!(serde_json::from_value::<Position>(json).is_err());
+
+    let mut game = Game::new(Player::First);
+    game.apply("b2-b3".parse().unwrap()).unwrap();
+    let mut json = serde_json::to_value(Replay::from_game(&game, None)).unwrap();
+    json["actions"][0]["from"] = 255.into();
+    assert!(matches!(
+        Replay::from_json(&json.to_string()),
+        Err(ReplayError::Json(_))
+    ));
+}

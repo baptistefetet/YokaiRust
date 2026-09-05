@@ -89,7 +89,8 @@ search_batch_size = 1
 # colors. This provides diverse, reproducible games without search noise.
 opening_plies = 4
 score_threshold = 0.55
-# The candidate must pass the official 55% arena and the exploratory draw gate
+# The candidate must pass the official 55% arena, the one-sided paired
+# statistical test (p <= 0.05), and the exploratory draw gate
 # to become champion. Any rejection leaves the champion unchanged; the next
 # attempt starts from that accepted checkpoint and an enriched replay buffer.
 candidate_self_play_games = 64

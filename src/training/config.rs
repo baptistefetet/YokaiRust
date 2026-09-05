@@ -209,6 +209,7 @@ pub struct ArenaConfig {
     #[serde(default = "default_arena_opening_plies")]
     pub opening_plies: usize,
     /// Minimum candidate score, counting a draw as one half, for promotion.
+    /// A one-sided paired sign-flip test at 5% must also pass.
     pub score_threshold: f32,
     /// Noisy candidate self-play games used to catch exploration-only cycles.
     pub candidate_self_play_games: usize,

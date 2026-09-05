@@ -497,12 +497,14 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             reference_inference,
         } => {
             eprintln!(
-                "[{elapsed}] arena finished: candidate/reference/draw={}/{}/{}, score={:.3}, distinct_openings={}",
+                "[{elapsed}] arena finished: candidate/reference/draw={}/{}/{}, score={:.3}, distinct_openings={}, paired_p={:?}, significant={}",
                 result.candidate_wins,
                 result.reference_wins,
                 result.draws,
                 result.score,
                 result.distinct_openings,
+                result.improvement_p_value,
+                result.statistically_significant(),
             );
             print_arena_seats(&elapsed, result);
             print_inference_stats(&elapsed, "candidate inference", candidate_inference);
@@ -643,12 +645,14 @@ fn print_generation_report(report: &yokai::GenerationReport) {
     print_dataset_diagnostics("generated", report.generated_dataset_diagnostics);
     print_dataset_diagnostics("buffer", report.buffer_dataset_diagnostics);
     println!(
-        "arena candidate={} previous={} draws={} score={:.3} threshold_reached={}",
+        "arena candidate={} previous={} draws={} score={:.3} threshold_reached={} paired_p={:?} significant={}",
         report.arena.candidate_wins,
         report.arena.reference_wins,
         report.arena.draws,
         report.arena.score,
-        report.arena_threshold_reached()
+        report.arena_threshold_reached(),
+        report.arena.improvement_p_value,
+        report.arena.statistically_significant(),
     );
     print_arena_seats("summary", &report.arena);
     let outcomes = report.candidate_self_play;

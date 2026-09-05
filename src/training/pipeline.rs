@@ -141,7 +141,7 @@ impl GenerationReport {
 /// Strength and self-play-productivity checks for the published champion.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PromotionDecision {
-    /// Candidate met the configured paired-arena score.
+    /// Candidate met the configured score and the paired statistical test.
     pub arena_passed: bool,
     /// Noisy self-play draw rate stayed below its productivity limit.
     pub exploratory_draw_gate_passed: bool,
@@ -722,7 +722,7 @@ fn promotion_decision(
 ) -> PromotionDecision {
     let exploratory_games = exploratory.first_wins + exploratory.second_wins + exploratory.draws;
     PromotionDecision {
-        arena_passed: arena.threshold_reached,
+        arena_passed: arena.threshold_reached && arena.statistically_significant(),
         exploratory_draw_gate_passed: ratio(exploratory.draws, exploratory_games)
             <= config.arena.max_candidate_self_play_draw_rate,
     }

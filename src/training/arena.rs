@@ -34,6 +34,24 @@ pub struct ArenaResult {
     /// Both games in a color-swapped pair deliberately count as one opening.
     #[serde(default)]
     pub distinct_openings: usize,
+    /// Number of color-swapped pairs scoring 0, 0.5, 1, 1.5 or 2 candidate
+    /// points. These sufficient statistics preserve within-pair dependence.
+    #[serde(default)]
+    pub paired_score_counts: [usize; 5],
+    /// One-sided exact sign-flip p-value for positive mean paired advantage.
+    /// Absent in historical reports that did not retain paired scores.
+    #[serde(default)]
+    pub improvement_p_value: Option<f64>,
+}
+
+impl ArenaResult {
+    /// Requires positive evidence at the 5% level in this fixed-size arena.
+    /// This is a per-arena test, not a guarantee across repeated experiments.
+    #[must_use]
+    pub fn statistically_significant(&self) -> bool {
+        self.improvement_p_value
+            .is_some_and(|p| p.is_finite() && (0.0..=0.05).contains(&p))
+    }
 }
 
 /// Candidate results for one absolute player assignment.
@@ -135,7 +153,7 @@ where
     H: Evaluator + Clone + Send + Sync,
     F: Fn(ArenaProgress) + Sync,
 {
-    if workers == 0 || config.games == 0 {
+    if workers == 0 || config.games == 0 || !config.games.is_multiple_of(2) {
         return Err(ArenaError::InvalidConfiguration);
     }
     let pool = rayon::ThreadPoolBuilder::new()
@@ -181,6 +199,16 @@ where
             .collect::<Result<Vec<_>, ArenaError>>()
     })?;
 
+    // Indexed Rayon collection preserves seed order, so adjacent results are
+    // still the two colors of one opening even if workers finish out of order.
+    let mut paired_score_counts = [0; 5];
+    for pair in outcomes.chunks_exact(2) {
+        let half_points = pair
+            .iter()
+            .map(|(_, outcome, _)| outcome.half_points())
+            .sum::<usize>();
+        paired_score_counts[half_points] += 1;
+    }
     let mut candidate_wins = 0;
     let mut reference_wins = 0;
     let mut draws = 0;
@@ -218,6 +246,8 @@ where
         candidate_as_first,
         candidate_as_second,
         distinct_openings: openings.len(),
+        paired_score_counts,
+        improvement_p_value: Some(paired_improvement_p_value(paired_score_counts)),
     })
 }
 
@@ -306,6 +336,44 @@ enum ArenaGameOutcome {
     Draw,
 }
 
+impl ArenaGameOutcome {
+    fn half_points(self) -> usize {
+        match self {
+            Self::CandidateWin => 2,
+            Self::Draw => 1,
+            Self::ReferenceWin => 0,
+        }
+    }
+}
+
+/// Under the exchangeable-pair null, independently flip the sign of each
+/// pair's advantage. Advantages are integer half-points in -2..=2, so dynamic
+/// programming computes the exact tail without enumerating 2^pairs outcomes.
+/// See scipy.stats.permutation_test, permutation_type="samples", one sample.
+fn paired_improvement_p_value(counts: [usize; 5]) -> f64 {
+    let positive = counts[3] + 2 * counts[4];
+    let negative = counts[1] + 2 * counts[0];
+    let mut probabilities = vec![1.0_f64];
+    let mut radius = 0;
+    for (magnitude, count) in [(1, counts[1] + counts[3]), (2, counts[0] + counts[4])] {
+        for _ in 0..count {
+            let mut next = vec![0.0; probabilities.len() + 2 * magnitude];
+            for (index, probability) in probabilities.into_iter().enumerate() {
+                next[index] += probability * 0.5;
+                next[index + 2 * magnitude] += probability * 0.5;
+            }
+            probabilities = next;
+            radius += magnitude;
+        }
+    }
+    let tail_start = if positive >= negative {
+        radius + (positive - negative)
+    } else {
+        radius - (negative - positive)
+    };
+    probabilities[tail_start..].iter().sum::<f64>().min(1.0)
+}
+
 fn score(wins: usize, draws: usize, games: usize) -> f32 {
     if games == 0 {
         return 0.0;
@@ -316,8 +384,8 @@ fn score(wins: usize, draws: usize, games: usize) -> f32 {
 /// Failures that invalidate a model-comparison arena.
 #[derive(Debug, Error)]
 pub enum ArenaError {
-    /// Worker or game count was zero.
-    #[error("arena worker and game counts must be positive")]
+    /// Worker count was zero, or the game count was not positive and even.
+    #[error("arena requires workers and a positive even number of games")]
     InvalidConfiguration,
     /// MCTS failed in one worker.
     #[error(transparent)]
@@ -342,7 +410,40 @@ mod tests {
 
     use crate::Player;
 
-    use super::random_opening_game;
+    use super::{paired_improvement_p_value, random_opening_game};
+
+    #[test]
+    fn a_fifty_five_percent_score_is_not_automatically_significant() {
+        // 30 swept wins, 20 swept losses, 50 tied pairs: 110 / 200 points.
+        let p = paired_improvement_p_value([20, 0, 50, 0, 30]);
+        assert!((p - 0.101_319_375_532_270_33).abs() < 1e-12);
+        assert_eq!(paired_improvement_p_value([0, 0, 100, 0, 0]), 1.0);
+        assert!(paired_improvement_p_value([30, 0, 50, 0, 20]) > 0.5);
+        assert!(paired_improvement_p_value([0, 0, 0, 0, 6]) < 0.05);
+    }
+
+    #[test]
+    fn paired_test_matches_exhaustive_sign_flips_with_draws() {
+        let advantages = [-2_i32, -1, 0, 1, 2, 2];
+        let observed = advantages.iter().sum::<i32>();
+        let mut extreme = 0;
+        for mask in 0..1 << advantages.len() {
+            let sum = advantages
+                .iter()
+                .enumerate()
+                .map(|(i, value)| {
+                    if mask & (1 << i) == 0 {
+                        *value
+                    } else {
+                        -*value
+                    }
+                })
+                .sum::<i32>();
+            extreme += usize::from(sum >= observed);
+        }
+        let expected = extreme as f64 / (1 << advantages.len()) as f64;
+        assert!((paired_improvement_p_value([1, 1, 1, 1, 2]) - expected).abs() < 1e-12);
+    }
 
     #[test]
     fn paired_openings_are_reproducible_and_diverse() {

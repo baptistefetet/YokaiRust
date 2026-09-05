@@ -408,8 +408,22 @@ meaning the non-starter's drawn-game policy targets are fully omitted).
 
 A candidate must pass two independent checks:
 
-1. score at least 55% against the champion in 200 paired games;
+1. score at least 55% against the champion in 200 paired games, with a
+   one-sided paired sign-flip p-value at most 0.05;
 2. stay at or below 20% draws in 64 noisy self-play games.
+
+Each pair contributes a candidate score of 0, 0.5, 1, 1.5 or 2 points. The
+report retains counts of these five outcomes. The statistical test compares
+the summed advantage against all independent sign flips of the paired
+advantages; integer half-points allow exact dynamic programming. This is the
+paired-sample permutation test described in the
+[SciPy reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.permutation_test.html)
+(`samples`, one sample, `greater`). The two colors are never treated as
+independent observations. The 5% threshold applies to one fixed-size arena;
+it does not control false promotions over an unlimited sequence of attempts.
+Confirm a research gain with an independent, preplanned comparison. Historical
+reports without pair counts keep their recorded decisions; missing evidence
+does not satisfy the new gate.
 
 Each arena pair shares a random legal 0–4 ply opening and swaps candidate color.
 This avoids counting one deterministic trajectory hundreds of times. Earlier

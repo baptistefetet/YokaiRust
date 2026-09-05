@@ -943,6 +943,9 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
     assert_eq!(result.candidate_as_second.games(), 1);
     assert!((result.score - 0.5).abs() < f32::EPSILON);
     assert!(!result.threshold_reached);
+    assert_eq!(result.paired_score_counts, [0, 0, 1, 0, 0]);
+    assert_eq!(result.improvement_p_value, Some(1.0));
+    assert!(!result.statistically_significant());
 }
 
 #[test]

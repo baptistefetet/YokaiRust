@@ -726,8 +726,8 @@ fn analyze_initial_position(simulations: u32, seed: u64) -> Result<(), Box<dyn E
                 .map_err(|error| error.to_string())
         });
     match champion {
-        Ok((model, metadata)) => {
-            println!("evaluator=champion generation={}", metadata.generation);
+        Ok((model, _)) => {
+            println!("evaluator=champion");
             let evaluator = CachedEvaluator::new(NetworkEvaluator::new(model, device), 16_384);
             print_analysis(evaluator, &game, config, simulations, seed)
         }

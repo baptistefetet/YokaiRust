@@ -162,9 +162,7 @@ impl MatchSession {
                 if matches!(ai.state, AiState::Loading) {
                     ai.state = AiState::Idle;
                 }
-                Some(MatchUpdate::notice(format!(
-                    "Champion generation {generation} loaded"
-                )))
+                Some(MatchUpdate::notice("Champion loaded".to_owned()))
             }
             AiEvent::SearchReady {
                 request_id,
@@ -260,11 +258,7 @@ impl MatchSession {
         let ai = self.ai.as_ref()?;
         Some(match &ai.state {
             AiState::Loading => "Loading latest champion…".to_owned(),
-            AiState::Idle => format!(
-                "CPU ready{}",
-                ai.generation
-                    .map_or_else(String::new, |generation| format!(" · g{generation}"))
-            ),
+            AiState::Idle => "CPU ready".to_owned(),
             AiState::Thinking { requested_at, .. } if ai.generation.is_none() => format!(
                 "Loading latest champion… · move queued {:.1}s",
                 now.saturating_duration_since(*requested_at).as_secs_f32()

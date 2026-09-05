@@ -132,7 +132,7 @@ class GameScene extends Phaser.Scene {
             this.human = initialized.state.human;
             this.busy = false;
             this.drawAll();
-            this.finishLoading(initialized.backend, initialized.generation);
+            this.finishLoading();
         } catch (error) {
             this.showFatalError(error);
         }
@@ -787,12 +787,12 @@ class GameScene extends Phaser.Scene {
         }
     }
 
-    finishLoading(backend, generation) {
+    finishLoading() {
         const title = document.getElementById('loading-title');
         const detail = document.getElementById('loading-detail');
         const loading = document.getElementById('loading');
         title.textContent = 'Ready!';
-        detail.textContent = `Champion generation ${generation} · ${backend}`;
+        detail.textContent = 'Your opponent is ready.';
         window.setTimeout(() => {
             loading.classList.add('ready');
         }, 220);

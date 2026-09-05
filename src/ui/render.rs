@@ -55,12 +55,9 @@ pub(super) fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect, now: I
                 session.controllers[1].label()
             );
             if let Some(ai) = &session.ai
-                && let Some(generation) = ai.generation
+                && let Some(simulations) = ai.simulations
             {
-                let _ = write!(label, " g{generation}");
-                if let Some(simulations) = ai.simulations {
-                    let _ = write!(label, "/{simulations}");
-                }
+                let _ = write!(label, " · {simulations} simulations");
             }
             label
         }

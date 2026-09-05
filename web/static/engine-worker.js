@@ -54,7 +54,6 @@ async function initialize({ simulations }) {
             backend = module.backendName();
             return {
                 backend,
-                generation: rustGame.generation,
                 state: parseJson(rustGame.snapshotJson())
             };
         } catch (error) {

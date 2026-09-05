@@ -29,9 +29,9 @@ and every public item documented.
   on Burn with WGPU/Metal acceleration on Apple Silicon.
 - A Ratatui interface for local play, playing the champion and replay
   analysis, plus the same engine compiled to WebAssembly for the browser.
-- The accepted champion is **generation 19**. Generation **16** is the fixed
-  regression reference. The `latest` checkpoint pointer selects the model used
-  for play and training.
+- The `latest` checkpoint pointer selects the accepted champion for play and
+  training. The [training results](docs/training-results.md) describe its
+  evaluation and playing strength.
 
 ## Board coordinates
 

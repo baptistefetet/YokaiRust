@@ -2,8 +2,8 @@
 
 The accepted champion is **generation 19**. It is the model selected by
 `latest` for local play, browser export and training. Generation **16** is
-the fixed regression reference. All checkpoints, including rejected candidates,
-remain available in the local model directory.
+the fixed reference for the comparison recorded on this page. All checkpoints,
+including rejected candidates, remain available in the local model directory.
 
 The [AlphaZero guide](alphazero-guide.md) explains the learning algorithm and
 metrics; this page records the evaluation protocol and measured results.

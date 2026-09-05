@@ -25,15 +25,27 @@ cargo doc --no-deps
 
 ## Learning experiments
 
-- Generation 16 is the publication and regression reference. A candidate
-  replaces it only after a paired arena shows a statistically credible
-  strength improvement and the noisy productivity probe still passes.
+- The accepted checkpoint selected by `latest` is the published player and
+  the source for training. A candidate replaces it only after a paired arena
+  shows a statistically credible strength improvement and the noisy
+  productivity probe passes.
+- Record a fixed reference checkpoint for each experiment before running it,
+  and retain that checkpoint for independent regression comparisons. Keep
+  its identifier in the experiment report rather than hard-coding a generation
+  into general project instructions or player interfaces.
 - Training runs are atomic at generation boundaries; `latest` always points
   to the accepted champion. Rejected candidates may remain on disk for
   diagnostics but never become self-play sources; do not delete or rewrite
   checkpoint history.
 - Prefer isolated, comparable changes: tune loss weighting or decisive
   endgame sampling before considering another architecture change.
+
+## Documentation
+
+- Write for someone learning Rust and neural networks. Explain concepts
+  directly without assuming knowledge of another systems programming language.
+- Describe the current implementation in the guides. Keep measurement
+  provenance and checkpoint identifiers in the training results and reports.
 
 ## Repository conventions
 

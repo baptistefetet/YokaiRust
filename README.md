@@ -13,7 +13,7 @@ and every public item documented.
 ## Documentation map
 
 - [Reading the Rust code](docs/reading-guide.md) — suggested reading order,
-  ownership, error handling and module boundaries, with optional C++ parallels.
+  ownership, error handling and module boundaries, explained for a Rust beginner.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
 - [Training results](docs/training-results.md) — the champion, evaluation

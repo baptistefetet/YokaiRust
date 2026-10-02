@@ -3,7 +3,7 @@
 use proptest::prelude::*;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use yokai::{Action, Game, POLICY_ACTIONS, Player, PolicyIndex};
+use yokai::{Action, Game, POLICY_ACTIONS, Player, PolicyIndex, Position};
 
 const POLICY_ACTIONS_U8: u8 = 132;
 
@@ -51,6 +51,16 @@ proptest! {
             } else {
                 prop_assert_eq!(count_after, count_before);
             }
+            let position = *game.position();
+            prop_assert_eq!(
+                Position::from_parts(*position.board(), *position.hands(), position.side_to_move()),
+                Ok(position)
+            );
+            let json = serde_json::to_string(&position).expect("position serializes");
+            prop_assert_eq!(
+                serde_json::from_str::<Position>(&json).expect("legal play preserves valid material"),
+                position
+            );
             if transition.outcome.is_terminal() {
                 break;
             }

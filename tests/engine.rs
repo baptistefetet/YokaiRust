@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use yokai::{
     Action, BOARD_SQUARES, DrawReason, Game, HandPiece, Outcome, Piece, PieceKind, Player,
-    Position, Replay, ReplayError, Square, WinReason,
+    Position, PositionError, Replay, ReplayError, Square, WinReason,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -36,6 +36,64 @@ fn initial_position_matches_the_official_setup() {
         Some(Piece::new(PieceKind::Koropokkuru, Player::Second))
     );
     assert_eq!(position.legal_actions().len(), 4);
+}
+
+#[test]
+fn material_limits_combine_the_board_and_both_players_hands() {
+    for kind in [
+        PieceKind::Tanuki,
+        PieceKind::Kitsune,
+        PieceKind::Kodama,
+        PieceKind::KodamaSamurai,
+    ] {
+        let hand_piece = HandPiece::from_captured(kind).unwrap();
+        let index = hand_piece.index();
+        let mut board = [None; BOARD_SQUARES];
+        board[0] = Some(Piece::new(kind, Player::First));
+        board[1] = Some(Piece::new(kind, Player::Second));
+        assert!(Position::from_parts(board, [[0; 3]; 2], Player::First).is_ok());
+
+        board[2] = Some(Piece::new(kind, Player::Second));
+        assert_eq!(
+            Position::from_parts(board, [[0; 3]; 2], Player::First),
+            Err(PositionError::TooManyPiecesOfKind(hand_piece))
+        );
+
+        board[1] = None;
+        board[2] = None;
+        let mut hands = [[0; 3]; 2];
+        hands[0][index] = 1;
+        assert!(Position::from_parts(board, hands, Player::First).is_ok());
+        hands[1][index] = 1;
+        assert_eq!(
+            Position::from_parts(board, hands, Player::First),
+            Err(PositionError::TooManyPiecesOfKind(hand_piece))
+        );
+
+        board[0] = None;
+        assert!(Position::from_parts(board, hands, Player::First).is_ok());
+        hands[0][index] = 2;
+        assert_eq!(
+            Position::from_parts(board, hands, Player::First),
+            Err(PositionError::TooManyPiecesOfKind(hand_piece))
+        );
+    }
+}
+
+#[test]
+fn promoted_and_unpromoted_kodama_share_one_material_limit() {
+    let mut board = [None; BOARD_SQUARES];
+    board[0] = Some(Piece::new(PieceKind::Kodama, Player::First));
+    board[1] = Some(Piece::new(PieceKind::KodamaSamurai, Player::Second));
+    let position = Position::from_parts(board, [[0; 3]; 2], Player::First).unwrap();
+    assert_eq!(
+        Position::from_parts(board, [[0, 0, 1], [0; 3]], Player::First),
+        Err(PositionError::TooManyPiecesOfKind(HandPiece::Kodama))
+    );
+
+    let mut json = serde_json::to_value(position).unwrap();
+    json["hands"][1][2] = 1.into();
+    assert!(serde_json::from_value::<Position>(json).is_err());
 }
 
 #[test]

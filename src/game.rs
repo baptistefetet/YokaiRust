@@ -385,6 +385,10 @@ pub enum PositionError {
     /// Board and hand counts describe more pieces than the set contains.
     #[error("a position cannot contain more than eight physical pieces")]
     TooManyPieces,
+    /// Board and both hands contain more than two copies of one physical kind.
+    /// Promoted Kodama count as Kodama because promotion does not add a piece.
+    #[error("a position cannot contain more than two physical {0:?} pieces")]
+    TooManyPiecesOfKind(HandPiece),
 }
 
 impl Position {
@@ -414,6 +418,10 @@ impl Position {
     }
 
     /// Creates a position from explicit board and hand storage.
+    ///
+    /// Material may be absent for a partial position, but each physical kind
+    /// is limited to the official set across the board and both players' hands.
+    /// Kodama and promoted Kodama share the same two-piece limit.
     ///
     /// # Errors
     ///
@@ -446,6 +454,21 @@ impl Position {
             .sum();
         if board_count + hand_count > 8 {
             return Err(PositionError::TooManyPieces);
+        }
+
+        let mut piece_counts = [0_usize; 3];
+        for piece in board.iter().flatten() {
+            if let Some(hand_piece) = HandPiece::from_captured(piece.kind) {
+                piece_counts[hand_piece.index()] += 1;
+            }
+        }
+        for hand_piece in HandPiece::ALL {
+            let index = hand_piece.index();
+            let count =
+                piece_counts[index] + usize::from(hands[0][index]) + usize::from(hands[1][index]);
+            if count > 2 {
+                return Err(PositionError::TooManyPiecesOfKind(hand_piece));
+            }
         }
 
         Ok(Self {

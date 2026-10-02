@@ -209,3 +209,19 @@ Local Metal benchmarks live in `benches/performance.rs` and run only when
 named explicitly (`cargo bench --bench performance -- <name>|all`). They are
 not part of the correctness suite because they load saved checkpoints, can
 take minutes, and measure speed rather than verify behavior.
+
+For CPU rules and search timings without a GPU or saved model, run:
+
+```bash
+cargo bench --no-default-features --bench engine -- all
+```
+
+Replace `all` with `request`, `perft`, or `mcts` to select cases. These use fixed
+initial and middle-game positions, five timed samples after warm-up, and report
+the median plus minimum and maximum nanoseconds per operation. Set
+`YOKAI_BENCH_ITERATIONS` to override the iterations per sample. The MCTS cases
+create a fresh tree for each 200-simulation search, with batches of eight and
+uniform leaf evaluation. The perft case counts legal move sequences reaching
+exactly six plies, including the normal repetition rules; games ending earlier
+contribute zero. Compare release measurements on the same otherwise idle machine
+and keep the compiler version, command and output with the result.

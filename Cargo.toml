@@ -46,6 +46,11 @@ name = "performance"
 harness = false
 required-features = ["native"]
 
+# CPU-only rules and search timings; also works without native backends.
+[[bench]]
+name = "engine"
+harness = false
+
 [dependencies]
 burn = { version = "=0.21.0", default-features = false, features = ["std"] }
 crossbeam-channel = { version = "=0.5.16", optional = true }

@@ -23,8 +23,10 @@ work.
 - Native and browser loaders share the model-format version. The web viewport
   allows zoom, and builds warn when optional `wasm-opt` optimization is skipped.
 
-The performance report describes the scope of the measured CPU gains. Playing
-strength and Metal self-play throughput still need their own evaluations.
+The performance report describes the scope of the measured CPU gains. The
+training results record a subsequent short continuation, its strength
+evaluations and phase durations. A controlled Metal workload is still needed
+to measure the effect of the engine changes on self-play throughput.
 
 ## 1. Make surprising moves reproducible
 

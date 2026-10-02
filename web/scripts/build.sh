@@ -62,6 +62,8 @@ if command -v wasm-opt >/dev/null 2>&1; then
     wasm-opt -Oz \
         "$distribution/pkg-webgpu/yokai_web_bg.wasm" \
         -o "$distribution/pkg-webgpu/yokai_web_bg.wasm"
+else
+    echo "Warning: wasm-opt is not installed; WebAssembly files were built without size optimization." >&2
 fi
 
 echo "Static web build ready in $distribution"

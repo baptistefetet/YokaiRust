@@ -84,8 +84,9 @@ web_archive="$release_directory/yokai-web-$release_version-g$generation.tar.gz"
 champion_archive="$release_directory/yokai-champion-$model_line-g$generation.tar.gz"
 checksum_file="$release_directory/SHA256SUMS"
 
-tar -czf "$web_archive" -C "$distribution" .
-tar -czf "$champion_archive" -C "$repository_root" \
+# Do not generate AppleDouble ._* entries or preserve extended file attributes.
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$web_archive" -C "$distribution" .
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$champion_archive" -C "$repository_root" \
     "$model_directory/latest" \
     "$generation_directory/metadata.json" \
     "$generation_directory/model.safetensors"

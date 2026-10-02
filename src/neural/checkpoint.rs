@@ -25,8 +25,8 @@ use crate::{
     },
 };
 
-/// Schema version of checkpoint directories and their metadata.
-pub const MODEL_FORMAT_VERSION: u16 = 5;
+pub use super::MODEL_FORMAT_VERSION;
+
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";

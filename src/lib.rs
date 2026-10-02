@@ -34,17 +34,18 @@ pub use game::{
 };
 pub use neural::{
     ENCODER_VERSION, EncodedPosition, GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES,
-    HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, POLICY_CONTEXT_FEATURES, encode_game,
-    encode_position, encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
+    HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, MODEL_FORMAT_VERSION, POLICY_CONTEXT_FEATURES,
+    encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
+    global_batch_tensor,
     model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
     policy_context_batch_tensor,
 };
 #[cfg(feature = "native")]
 pub use neural::{
     checkpoint::{
-        MODEL_FORMAT_VERSION, ModelMetadata, ModelStoreError, load_champion, load_generation,
-        load_training_generation, next_generation, publish_champion, save_generation,
-        save_training_generation, stored_generations,
+        ModelMetadata, ModelStoreError, load_champion, load_generation, load_training_generation,
+        next_generation, publish_champion, save_generation, save_training_generation,
+        stored_generations,
     },
     evaluator::{
         CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend, NetworkEvaluator,

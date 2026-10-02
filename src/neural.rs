@@ -19,6 +19,8 @@ use crate::{
     Position, Square,
 };
 
+/// Schema version of checkpoint directories and their metadata.
+pub const MODEL_FORMAT_VERSION: u16 = 5;
 /// Version stored in checkpoints so incompatible feature layouts are rejected.
 pub const ENCODER_VERSION: u16 = 4;
 /// Number of temporal frames: the current position plus seven predecessors.

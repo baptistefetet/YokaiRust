@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use yokai::{
     Action, AlphaZeroNetwork, AlphaZeroNetworkConfig, AsyncEvaluator, DrawReason, ENCODER_VERSION,
-    Evaluation, EvaluationError, EvaluationRequest, Evaluator, Game, Mcts, Outcome, POLICY_ACTIONS,
-    Piece, Player, RULES_VERSION, SearchConfig, SearchError, Transition, WinReason,
-    encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
+    Evaluation, EvaluationError, EvaluationRequest, Evaluator, Game, MODEL_FORMAT_VERSION, Mcts,
+    Outcome, POLICY_ACTIONS, Piece, Player, RULES_VERSION, SearchConfig, SearchError, Transition,
+    WinReason, encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
     policy_context_batch_tensor,
 };
 
@@ -30,7 +30,6 @@ type WebBackend = Wgpu<f32, i32>;
 #[cfg(all(feature = "flex", not(feature = "webgpu")))]
 type WebBackend = burn::backend::Flex<f32, i32>;
 
-const MODEL_FORMAT_VERSION: u16 = 5;
 const DEFAULT_SEED: u64 = 0x594f_4b41_4957_4542;
 
 #[derive(Debug, Deserialize)]

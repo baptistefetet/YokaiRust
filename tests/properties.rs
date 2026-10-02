@@ -40,6 +40,15 @@ proptest! {
                 prop_assert_eq!(Action::from_policy_index(policy, side_to_move), Some(action));
                 let mirrored = action.mirrored_horizontally();
                 prop_assert_eq!(mirrored.mirrored_horizontally(), action);
+
+                let mut next = game.clone();
+                let transition = next.apply(action).expect("generated action applies");
+                let expected_occurrences = if matches!(transition.outcome, yokai::Outcome::Win { .. }) {
+                    0
+                } else {
+                    1 + game.position_history().iter().filter(|position| *position == next.position()).count() as u8
+                };
+                prop_assert_eq!(game.repetition_count_after(action), Some(expected_occurrences));
             }
 
             let selected = rng.random_range(0..legal_actions.len());

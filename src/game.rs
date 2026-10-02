@@ -625,6 +625,74 @@ impl Position {
         })
     }
 
+    /// Applies a previously checked action without allocating game history.
+    /// The outcome includes decisive wins only; Game adds path-dependent draws.
+    fn after_legal_action(&self, action: Action) -> (Self, Transition) {
+        let mut next = *self;
+        let player = next.side_to_move;
+        let mut captured = None;
+        let mut promoted = false;
+        let mut moved_kind = None;
+
+        match action {
+            Action::Move { from, to } => {
+                let mut piece = next.board[from.index()].expect("legal move has a source piece");
+                moved_kind = Some(piece.kind);
+                if let Some(target) = next.board[to.index()] {
+                    captured = Some(target.kind);
+                    if let Some(hand_piece) = HandPiece::from_captured(target.kind) {
+                        next.hands[player.index()][hand_piece.index()] += 1;
+                    }
+                }
+
+                next.board[from.index()] = None;
+                if piece.kind == PieceKind::Kodama && to.row() == player.goal_row() {
+                    piece.kind = PieceKind::KodamaSamurai;
+                    promoted = true;
+                }
+                next.board[to.index()] = Some(piece);
+            }
+            Action::Drop { piece, to } => {
+                next.hands[player.index()][piece.index()] -= 1;
+                next.board[to.index()] = Some(Piece::new(piece.piece_kind(), player));
+            }
+        }
+
+        next.side_to_move = player.opponent();
+
+        let outcome = if captured == Some(PieceKind::Koropokkuru) {
+            Outcome::Win {
+                player,
+                reason: WinReason::KoropokkuruCaptured,
+            }
+        } else if moved_kind == Some(PieceKind::Koropokkuru)
+            && action.destination().row() == player.goal_row()
+            && !square_is_attacked(&next.board, action.destination(), player.opponent())
+        {
+            Outcome::Win {
+                player,
+                reason: WinReason::KoropokkuruReachedGoal,
+            }
+        } else if !next.has_legal_action() {
+            Outcome::Win {
+                player,
+                reason: WinReason::OpponentHasNoLegalAction,
+            }
+        } else {
+            Outcome::Ongoing
+        };
+        (
+            next,
+            Transition {
+                action,
+                player,
+                captured,
+                promoted,
+                outcome,
+            },
+        )
+    }
+
     fn is_legal_board_move(&self, from: Square, to: Square) -> bool {
         let Some(piece) = self.piece_at(from) else {
             return false;
@@ -794,19 +862,13 @@ impl Game {
         if !self.is_legal_action(action) {
             return None;
         }
-        // Applying on a fresh shell avoids cloning this game's action,
-        // position and repetition histories, at the cost of a few small
-        // allocations per call. This runs for every legal action of every
-        // evaluated leaf, so it is a candidate for a cheaper incremental
-        // implementation if search throughput ever becomes a priority.
-        let mut next = Self::from_position(self.position);
-        let transition = next.apply(action).ok()?;
+        let (next, transition) = self.position.after_legal_action(action);
         if matches!(transition.outcome, Outcome::Win { .. }) {
             Some(0)
         } else {
             Some(
                 self.repetitions
-                    .get(next.position())
+                    .get(&next)
                     .copied()
                     .unwrap_or(0)
                     .saturating_add(1),
@@ -844,85 +906,23 @@ impl Game {
             return Err(MoveError::IllegalAction(action));
         }
 
-        let player = self.position.side_to_move;
-        let mut captured = None;
-        let mut promoted = false;
-        let mut moved_kind = None;
-
-        match action {
-            Action::Move { from, to } => {
-                let Some(mut piece) = self.position.board[from.index()] else {
-                    return Err(MoveError::IllegalAction(action));
-                };
-                moved_kind = Some(piece.kind);
-                if let Some(target) = self.position.board[to.index()] {
-                    captured = Some(target.kind);
-                    if let Some(hand_piece) = HandPiece::from_captured(target.kind) {
-                        self.position.hands[player.index()][hand_piece.index()] += 1;
-                    }
-                }
-
-                self.position.board[from.index()] = None;
-                if piece.kind == PieceKind::Kodama && to.row() == player.goal_row() {
-                    piece.kind = PieceKind::KodamaSamurai;
-                    promoted = true;
-                }
-                self.position.board[to.index()] = Some(piece);
-            }
-            Action::Drop { piece, to } => {
-                self.position.hands[player.index()][piece.index()] -= 1;
-                self.position.board[to.index()] = Some(Piece::new(piece.piece_kind(), player));
-            }
-        }
-
-        self.position.side_to_move = player.opponent();
+        let (position, mut transition) = self.position.after_legal_action(action);
+        self.position = position;
         self.actions.push(action);
-        self.positions.push(self.position);
+        self.positions.push(position);
 
-        // Decisive results take precedence over repetition. In particular, a
-        // captured king must never be converted into a draw merely because the
-        // resulting storage happens to match an earlier position.
-        self.outcome = if captured == Some(PieceKind::Koropokkuru) {
-            Outcome::Win {
-                player,
-                reason: WinReason::KoropokkuruCaptured,
-            }
-        } else if moved_kind == Some(PieceKind::Koropokkuru)
-            && action.destination().row() == player.goal_row()
-            && !square_is_attacked(
-                &self.position.board,
-                action.destination(),
-                player.opponent(),
-            )
-        {
-            Outcome::Win {
-                player,
-                reason: WinReason::KoropokkuruReachedGoal,
-            }
-        } else if !self.position.has_legal_action() {
-            Outcome::Win {
-                player,
-                reason: WinReason::OpponentHasNoLegalAction,
-            }
-        } else {
-            let occurrence = self.repetitions.entry(self.position).or_insert(0);
+        // Decisive wins take precedence over history-dependent repetition.
+        if transition.outcome == Outcome::Ongoing {
+            let occurrence = self.repetitions.entry(position).or_insert(0);
             *occurrence += 1;
             if *occurrence >= 3 {
-                Outcome::Draw {
+                transition.outcome = Outcome::Draw {
                     reason: DrawReason::ThreefoldRepetition,
-                }
-            } else {
-                Outcome::Ongoing
+                };
             }
-        };
-
-        Ok(Transition {
-            action,
-            player,
-            captured,
-            promoted,
-            outcome: self.outcome,
-        })
+        }
+        self.outcome = transition.outcome;
+        Ok(transition)
     }
 }
 

@@ -69,6 +69,12 @@ behind shared ownership.
 is path-dependent. A simulation clones a `Game`, applies actions to the clone,
 and leaves the caller unchanged.
 
+The private `Position::after_legal_action` transition copies just the board and
+hands, then computes captures, promotion and decisive wins. Both `Game::apply`
+and the repetition preview call it after checking legality. Only `Game` consults
+the earlier positions to detect a draw. Previewing a move therefore needs no
+temporary history or repetition map, and the movement rules live in one place.
+
 Large neural models are moved into an `InferenceService`. Worker games only
 clone an `InferenceClient`, a small handle used to send prediction requests to
 the service. Cloning a client does not clone the network.
@@ -225,3 +231,6 @@ uniform leaf evaluation. The perft case counts legal move sequences reaching
 exactly six plies, including the normal repetition rules; games ending earlier
 contribute zero. Compare release measurements on the same otherwise idle machine
 and keep the compiler version, command and output with the result.
+
+The [engine performance measurements](performance-results.md) record the
+baseline and the effect of sharing the position transition.

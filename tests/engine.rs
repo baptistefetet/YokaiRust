@@ -39,6 +39,29 @@ fn initial_position_matches_the_official_setup() {
 }
 
 #[test]
+fn initial_game_has_the_reference_number_of_six_ply_continuations() {
+    fn count_continuations(game: &Game, depth: u8) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+        game.legal_actions()
+            .into_iter()
+            .map(|action| {
+                let mut next = game.clone();
+                next.apply(action).unwrap();
+                count_continuations(&next, depth - 1)
+            })
+            .sum()
+    }
+
+    // Frozen before extracting the position transition. Early wins contribute
+    // no continuations, while games reaching exactly six plies contribute one.
+    for player in [Player::First, Player::Second] {
+        assert_eq!(count_continuations(&Game::new(player), 6), 21_323);
+    }
+}
+
+#[test]
 fn material_limits_combine_the_board_and_both_players_hands() {
     for kind in [
         PieceKind::Tanuki,

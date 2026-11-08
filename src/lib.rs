@@ -36,6 +36,7 @@ pub use neural::{
     ENCODER_VERSION, EncodedPosition, GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES,
     HISTORY_LENGTH, HISTORY_POSITIONS, INPUT_PLANES, MODEL_FORMAT_VERSION, POLICY_CONTEXT_FEATURES,
     encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
+    evaluator::NetworkEvaluator,
     global_batch_tensor,
     model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
     policy_context_batch_tensor,
@@ -47,9 +48,7 @@ pub use neural::{
         next_generation, publish_champion, save_generation, save_training_generation,
         stored_generations,
     },
-    evaluator::{
-        CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend, NetworkEvaluator,
-    },
+    evaluator::{CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend},
     service::{InferenceClient, InferenceService, InferenceServiceError, InferenceStats},
 };
 pub use policy::{POLICY_ACTIONS, PolicyIndex};

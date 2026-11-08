@@ -270,7 +270,7 @@ pub struct Mcts<E> {
     root_noise_applied: bool,
 }
 
-impl<E: Evaluator> Mcts<E> {
+impl<E> Mcts<E> {
     /// Creates a deterministic search instance.
     ///
     /// # Errors
@@ -340,80 +340,6 @@ impl<E: Evaluator> Mcts<E> {
         self.root_history.push(*game.position());
         self.root_noise_applied = false;
         true
-    }
-
-    /// Runs PUCT simulations and returns the choice plus per-action diagnostics.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SearchError`] for terminal games, invalid temperature,
-    /// evaluator failures, or an inconsistent reused tree.
-    pub fn search(&mut self, game: &Game, temperature: f32) -> Result<SearchResult, SearchError> {
-        self.search_internal(game, temperature, false)
-    }
-
-    /// Runs a self-play search. This is the only entry point that injects
-    /// Dirichlet noise into root priors.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`Self::search`].
-    pub fn search_self_play(
-        &mut self,
-        game: &Game,
-        temperature: f32,
-    ) -> Result<SearchResult, SearchError> {
-        self.search_internal(game, temperature, true)
-    }
-
-    fn search_internal(
-        &mut self,
-        game: &Game,
-        temperature: f32,
-        add_root_noise: bool,
-    ) -> Result<SearchResult, SearchError> {
-        ensure_searchable(game, temperature)?;
-
-        let add_root_noise =
-            add_root_noise && matches!(self.config.leaf_evaluation, LeafEvaluation::Evaluator);
-        self.synchronize_root(game);
-        if add_root_noise && self.arena[self.root].expanded && !self.root_noise_applied {
-            self.apply_root_noise()?;
-        }
-        let mut remaining = self.config.simulations;
-        while remaining > 0 {
-            let requested = usize::try_from(remaining)
-                .unwrap_or(usize::MAX)
-                .min(self.config.evaluation_batch_size);
-            let completed = self.run_simulation_batch(game, requested, add_root_noise)?;
-            if completed == 0 {
-                return Err(SearchError::InvalidConfiguration(
-                    "batched search could not schedule a simulation",
-                ));
-            }
-            remaining = remaining.saturating_sub(u32::try_from(completed).unwrap_or(u32::MAX));
-        }
-        self.build_result(game.position().side_to_move(), temperature)
-    }
-
-    fn run_simulation_batch(
-        &mut self,
-        root_game: &Game,
-        requested: usize,
-        add_root_noise: bool,
-    ) -> Result<usize, SearchError> {
-        let (pending, mut completed) = self.collect_pending(root_game, requested)?;
-        if pending.is_empty() {
-            return Ok(completed);
-        }
-        if let LeafEvaluation::RandomRollout { max_plies } = self.config.leaf_evaluation {
-            completed += self.finish_rollouts(pending, max_plies)?;
-            return Ok(completed);
-        }
-        let requests = evaluation_requests(&pending);
-        let evaluations = self.evaluator.evaluate_batch(&requests);
-        completed += self.integrate_evaluations(pending, evaluations, add_root_noise)?;
-        Ok(completed)
     }
 
     /// Descends up to `requested` simulations, finishing terminal ones
@@ -841,8 +767,84 @@ impl<E: Evaluator> Mcts<E> {
     }
 }
 
-impl<E: Evaluator + AsyncEvaluator> Mcts<E> {
-    /// Runs the same deterministic PUCT search as [`Self::search`] while
+impl<E: Evaluator> Mcts<E> {
+    /// Runs PUCT simulations and returns the choice plus per-action diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SearchError`] for terminal games, invalid temperature,
+    /// evaluator failures, or an inconsistent reused tree.
+    pub fn search(&mut self, game: &Game, temperature: f32) -> Result<SearchResult, SearchError> {
+        self.search_internal(game, temperature, false)
+    }
+
+    /// Runs a self-play search. This is the only entry point that injects
+    /// Dirichlet noise into root priors.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::search`].
+    pub fn search_self_play(
+        &mut self,
+        game: &Game,
+        temperature: f32,
+    ) -> Result<SearchResult, SearchError> {
+        self.search_internal(game, temperature, true)
+    }
+
+    fn search_internal(
+        &mut self,
+        game: &Game,
+        temperature: f32,
+        add_root_noise: bool,
+    ) -> Result<SearchResult, SearchError> {
+        ensure_searchable(game, temperature)?;
+
+        let add_root_noise =
+            add_root_noise && matches!(self.config.leaf_evaluation, LeafEvaluation::Evaluator);
+        self.synchronize_root(game);
+        if add_root_noise && self.arena[self.root].expanded && !self.root_noise_applied {
+            self.apply_root_noise()?;
+        }
+        let mut remaining = self.config.simulations;
+        while remaining > 0 {
+            let requested = usize::try_from(remaining)
+                .unwrap_or(usize::MAX)
+                .min(self.config.evaluation_batch_size);
+            let completed = self.run_simulation_batch(game, requested, add_root_noise)?;
+            if completed == 0 {
+                return Err(SearchError::InvalidConfiguration(
+                    "batched search could not schedule a simulation",
+                ));
+            }
+            remaining = remaining.saturating_sub(u32::try_from(completed).unwrap_or(u32::MAX));
+        }
+        self.build_result(game.position().side_to_move(), temperature)
+    }
+
+    fn run_simulation_batch(
+        &mut self,
+        root_game: &Game,
+        requested: usize,
+        add_root_noise: bool,
+    ) -> Result<usize, SearchError> {
+        let (pending, mut completed) = self.collect_pending(root_game, requested)?;
+        if pending.is_empty() {
+            return Ok(completed);
+        }
+        if let LeafEvaluation::RandomRollout { max_plies } = self.config.leaf_evaluation {
+            completed += self.finish_rollouts(pending, max_plies)?;
+            return Ok(completed);
+        }
+        let requests = evaluation_requests(&pending);
+        let evaluations = self.evaluator.evaluate_batch(&requests);
+        completed += self.integrate_evaluations(pending, evaluations, add_root_noise)?;
+        Ok(completed)
+    }
+}
+
+impl<E: AsyncEvaluator> Mcts<E> {
+    /// Runs the same deterministic PUCT search as the synchronous entry point while
     /// awaiting evaluator batches. This is intended for WebGPU and other
     /// browser backends whose tensor readback cannot be synchronous.
     ///

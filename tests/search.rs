@@ -24,15 +24,6 @@ struct CertainDrawEvaluator;
 #[derive(Clone, Copy, Debug)]
 struct AsyncUniformEvaluator;
 
-impl Evaluator for AsyncUniformEvaluator {
-    fn evaluate_batch(
-        &mut self,
-        requests: &[EvaluationRequest],
-    ) -> Result<Vec<Evaluation>, EvaluationError> {
-        Ok(vec![Evaluation::uniform(0.0); requests.len()])
-    }
-}
-
 impl AsyncEvaluator for AsyncUniformEvaluator {
     async fn evaluate_batch_async(
         &mut self,
@@ -139,7 +130,7 @@ fn asynchronous_search_matches_the_synchronous_algorithm() {
         ..SearchConfig::default()
     };
     let mut synchronous =
-        Mcts::new(AsyncUniformEvaluator, config, 91).expect("valid synchronous search");
+        Mcts::new(UniformEvaluator, config, 91).expect("valid synchronous search");
     let mut asynchronous =
         Mcts::new(AsyncUniformEvaluator, config, 91).expect("valid asynchronous search");
 

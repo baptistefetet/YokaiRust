@@ -6,7 +6,6 @@
 
 #[cfg(feature = "native")]
 pub mod checkpoint;
-#[cfg(feature = "native")]
 pub mod evaluator;
 pub mod model;
 #[cfg(feature = "native")]

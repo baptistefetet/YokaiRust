@@ -1,30 +1,40 @@
-//! Batched bridge between the Burn network and tree search.
+//! Shared inference for native and browser search; only device readback differs.
 
 use burn::{
-    backend::{Autodiff, Flex, Metal},
-    prelude::Backend,
+    prelude::{Backend, Tensor, TensorData},
     tensor::activation::softmax,
 };
 
 use crate::{
-    Evaluation, EvaluationError, EvaluationRequest, Evaluator, POLICY_ACTIONS,
+    AsyncEvaluator, Evaluation, EvaluationError, EvaluationRequest, POLICY_ACTIONS,
     neural::{
         encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
         model::AlphaZeroNetwork, policy_context_batch_tensor,
     },
 };
 
+#[cfg(feature = "native")]
+use crate::Evaluator;
+#[cfg(feature = "native")]
+use burn::backend::{Autodiff, Flex, Metal};
+
 /// Portable CPU backend used by tests and machines without Metal.
+#[cfg(feature = "native")]
 pub type CpuBackend = Flex<f32, i32>;
 /// Apple GPU backend used for fast inference and local training.
+#[cfg(feature = "native")]
 pub type MetalBackend = Metal<f32, i32>;
 /// CPU backend augmented with automatic differentiation for training.
+#[cfg(feature = "native")]
 pub type CpuTrainingBackend = Autodiff<CpuBackend>;
 /// Metal backend augmented with automatic differentiation for training.
+#[cfg(feature = "native")]
 pub type MetalTrainingBackend = Autodiff<MetalBackend>;
 
-/// Synchronous batch evaluator. Policy and value are concatenated before the
-/// device readback so each batch requires a single GPU synchronization.
+/// Batched policy/WDL inference with one device readback for both heads.
+///
+/// Native callers use [`crate::Evaluator`]; browsers use [`AsyncEvaluator`] to
+/// await the device without blocking. Both paths share the same transformations.
 pub struct NetworkEvaluator<B: Backend> {
     model: AlphaZeroNetwork<B>,
     device: B::Device,
@@ -48,17 +58,8 @@ impl<B: Backend> NetworkEvaluator<B> {
     pub const fn device(&self) -> &B::Device {
         &self.device
     }
-}
 
-impl<B: Backend> Evaluator for NetworkEvaluator<B> {
-    fn evaluate_batch(
-        &mut self,
-        requests: &[EvaluationRequest],
-    ) -> Result<Vec<Evaluation>, EvaluationError> {
-        if requests.is_empty() {
-            return Ok(Vec::new());
-        }
-
+    fn predictions(&self, requests: &[EvaluationRequest]) -> Tensor<B, 2> {
         let encoded = requests
             .iter()
             .map(|request| {
@@ -79,39 +80,73 @@ impl<B: Backend> Evaluator for NetworkEvaluator<B> {
             global_batch_tensor(&encoded, &self.device),
             policy_context_batch_tensor(&policy_contexts, &self.device),
         );
-        let output_width = POLICY_ACTIONS + 3;
         // Concatenating before `into_data` performs one device-to-host transfer
         // for both heads. GPU synchronization is expensive relative to this
         // tiny network, so avoiding a second readback materially helps MCTS.
-        let predictions = burn::tensor::Tensor::cat(
+        Tensor::cat(
             vec![
                 softmax(output.policy_logits, 1),
                 softmax(output.wdl_logits, 1),
             ],
             1,
         )
-        .into_data()
+    }
+}
+
+#[cfg(feature = "native")]
+impl<B: Backend> Evaluator for NetworkEvaluator<B> {
+    fn evaluate_batch(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+        decode_predictions(self.predictions(requests).into_data(), requests.len())
+    }
+}
+
+impl<B: Backend> AsyncEvaluator for NetworkEvaluator<B> {
+    async fn evaluate_batch_async(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+        let data = self
+            .predictions(requests)
+            .into_data_async()
+            .await
+            .map_err(|error| EvaluationError::Backend(error.to_string()))?;
+        decode_predictions(data, requests.len())
+    }
+}
+
+fn decode_predictions(
+    data: TensorData,
+    expected: usize,
+) -> Result<Vec<Evaluation>, EvaluationError> {
+    let predictions = data
         .to_vec::<f32>()
         .map_err(|error| EvaluationError::Backend(error.to_string()))?;
-
-        if predictions.len() != requests.len() * output_width {
-            return Err(EvaluationError::BatchSizeMismatch {
-                expected: requests.len(),
-                actual: predictions.len() / output_width,
-            });
-        }
-
-        predictions
-            .chunks_exact(output_width)
-            .map(|prediction| {
-                let policy = prediction[..POLICY_ACTIONS].try_into().map_err(|_| {
-                    EvaluationError::Backend("invalid policy tensor width".to_owned())
-                })?;
-                let wdl = prediction[POLICY_ACTIONS..]
-                    .try_into()
-                    .map_err(|_| EvaluationError::Backend("invalid WDL tensor width".to_owned()))?;
-                Ok(Evaluation::from_wdl(policy, wdl))
-            })
-            .collect()
+    let output_width = POLICY_ACTIONS + 3;
+    if predictions.len() != expected * output_width {
+        return Err(EvaluationError::BatchSizeMismatch {
+            expected,
+            actual: predictions.len() / output_width,
+        });
     }
+    predictions
+        .chunks_exact(output_width)
+        .map(|prediction| {
+            let policy = prediction[..POLICY_ACTIONS]
+                .try_into()
+                .map_err(|_| EvaluationError::Backend("invalid policy tensor width".to_owned()))?;
+            let wdl = prediction[POLICY_ACTIONS..]
+                .try_into()
+                .map_err(|_| EvaluationError::Backend("invalid WDL tensor width".to_owned()))?;
+            Ok(Evaluation::from_wdl(policy, wdl))
+        })
+        .collect()
 }

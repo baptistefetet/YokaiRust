@@ -11,15 +11,15 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, BOARD_SQUARES, CpuBackend, Evaluation,
-    EvaluationError, EvaluationRequest, Evaluator, GLOBAL_FEATURES_PER_FRAME,
-    GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece, INPUT_PLANES, InferenceService,
-    MetalBackend, MetalTrainingBackend, ModelMetadata, ModelStoreError, NetworkEvaluator,
-    POLICY_ACTIONS, Piece, PieceKind, Player, Position, Square, TrainingConfig, TrainingExample,
-    encode_position, encode_position_with_history, encoded_batch_tensor, global_batch_tensor,
-    load_champion, load_generation, load_training_generation, policy_context_batch_tensor,
-    publish_champion, save_generation, save_training_generation, stored_generations,
-    train_state_with_progress,
+    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, AsyncEvaluator, BOARD_SQUARES,
+    CpuBackend, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
+    GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece,
+    INPUT_PLANES, InferenceService, MetalBackend, MetalTrainingBackend, ModelMetadata,
+    ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece, PieceKind, Player, Position, Square,
+    TrainingConfig, TrainingExample, encode_position, encode_position_with_history,
+    encoded_batch_tensor, global_batch_tensor, load_champion, load_generation,
+    load_training_generation, policy_context_batch_tensor, publish_champion, save_generation,
+    save_training_generation, stored_generations, train_state_with_progress,
 };
 
 fn square(row: u8, column: u8) -> Square {
@@ -262,11 +262,24 @@ fn cpu_network_evaluator_batches_normalized_predictions() {
         .init::<CpuBackend>(&device);
     let mut evaluator = NetworkEvaluator::new(model, device);
     let first = EvaluationRequest::from_game(&Game::new(Player::First));
-    let second = EvaluationRequest::from_game(&Game::new(Player::Second));
+    let mut game = Game::new(Player::First);
+    game.apply("b2-b3".parse().unwrap()).unwrap();
+    let second = EvaluationRequest::from_game(&game);
 
     let evaluations = evaluator
         .evaluate_batch(&[first, second])
         .expect("CPU inference must succeed");
+
+    let asynchronous =
+        futures_lite::future::block_on(evaluator.evaluate_batch_async(&[first, second]))
+            .expect("asynchronous CPU inference must succeed");
+    assert_eq!(asynchronous, evaluations);
+    assert!(evaluator.evaluate_batch(&[]).unwrap().is_empty());
+    assert!(
+        futures_lite::future::block_on(evaluator.evaluate_batch_async(&[]))
+            .unwrap()
+            .is_empty()
+    );
 
     assert_eq!(evaluations.len(), 2);
     for evaluation in evaluations {

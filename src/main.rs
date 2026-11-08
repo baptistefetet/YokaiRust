@@ -28,7 +28,7 @@ use yokai::{
 
 fn main() -> ExitCode {
     // Rust programs may return `ExitCode` from `main`. Converting every typed
-    // error at this outer boundary keeps lower layers testable and panic-free.
+    // error at this outer boundary keeps presentation out of the library.
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -437,32 +437,17 @@ fn print_training_progress(started: Instant, event: &TrainingProgress) {
             report,
         } => {
             eprintln!(
-                "[{elapsed}] step {}/{}: train policy={:.4} WDL={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} illegal={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                "[{elapsed}] step {}/{}: train {}",
                 report.step,
                 total_steps,
-                report.training.policy_loss,
-                report.training.value_loss,
-                report.training.scalar_value_loss,
-                report.training.mean_policy_weight,
-                report.training.policy_entropy,
-                report.training.illegal_policy_mass,
-                report.training.policy_top1_accuracy,
-                report.training.wdl_top1_accuracy,
-                report.training.draw_probability_error,
+                format_loss_metrics(&report.training),
             );
             if let Some(validation) = report.validation {
                 eprintln!(
-                    "[{elapsed}] step {}/{}: valid policy={:.4} WDL={:.4} scalar_MSE={:.4} policy_weight={:.3} value_calibration={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+                    "[{elapsed}] step {}/{}: valid {}",
                     report.step,
                     total_steps,
-                    validation.policy_loss,
-                    validation.value_loss,
-                    validation.scalar_value_loss,
-                    validation.mean_policy_weight,
-                    validation.value_calibration_error,
-                    validation.policy_top1_accuracy,
-                    validation.wdl_top1_accuracy,
-                    validation.draw_probability_error,
+                    format_loss_metrics(&validation),
                 );
             }
         }
@@ -584,6 +569,22 @@ fn percentage(completed: usize, total: usize) -> f64 {
     100.0 * completed as f64 / total as f64
 }
 
+fn format_loss_metrics(metrics: &yokai::LossMetrics) -> String {
+    format!(
+        "policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+        metrics.policy_loss,
+        metrics.wdl_loss,
+        metrics.scalar_value_loss,
+        metrics.mean_policy_weight,
+        metrics.policy_entropy,
+        metrics.value_calibration_error,
+        metrics.illegal_policy_mass,
+        metrics.policy_top1_accuracy,
+        metrics.wdl_top1_accuracy,
+        metrics.draw_probability_error,
+    )
+}
+
 fn print_generation_report(report: &yokai::GenerationReport) {
     println!(
         "generation={} source_champion={} self_play_evaluator={:?} promoted={} games={} restarted_games={} restart_archive={} restart_ply={:?}-{:?} mean_restart_ply={:.1} buffer_examples={} terminal_window={:?} terminal_extra_examples={} terminal_oversampling={}",
@@ -607,33 +608,9 @@ fn print_generation_report(report: &yokai::GenerationReport) {
             "training metrics at step={} learning_rate={:.6}",
             checkpoint.step, report.training.learning_rate
         );
-        println!(
-            "train policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
-            checkpoint.training.policy_loss,
-            checkpoint.training.value_loss,
-            checkpoint.training.scalar_value_loss,
-            checkpoint.training.mean_policy_weight,
-            checkpoint.training.policy_entropy,
-            checkpoint.training.value_calibration_error,
-            checkpoint.training.illegal_policy_mass,
-            checkpoint.training.policy_top1_accuracy,
-            checkpoint.training.wdl_top1_accuracy,
-            checkpoint.training.draw_probability_error,
-        );
+        println!("train {}", format_loss_metrics(&checkpoint.training));
         if let Some(validation) = checkpoint.validation {
-            println!(
-                "valid policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
-                validation.policy_loss,
-                validation.value_loss,
-                validation.scalar_value_loss,
-                validation.mean_policy_weight,
-                validation.policy_entropy,
-                validation.value_calibration_error,
-                validation.illegal_policy_mass,
-                validation.policy_top1_accuracy,
-                validation.wdl_top1_accuracy,
-                validation.draw_probability_error,
-            );
+            println!("valid {}", format_loss_metrics(&validation));
         }
     }
     let initial = report.initial_self_play_outcomes;
@@ -661,7 +638,7 @@ fn print_generation_report(report: &yokai::GenerationReport) {
     );
     print_arena_seats("summary", &report.arena);
     let outcomes = report.candidate_self_play;
-    let games = outcomes.first_wins + outcomes.second_wins + outcomes.draws;
+    let games = outcomes.games();
     println!(
         "candidate exploratory draws={}/{} ({:.1}%)",
         outcomes.draws,

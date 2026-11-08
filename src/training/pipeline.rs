@@ -58,7 +58,17 @@ pub struct GameOutcomeStats {
     pub unclassified_wins: usize,
 }
 
+impl GameOutcomeStats {
+    /// Total completed games counted once by their official outcome.
+    #[must_use]
+    pub const fn games(self) -> usize {
+        self.first_wins + self.second_wins + self.draws
+    }
+}
+
 /// Persisted audit trail for every phase of one candidate attempt.
+/// All fields describe current reports; Serde defaults also allow reading older
+/// reports from before a metric was introduced.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GenerationReport {
     /// Accepted checkpoint used as the official arena reference and as the
@@ -431,7 +441,7 @@ where
         outcome_stats(games.iter().filter(|game| game.restart_ply == 0));
     let restarted_self_play_outcomes =
         outcome_stats(games.iter().filter(|game| game.restart_ply > 0));
-    let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+    let restarted_games = restarted_game_count(&games);
     let (restart_ply_min, restart_ply_max, mean_restart_ply) = restart_ply_stats(&games);
     let generated_dataset_diagnostics = dataset_diagnostics(&games);
     let dataset = prepare_dataset(config, buffer, &games, candidate_generation, progress)?;
@@ -507,7 +517,7 @@ where
     }
     if let Some(games) = persisted_games {
         let examples = games.iter().map(|game| game.examples.len()).sum();
-        let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+        let restarted_games = restarted_game_count(&games);
         progress(TrainingProgress::SelfPlayResumed {
             evaluator: self_play_evaluator,
             games: games.len(),
@@ -584,7 +594,7 @@ where
     };
     let outcomes = outcome_stats(&games);
     let examples = games.iter().map(|game| game.examples.len()).sum();
-    let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+    let restarted_games = restarted_game_count(&games);
     progress(TrainingProgress::SelfPlayFinished {
         evaluator: self_play_evaluator,
         games: games.len(),
@@ -957,10 +967,9 @@ fn promotion_decision(
     exploratory: GameOutcomeStats,
     config: &TrainingConfig,
 ) -> PromotionDecision {
-    let exploratory_games = exploratory.first_wins + exploratory.second_wins + exploratory.draws;
     PromotionDecision {
         arena_passed: arena.threshold_reached && arena.statistically_significant(),
-        exploratory_draw_gate_passed: ratio(exploratory.draws, exploratory_games)
+        exploratory_draw_gate_passed: ratio(exploratory.draws, exploratory.games())
             <= config.arena.max_candidate_self_play_draw_rate,
     }
 }
@@ -980,7 +989,6 @@ where
         candidate,
         reference,
         &config.arena,
-        config.arena.workers,
         config.self_play.max_game_plies,
         config
             .seed
@@ -1195,6 +1203,10 @@ fn temporary_path(path: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("training-data");
     path.with_file_name(format!(".{name}-{}.tmp", std::process::id()))
+}
+
+fn restarted_game_count(games: &[SelfPlayGame]) -> usize {
+    games.iter().filter(|game| game.restart_ply > 0).count()
 }
 
 fn outcome_stats<'a>(games: impl IntoIterator<Item = &'a SelfPlayGame>) -> GameOutcomeStats {

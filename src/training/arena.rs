@@ -112,7 +112,6 @@ pub fn run_arena<C, H>(
     candidate: &C,
     reference: &H,
     config: &ArenaConfig,
-    workers: usize,
     max_game_plies: usize,
     base_seed: u64,
 ) -> Result<ArenaResult, ArenaError>
@@ -124,7 +123,6 @@ where
         candidate,
         reference,
         config,
-        workers,
         max_game_plies,
         base_seed,
         &|_| {},
@@ -138,12 +136,10 @@ where
 /// # Errors
 ///
 /// Returns [`ArenaError`] if a worker, search, move, or safety limit fails.
-#[allow(clippy::too_many_arguments)]
 pub fn run_arena_with_progress<C, H, F>(
     candidate: &C,
     reference: &H,
     config: &ArenaConfig,
-    workers: usize,
     max_game_plies: usize,
     base_seed: u64,
     progress: &F,
@@ -153,11 +149,11 @@ where
     H: Evaluator + Clone + Send + Sync,
     F: Fn(ArenaProgress) + Sync,
 {
-    if workers == 0 || config.games == 0 || !config.games.is_multiple_of(2) {
+    if config.workers == 0 || config.games == 0 || !config.games.is_multiple_of(2) {
         return Err(ArenaError::InvalidConfiguration);
     }
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(workers)
+        .num_threads(config.workers)
         .thread_name(|index| format!("yokai-arena-{index}"))
         .build()?;
     let running = Mutex::new(ArenaProgress {

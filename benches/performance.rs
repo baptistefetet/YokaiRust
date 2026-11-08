@@ -166,7 +166,6 @@ fn benchmark_metal_default_arena() {
             candidate_self_play_games: 64,
             max_candidate_self_play_draw_rate: 0.20,
         },
-        128,
         512,
         9_000,
     )
@@ -251,7 +250,6 @@ fn compare_saved_generations_from_environment() {
         &candidate.client(),
         &reference.client(),
         &config,
-        config.workers,
         512,
         30_000,
     )

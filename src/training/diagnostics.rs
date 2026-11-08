@@ -105,7 +105,7 @@ impl EndgameDistanceMetrics {
             examples,
             policy_loss: metrics.policy_loss,
             policy_top1_accuracy: metrics.policy_top1_accuracy,
-            wdl_loss: metrics.value_loss,
+            wdl_loss: metrics.wdl_loss,
             wdl_top1_accuracy: metrics.wdl_top1_accuracy,
             scalar_value_loss: metrics.scalar_value_loss,
         }

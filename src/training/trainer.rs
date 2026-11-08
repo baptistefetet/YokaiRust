@@ -30,7 +30,9 @@ pub struct LossMetrics {
     /// Cross-entropy between network policy and MCTS visit target.
     pub policy_loss: f32,
     /// Cross-entropy between WDL logits and official result class.
-    pub value_loss: f32,
+    /// Serialized as `value_loss` to retain the existing report format.
+    #[serde(rename = "value_loss")]
+    pub wdl_loss: f32,
     /// Unweighted MSE between `P(win) - P(loss)` and the scalar result.
     #[serde(default)]
     pub scalar_value_loss: f32,
@@ -418,7 +420,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
     // WDL means Win / Draw / Loss. Unlike policy loss, every official outcome
     // remains fully weighted, including draws.
     let wdl_log_probabilities = log_softmax(output.wdl_logits.clone(), 1);
-    let value_loss = (wdl_log_probabilities * batch.wdl.clone())
+    let wdl_loss = (wdl_log_probabilities * batch.wdl.clone())
         .sum_dim(1)
         .mean()
         .neg();
@@ -428,7 +430,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
     let value_error = predicted_value - batch.value;
     let scalar_value_loss = (value_error.clone() * value_error.clone()).mean();
     let total = policy_loss.clone()
-        + value_loss.clone()
+        + wdl_loss.clone()
         + scalar_value_loss.clone() * scalar_value_loss_weight;
     let entropy = (probabilities.clone() * log_probabilities)
         .sum_dim(1)
@@ -457,7 +459,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
         vec![
             total.clone().detach(),
             policy_loss.detach(),
-            value_loss.detach(),
+            wdl_loss.detach(),
             scalar_value_loss.detach(),
             entropy.detach(),
             calibration.detach(),
@@ -482,7 +484,7 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
     LossMetrics {
         total_loss: values[0],
         policy_loss: values[1],
-        value_loss: values[2],
+        wdl_loss: values[2],
         scalar_value_loss: values[3],
         policy_entropy: values[4],
         value_calibration_error: values[5],
@@ -545,7 +547,7 @@ impl MetricAccumulator {
         // Reconstruct the policy numerator with its own denominator. WDL and
         // the other metrics still give every example equal weight.
         self.weighted.policy_loss += metrics.policy_loss * metrics.mean_policy_weight * weight;
-        self.weighted.value_loss += metrics.value_loss * weight;
+        self.weighted.wdl_loss += metrics.wdl_loss * weight;
         self.weighted.scalar_value_loss += metrics.scalar_value_loss * weight;
         self.weighted.policy_entropy += metrics.policy_entropy * weight;
         self.weighted.value_calibration_error += metrics.value_calibration_error * weight;
@@ -567,12 +569,12 @@ impl MetricAccumulator {
         } else {
             0.0
         };
-        let value_loss = self.weighted.value_loss / divisor;
+        let wdl_loss = self.weighted.wdl_loss / divisor;
         let scalar_value_loss = self.weighted.scalar_value_loss / divisor;
         LossMetrics {
-            total_loss: policy_loss + value_loss + scalar_value_loss_weight * scalar_value_loss,
+            total_loss: policy_loss + wdl_loss + scalar_value_loss_weight * scalar_value_loss,
             policy_loss,
-            value_loss,
+            wdl_loss,
             scalar_value_loss,
             policy_entropy: self.weighted.policy_entropy / divisor,
             value_calibration_error: self.weighted.value_calibration_error / divisor,

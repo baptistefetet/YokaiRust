@@ -854,6 +854,22 @@ fn config_validation_rejects_out_of_range_values() {
 }
 
 #[test]
+fn wdl_metric_keeps_the_existing_report_key() {
+    let metrics = yokai::LossMetrics {
+        wdl_loss: 0.75,
+        scalar_value_loss: 0.25,
+        ..yokai::LossMetrics::default()
+    };
+    let json = serde_json::to_value(metrics).unwrap();
+    assert_eq!(json["value_loss"], 0.75);
+    assert!(json.get("wdl_loss").is_none());
+    assert_eq!(
+        serde_json::from_value::<yokai::LossMetrics>(json).unwrap(),
+        metrics
+    );
+}
+
+#[test]
 fn promotion_requires_both_the_arena_and_the_exploratory_gate() {
     let productive_candidate = PromotionDecision {
         arena_passed: true,
@@ -1006,7 +1022,7 @@ fn tiny_cpu_corpus_overfits_above_ninety_five_percent_top1() {
         load_generation::<CpuBackend>(&root, 1, &device).expect("trained model reload");
     let reloaded_metrics = validate_model(&reloaded, &examples, 2, &device);
     assert!((reloaded_metrics.policy_loss - final_metrics.policy_loss).abs() < f32::EPSILON);
-    assert!((reloaded_metrics.value_loss - final_metrics.value_loss).abs() < f32::EPSILON);
+    assert!((reloaded_metrics.wdl_loss - final_metrics.wdl_loss).abs() < f32::EPSILON);
     fs::remove_dir_all(root).expect("trained checkpoint cleanup");
 }
 
@@ -1048,7 +1064,7 @@ fn weighted_validation_is_independent_of_batch_boundaries_and_order() {
     }
     let omitted = yokai::validate_model_with_policy_weight(&model, &[non_starter], 1, 0.0, &device);
     assert_eq!(omitted.policy_loss, 0.0);
-    assert!(omitted.value_loss.is_finite() && omitted.value_loss > 0.0);
+    assert!(omitted.wdl_loss.is_finite() && omitted.wdl_loss > 0.0);
 }
 
 #[test]
@@ -1129,7 +1145,6 @@ fn paired_arena_scores_identical_evaluators_at_one_half() {
             candidate_self_play_games: 2,
             max_candidate_self_play_draw_rate: 1.0,
         },
-        2,
         256,
         900,
     )
@@ -1165,7 +1180,6 @@ fn arena_progress_reports_consistent_running_outcomes() {
             candidate_self_play_games: 2,
             max_candidate_self_play_draw_rate: 1.0,
         },
-        2,
         256,
         901,
         &move |progress| {
@@ -1251,7 +1265,7 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
         .and_then(|checkpoint| checkpoint.validation)
         .expect("short generation validation metrics");
     let expected_total = selected_validation.policy_loss
-        + selected_validation.value_loss
+        + selected_validation.wdl_loss
         + config.optimization.scalar_value_loss_weight * selected_validation.scalar_value_loss;
     assert!((selected_validation.total_loss - expected_total).abs() < 1.0e-5);
     assert_eq!(

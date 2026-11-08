@@ -5,6 +5,9 @@ simplifying shared code. The [reading guide](reading-guide.md) describes the
 implementation; [training results](training-results.md) retain measurement
 provenance and checkpoint identities. The expert game is a later project.
 
+The web interface stays dedicated to playing. Diagnostic tools belong in the
+TUI; they are a separate task from the current cleanup.
+
 ## Completed cleanup
 
 - MCTS checks the complete parent history before reusing a subtree. Different
@@ -19,32 +22,20 @@ provenance and checkpoint identities. The expert game is a later project.
 - Board-move enumeration and the early-exit legality check use one traversal;
   attack detection and move validation share movement geometry.
 - CI checks native code and both mutually exclusive WASM backends separately.
+- Generation orchestration delegates self-play, dataset preparation, candidate
+  training/recovery and evaluation to private phase helpers. Journal and
+  publication order remain explicit, and recovery preserves saved data and weights.
 
 These refactorings do not change the network architecture, targets or artifact
 versions. A fresh training run is not required to use them. Existing checkpoints
 and experiment reports remain useful and are retained.
 
-## 1. Make observed moves reproducible
+## 1. Continue cleanup where it removes a concrete burden
 
-A player reported the AI passing up an apparent immediate king capture. Without
-the full game history, this does not establish a rules, search or network bug.
-
-Use the existing `Replay` format to export games and inspect a chosen ply.
-Technical diagnostics should include the checkpoint identity, search settings,
-seed and backend, alongside legal actions, network predictions and MCTS visits.
-Preserve history because repetition affects both rules and neural input.
-
-**Done when:** an exported game can reproduce the suspicious turn and explain
-whether the capture was legal and why another move received more visits.
-Winning sooner is not currently a separate search or training objective.
-
-## 2. Continue cleanup where it removes a concrete burden
-
-The generation pipeline still combines phase orchestration with dataset
-preparation, candidate recovery and persistence. Extract small phase helpers
-when they clarify these responsibilities, preserving the recovery tests.
-Browser transport and scene rendering can likewise be separated when their
-lifecycle or error handling needs work.
+The generation phases are now separated. Further extraction should address a
+specific responsibility or measured cost. Browser transport and scene rendering
+can likewise be separated when their lifecycle or error handling needs work,
+while keeping the web interface focused on playing.
 
 Measure replay-buffer memory and I/O before changing its representation. Dataset
 splits and augmentation currently clone examples; generation files and the
@@ -54,7 +45,7 @@ restart prefixes, family identities and per-game retention.
 **Done when:** a specific responsibility is easier to follow or a measured cost
 is reduced, without adding a parallel implementation or changing play.
 
-## 3. Strengthen publication durability
+## 2. Strengthen publication durability
 
 Temporary files followed by rename protect against interrupted writes, but the
 complete publication sequence does not explicitly synchronize files and parent
@@ -64,7 +55,12 @@ before the accepted `latest` pointer, then verify recovery at each boundary.
 **Done when:** interruption and durability guarantees are documented and tested.
 Checkpoint history must remain intact; storage migration is a separate change.
 
-## 4. Establish diagnostics before another learning experiment
+## 3. Establish diagnostics before another learning experiment
+
+Investigate suspicious moves through the TUI and the existing `Replay` format.
+Retain the complete history, checkpoint identity and search settings so legal
+actions, predictions and MCTS visits can be inspected at the relevant turn.
+An apparent missed capture alone does not establish a rules, search or model bug.
 
 A small worked example should follow one position through encoding, predictions,
 legal masking, MCTS targets and one CPU optimizer update. A separate tactical
@@ -79,7 +75,7 @@ are more informative than mean client latency alone.
 representation, predictions or search, and measurements identify a useful
 experiment rather than suggesting one from loss curves alone.
 
-## 5. Choose a controlled training experiment
+## 4. Choose a controlled training experiment
 
 Define the hypothesis, compute budgets, seeds, promotion gates and fixed
 reference before starting. Keep the reference identifier in the report, and

@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::{
     Action, Game, HISTORY_POSITIONS, Outcome, POLICY_ACTIONS, Player, PolicyIndex, Position,
-    Replay, ReplayError, SearchResult,
+    Replay, ReplayError, SearchResult, neural::history_before, policy::action_repetition_counts,
 };
 
 const POLICY_TOLERANCE: f32 = 1.0e-4;
@@ -322,20 +322,11 @@ impl SelfPlayRecorder {
         }
         validate_policy(game.position(), &search.policy)?;
         let player = game.position().side_to_move();
-        let mut action_repetition_counts = [0; POLICY_ACTIONS];
-        for action in game.legal_actions() {
-            if let (Some(index), Some(count)) = (
-                action.policy_index(player),
-                game.repetition_count_after(action),
-            ) {
-                action_repetition_counts[index.as_usize()] = count;
-            }
-        }
         self.pending.push(PendingExample {
             position: *game.position(),
             repetition_count: game.current_repetition_count(),
             current_player_is_starter: player == game.initial_player(),
-            action_repetition_counts,
+            action_repetition_counts: action_repetition_counts(game),
             policy: search.policy,
             action: search.selected_action,
         });
@@ -411,18 +402,12 @@ impl SelfPlayRecorder {
         {
             return Err(TrainingDataError::InvalidRestartTrace);
         }
-        let positions = game.position_history();
-        let restart_history = std::array::from_fn(|offset| {
-            restart_ply
-                .checked_sub(offset + 1)
-                .map(|index| positions[index])
-        });
         self.finish_with_replay(
             source_generation,
             seed,
             game.outcome(),
             restart_ply,
-            restart_history,
+            history_before(game.position_history(), restart_ply),
             Some(Replay::from_game(game, Some(seed))),
         )
     }

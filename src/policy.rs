@@ -23,7 +23,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::game::{Action, BOARD_SQUARES, HandPiece, Player, Square};
+use crate::game::{Action, BOARD_SQUARES, Game, HandPiece, Player, Square};
 
 /// Width of the policy head: 12 origins × 8 directions + 12 squares × 3 drops.
 pub const POLICY_ACTIONS: usize = 132;
@@ -138,11 +138,26 @@ impl Action {
     }
 }
 
-const fn canonical_square(square: Square, player: Player) -> Square {
+pub(crate) const fn canonical_square(square: Square, player: Player) -> Square {
     match player {
         Player::First => square,
         Player::Second => square.rotated(),
     }
+}
+
+/// The neural policy receives the same repetition context during play and training.
+pub(crate) fn action_repetition_counts(game: &Game) -> [u8; POLICY_ACTIONS] {
+    let player = game.position().side_to_move();
+    let mut counts = [0; POLICY_ACTIONS];
+    for action in game.legal_actions() {
+        if let (Some(index), Some(count)) = (
+            action.policy_index(player),
+            game.repetition_count_after(action),
+        ) {
+            counts[index.as_usize()] = count;
+        }
+    }
+    counts
 }
 
 /// Inverse of [`canonical_square`]. The 180° rotation is an involution

@@ -499,6 +499,35 @@ fn visited_state_restarts_cover_the_trajectory_and_preserve_prefix_history() {
         &|_, _| {},
     )
     .expect("archive-restarted self-play must finish");
+    for recorded in &games {
+        // Persisted examples reconstruct history independently of live inference.
+        let restored: SelfPlayGame =
+            serde_json::from_str(&serde_json::to_string(recorded).unwrap()).unwrap();
+        let replay = restored.replay.as_ref().unwrap();
+        let mut live = Game::new(replay.initial_player);
+        for &action in &replay.actions[..restored.restart_ply] {
+            live.apply(action).unwrap();
+        }
+        for (example, &action) in restored
+            .augmented_examples(false)
+            .iter()
+            .zip(&replay.actions[restored.restart_ply..])
+        {
+            let request = yokai::EvaluationRequest::from_game(&live);
+            assert_eq!(example.position, request.position);
+            assert_eq!(example.repetition_count, request.repetition_count);
+            assert_eq!(
+                example.current_player_is_starter,
+                request.current_player_is_starter
+            );
+            assert_eq!(
+                example.action_repetition_counts,
+                request.action_repetition_counts
+            );
+            assert_eq!(example.history, request.history);
+            live.apply(action).unwrap();
+        }
+    }
     let restarted = games
         .iter()
         .filter(|game| game.restart_ply > 0)

@@ -16,7 +16,7 @@ use burn::prelude::{Backend, Tensor, TensorData};
 
 use crate::{
     BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, Game, HandPiece, POLICY_ACTIONS, PieceKind, Player,
-    Position, Square,
+    Position, Square, policy::canonical_square,
 };
 
 /// Schema version of checkpoint directories and their metadata.
@@ -156,21 +156,20 @@ pub fn policy_context_batch_tensor<B: Backend>(
 /// Encodes a game from the perspective of its player to move.
 #[must_use]
 pub fn encode_game(game: &Game) -> EncodedPosition {
-    let positions = game.position_history();
-    let history = std::array::from_fn(|offset| {
-        // `positions` includes the current state. Offset zero therefore selects
-        // `len - 2`, the state immediately before it.
-        positions
-            .len()
-            .checked_sub(offset + 2)
-            .map(|index| positions[index])
-    });
     encode_position_with_history(
         game.position(),
         game.current_repetition_count(),
         game.position().side_to_move() == game.initial_player(),
-        &history,
+        &history_before(game.position_history(), game.actions().len()),
     )
+}
+
+/// Selects preceding states in reverse order, including when resuming a prefix.
+pub(crate) fn history_before(
+    positions: &[Position],
+    ply: usize,
+) -> [Option<Position>; HISTORY_POSITIONS] {
+    std::array::from_fn(|offset| ply.checked_sub(offset + 1).map(|index| positions[index]))
 }
 
 /// Encodes a position using the canonical perspective of its player to move.
@@ -257,13 +256,6 @@ fn encode_frame(
             let feature = frame * GLOBAL_FEATURES_PER_FRAME + feature_start + piece.index();
             global_values[feature] = normalized;
         }
-    }
-}
-
-const fn canonical_square(square: Square, current: Player) -> Square {
-    match current {
-        Player::First => square,
-        Player::Second => square.rotated(),
     }
 }
 

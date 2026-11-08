@@ -8,7 +8,10 @@ use std::collections::{HashMap, VecDeque};
 
 use thiserror::Error;
 
-use crate::{Game, HISTORY_POSITIONS, POLICY_ACTIONS, Position};
+use crate::{
+    Game, HISTORY_POSITIONS, POLICY_ACTIONS, Position, neural::history_before,
+    policy::action_repetition_counts,
+};
 
 /// Input expected by a policy/value evaluator.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -29,28 +32,13 @@ impl EvaluationRequest {
     /// Collects all spatial, historical and per-action context from a game.
     #[must_use]
     pub fn from_game(game: &Game) -> Self {
-        let positions = game.position_history();
         let player = game.position().side_to_move();
-        let mut action_repetition_counts = [0; POLICY_ACTIONS];
-        for action in game.legal_actions() {
-            if let (Some(index), Some(count)) = (
-                action.policy_index(player),
-                game.repetition_count_after(action),
-            ) {
-                action_repetition_counts[index.as_usize()] = count;
-            }
-        }
         Self {
             position: *game.position(),
             repetition_count: game.current_repetition_count(),
             current_player_is_starter: player == game.initial_player(),
-            action_repetition_counts,
-            history: std::array::from_fn(|offset| {
-                positions
-                    .len()
-                    .checked_sub(offset + 2)
-                    .map(|index| positions[index])
-            }),
+            action_repetition_counts: action_repetition_counts(game),
+            history: history_before(game.position_history(), game.actions().len()),
         }
     }
 }

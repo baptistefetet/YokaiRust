@@ -12,7 +12,7 @@ measurement order and common training fixture. Results are summarized in
 Run commands from the repository root on a Mac with Metal. The configuration
 snapshot is `config/retrain-20261108.toml`. Its only changes from the starting
 configuration are seed `20261108` and separate empty model/data directories.
-The initial training command is:
+The initial training command was:
 
 ```bash
 cargo run --release -- train --config config/retrain-20261108.toml --generations 20
@@ -22,16 +22,22 @@ The checkpoint and replay directories must be absent for a fresh run. If they
 already exist, this command resumes them. Preserve the original experiment;
 use new paths and a new protocol for a repetition.
 
+Before any independent arena, the user requested extending the first block to
+22 attempts. The dated amendment is preserved in `protocol.json`; after the
+initial 20-attempt command, run two more attempts with `--generations 2`.
+The confirmation boundaries are now 22, 32 and 42, with unchanged seeds and
+thresholds.
+
 At a planned boundary, the confirmation runner verifies the accepted champion
 chain, configuration and reference hashes before comparing networks:
 
 ```bash
-python3 docs/experiments/2026-11-08/confirm.py 20
+python3 docs/experiments/2026-11-08/confirm.py 22
 ```
 
 It compares only the final accepted champion, writes its identity before the
-arena starts, and refuses to overwrite existing observations. Boundaries 30
-and 40 are permitted only after the preceding planned comparison fails. Each
+arena starts, and refuses to overwrite existing observations. Boundaries 32
+and 42 are permitted only after the preceding planned comparison fails. Each
 continuation runs ten more attempts with the same configuration. Every arena
 uses a distinct seed and the stricter significance threshold in the protocol.
 

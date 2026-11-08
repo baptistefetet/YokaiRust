@@ -17,12 +17,12 @@
   "configuration_sha256": "6d181edad2e2518addf912a9cdd3f951311179508824c0ca3a9b489c6a0a99cf",
   "initialization": "New seeded random network and empty replay buffer; no imported weights, optimizer or trajectories.",
   "seed": 20261108,
-  "selection": "Only latest accepted champion after 20 attempts; if independent confirmation fails, continue to 30, then 40 attempts at unchanged settings. Retain every result. Stop on first successful planned confirmation; never select a rejected candidate.",
+  "selection": "Only latest accepted champion after 22 attempts; if independent confirmation fails, continue to 32, then 42 attempts at unchanged settings. Retain every result. Stop on first successful planned confirmation; never select a rejected candidate.",
   "confirmation": {
     "attempt_boundaries": [
-      20,
-      30,
-      40
+      22,
+      32,
+      42
     ],
     "seeds": [
       2026110801,
@@ -63,5 +63,35 @@
   "limits": [
     "One training seed cannot prove unchanged learning efficiency across seeds.",
     "Finite strength arenas and benchmarks cannot prove absence of every regression."
+  ],
+  "amendments": [
+    {
+      "recorded_at": "2026-11-08T17:00:37.936029+01:00",
+      "reason": "User clarified that 1h30 was only an estimate and requested at least attempt 22 before the first independent duel. No independent arena had begun or been inspected.",
+      "previous_attempt_boundaries": [
+        20,
+        30,
+        40
+      ],
+      "new_attempt_boundaries": [
+        22,
+        32,
+        42
+      ],
+      "unchanged": "Reference, seeds, arena budgets, thresholds, three-look multiplicity correction and all training hyperparameters."
+    }
+  ],
+  "continuation_commands": [
+    [
+      "cargo",
+      "run",
+      "--release",
+      "--",
+      "train",
+      "--config",
+      "config/retrain-20261108.toml",
+      "--generations",
+      "2"
+    ]
   ]
 }

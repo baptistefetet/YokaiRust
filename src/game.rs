@@ -838,7 +838,7 @@ impl Game {
     }
 
     /// Returns an in-process fingerprint of the complete path to this position.
-    /// It is used to decide whether a search subtree can be reused safely.
+    /// Arena diagnostics use it to count distinct opening paths.
     #[must_use]
     pub fn history_fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();

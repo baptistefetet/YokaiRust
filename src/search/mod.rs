@@ -266,9 +266,7 @@ pub struct Mcts<E> {
     rng: ChaCha8Rng,
     arena: Vec<Node>,
     root: usize,
-    root_position: Option<Position>,
-    root_history_fingerprint: Option<u64>,
-    root_ply: usize,
+    root_history: Vec<Position>,
     root_noise_applied: bool,
 }
 
@@ -286,9 +284,7 @@ impl<E: Evaluator> Mcts<E> {
             rng: ChaCha8Rng::seed_from_u64(seed),
             arena: vec![Node::root()],
             root: 0,
-            root_position: None,
-            root_history_fingerprint: None,
-            root_ply: 0,
+            root_history: Vec::new(),
             root_noise_applied: false,
         })
     }
@@ -315,15 +311,23 @@ impl<E: Evaluator> Mcts<E> {
         self.arena.clear();
         self.arena.push(Node::root());
         self.root = 0;
-        self.root_position = None;
-        self.root_history_fingerprint = None;
-        self.root_ply = 0;
+        self.root_history.clear();
         self.root_noise_applied = false;
     }
 
     /// Moves the root to an explored child and returns whether it was reused.
+    /// The game must extend the root's complete history by exactly this action;
+    /// a different path resets the tree, even if its final position is identical.
     #[must_use]
     pub fn advance_root(&mut self, action: Action, game: &Game) -> bool {
+        let history = game.position_history();
+        let follows_root = history.len() == self.root_history.len() + 1
+            && history[..history.len() - 1] == self.root_history
+            && game.actions().last() == Some(&action);
+        if !follows_root {
+            self.reset_to_game(game);
+            return false;
+        }
         let child = self
             .children(self.root)
             .find(|&index| self.arena[index].action == Some(action));
@@ -333,9 +337,7 @@ impl<E: Evaluator> Mcts<E> {
         };
 
         self.root = child;
-        self.root_position = Some(*game.position());
-        self.root_history_fingerprint = Some(game.history_fingerprint());
-        self.root_ply = game.actions().len();
+        self.root_history.push(*game.position());
         self.root_noise_applied = false;
         true
     }
@@ -815,30 +817,19 @@ impl<E: Evaluator> Mcts<E> {
     }
 
     fn synchronize_root(&mut self, game: &Game) {
-        let fingerprint = game.history_fingerprint();
-        if self.root_position == Some(*game.position())
-            && self.root_history_fingerprint == Some(fingerprint)
-        {
+        if self.root_history == game.position_history() {
             return;
         }
-
-        if game.actions().len() == self.root_ply + 1
-            && let Some(&last_action) = game.actions().last()
-            && self.advance_root(last_action, game)
-        {
-            return;
+        if let Some(&last_action) = game.actions().last() {
+            let _reused = self.advance_root(last_action, game);
+        } else {
+            self.reset_to_game(game);
         }
-        self.reset_to_game(game);
     }
 
     fn reset_to_game(&mut self, game: &Game) {
-        self.arena.clear();
-        self.arena.push(Node::root());
-        self.root = 0;
-        self.root_position = Some(*game.position());
-        self.root_history_fingerprint = Some(game.history_fingerprint());
-        self.root_ply = game.actions().len();
-        self.root_noise_applied = false;
+        self.reset();
+        self.root_history.extend_from_slice(game.position_history());
     }
 
     /// Returns the contiguous arena indices of a node's children. The range

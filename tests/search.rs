@@ -536,6 +536,56 @@ fn arena_tree_is_reused_after_the_played_action() {
 }
 
 #[test]
+fn a_different_position_resets_automatic_subtree_reuse() {
+    let game = Game::new(Player::First);
+    let config = search_config(200);
+    let mut search = Mcts::new(UniformEvaluator, config, 42).unwrap();
+    search.search(&game, 0.0).unwrap();
+
+    // The new game shares a legal action with the old tree, but not its board.
+    let mut board = *game.position().board();
+    board["a1".parse::<Square>().unwrap().index()] = None;
+    let mut other = Game::from_position(
+        Position::from_parts(board, *game.position().hands(), Player::First).unwrap(),
+    );
+    other.apply("b2-b3".parse().unwrap()).unwrap();
+
+    let actual = search.search(&other, 0.0).unwrap();
+    let mut fresh = Mcts::new(UniformEvaluator, config, 42).unwrap();
+    assert_eq!(actual, fresh.search(&other, 0.0).unwrap());
+}
+
+#[test]
+fn subtree_reuse_checks_history_even_when_the_parent_board_matches() {
+    let position = position_with(
+        &[
+            (3, 1, PieceKind::Koropokkuru, Player::First),
+            (0, 1, PieceKind::Koropokkuru, Player::Second),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    );
+    let mut left = Game::from_position(position);
+    let mut right = left.clone();
+    for action in ["b1-a1", "b4-c4", "a1-b1", "c4-b4"] {
+        left.apply(action.parse().unwrap()).unwrap();
+    }
+    for action in ["b1-c1", "b4-a4", "c1-b1", "a4-b4"] {
+        right.apply(action.parse().unwrap()).unwrap();
+    }
+    assert_eq!(left.position(), right.position());
+    assert_eq!(left.actions().len(), right.actions().len());
+    assert_ne!(left.position_history(), right.position_history());
+
+    let mut search = Mcts::new(UniformEvaluator, search_config(64), 5).unwrap();
+    let action = search.search(&left, 0.0).unwrap().best_action;
+    right.apply(action).unwrap();
+    assert!(!search.advance_root(action, &right));
+    assert_eq!(search.node_count(), 1);
+    search.search(&right, 0.0).unwrap();
+}
+
+#[test]
 fn replay_round_trip_preserves_optional_search_analysis() {
     let mut game = Game::new(Player::First);
     let mut mcts = Mcts::new(UniformEvaluator, search_config(16), 17).expect("valid search");

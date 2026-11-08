@@ -1,0 +1,42 @@
+{
+  "before": "3247ee7",
+  "after": "f3ce726",
+  "order": [
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after"
+  ],
+  "concurrent_training": false,
+  "fixed_buffer": "data/alpha-zero-from-scratch-20261108/performance/fixed-buffer-generation-1.json",
+  "fixed_buffer_sha256": "d9e297163306c370440575fb86932e8ed3f625305821eaa981b2ac2819c32bb9",
+  "reference_checkpoint": "models/references/pre-cleanup-20261108/generation-000021",
+  "seed": 20261108,
+  "workloads": {
+    "cpu": "benches/engine.rs, default iterations and five inner samples",
+    "inference": {
+      "batches": [
+        8,
+        128
+      ],
+      "warmup_batches": 20,
+      "timed_batches": 200
+    },
+    "self_play": {
+      "games": 64,
+      "simulations": 200,
+      "workers": 16,
+      "search_batch_size": 8,
+      "restart_fraction": 0.0
+    },
+    "optimizer": {
+      "steps": 400,
+      "batch_size": 256,
+      "learning_rate": 0.00025,
+      "validation_interval_steps": 100
+    }
+  },
+  "scope": "Fixed-checkpoint workloads; no claim about multi-seed learning efficiency."
+}

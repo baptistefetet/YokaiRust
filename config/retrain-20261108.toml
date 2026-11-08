@@ -1,0 +1,101 @@
+seed = 20261108
+backend = "metal"
+
+[network]
+filters = 64
+residual_blocks = 4
+shared_hidden = 64
+value_hidden = 64
+
+[self_play]
+games_per_generation = 256
+# Each worker owns one game, while each game evaluates several independent
+# MCTS leaves together to keep Metal busy without hundreds of blocked threads.
+workers = 16
+simulations = 200
+search_batch_size = 8
+max_game_plies = 512
+inference_batch_size = 128
+inference_wait_ms = 1
+exploration_plies = 12
+# AlphaZero samples from MCTS visits during the opening, then becomes greedy.
+exploration_temperature = 1.0
+final_temperature = 0.0
+# Edge-local contempt is disabled in favor of role-aware WDL utility.
+repetition_contempt = 0.0
+# During self-play, a draw rewards the starter's defence and penalizes the
+# non-starter's failed conversion. Stored WDL outcomes and arenas stay official.
+starter_draw_value = 0.75
+# Restart this share of trajectories from uniformly sampled nonterminal states
+# visited in the recent replay buffer. Generation zero necessarily starts at 0%.
+restart_fraction = 0.25
+# Spend a deeper internal search after returning to an archived state.
+restart_simulations = 800
+
+# Until a candidate is accepted, generation-zero self-play follows the
+# JavaScript bootstrap: uniform priors, seeded random rollouts, and no root
+# Dirichlet noise. Arena and candidate diagnostics remain neural.
+[self_play.bootstrap]
+mode = "random_rollout_until_first_promotion"
+rollout_max_plies = 512
+
+[optimization]
+# A fixed update budget prevents later generations from receiving more gradient
+# steps merely because their replay buffer has grown.
+steps_per_generation = 400
+validation_interval_steps = 100
+batch_size = 256
+learning_rate = 0.001
+weight_decay = 0.0001
+validation_fraction = 0.1
+mirror_augmentation = true
+# A draw still trains the official WDL target. The starter's defence is also
+# imitated. The non-starter's failed trajectory is normally omitted; when the
+# rules identify an immediate third repetition, training removes that action
+# and renormalizes MCTS's remaining alternatives instead.
+non_starter_draw_policy_weight = 0.0
+# Keep the categorical WDL objective, and add a small ordered-value signal.
+# A draw still differs from a balanced win/loss mixture in the WDL loss.
+scalar_value_loss_weight = 0.25
+# Every position remains in the dataset. During bootstrap, decisive tails are
+# temporarily oversampled; the extra sampling stops automatically at attempt 11.
+
+# Once an accepted champion reaches generation 7, take smaller Adam steps. This
+# preserves the early bootstrap speed while reducing abrupt policy changes near
+# the observed plateau. Rejected attempt numbers never advance this schedule.
+[[optimization.learning_rate_schedule]]
+source_generation = 7
+learning_rate = 0.00025
+
+[optimization.terminal_window_schedule]
+initial_plies = 1
+growth_factor = 2
+decisive_fraction = 0.25
+full_dataset_generation = 11
+
+[optimization.replay_buffer]
+max_games = 20000
+generations_to_keep = 20
+
+[arena]
+# New/reference colors alternate, with paired seeds and no root noise.
+# The arena deliberately uses exact sequential PUCT; concurrency happens only
+# across games so virtual losses cannot influence the measurement.
+games = 200
+workers = 128
+simulations = 400
+search_batch_size = 1
+# Each pair shares a random legal 0-4 ply opening, then the networks exchange
+# colors. This provides diverse, reproducible games without search noise.
+opening_plies = 4
+score_threshold = 0.55
+# The candidate must pass the official 55% arena, the one-sided paired
+# statistical test (p <= 0.05), and the exploratory draw gate
+# to become champion. Any rejection leaves the champion unchanged; the next
+# attempt starts from that accepted checkpoint and an enriched replay buffer.
+candidate_self_play_games = 64
+max_candidate_self_play_draw_rate = 0.20
+
+[paths]
+models = "models/alpha-zero-from-scratch-20261108"
+self_play = "data/alpha-zero-from-scratch-20261108"

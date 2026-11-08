@@ -1,0 +1,67 @@
+{
+  "experiment": "alpha-zero-from-scratch-20261108",
+  "recorded_at": "2026-11-08T15:22:39.391114+01:00",
+  "source_commit": "f3ce72638d8e72bd645f525baa132413315969e5",
+  "performance_reference_commit": "3247ee7",
+  "reference": {
+    "root": "models/references/pre-cleanup-20261108",
+    "generation": 21,
+    "files_sha256": {
+      "metadata.json": "d1de8febb45160d7b8060d4e9da702bdfd88c905374e3f5fa28005794db78013",
+      "model.safetensors": "9a0e348b484e09ba73cbc3f10d0f3441da50eae93b7dce3cd0da6595d546bdee",
+      "optimizer.bin": "bf1496e9b2d30575bf8c3ee0dc1e09603248d137b3ebef3eb024d68fca9c43b2",
+      "training-model.bin": "6430b6530c415be16596c70107b5a8b63cf83700047cdceb35c95eae5faebf57"
+    }
+  },
+  "configuration": "config/retrain-20261108.toml",
+  "configuration_sha256": "6d181edad2e2518addf912a9cdd3f951311179508824c0ca3a9b489c6a0a99cf",
+  "initialization": "New seeded random network and empty replay buffer; no imported weights, optimizer or trajectories.",
+  "seed": 20261108,
+  "selection": "Only latest accepted champion after 20 attempts; if independent confirmation fails, continue to 30, then 40 attempts at unchanged settings. Retain every result. Stop on first successful planned confirmation; never select a rejected candidate.",
+  "confirmation": {
+    "attempt_boundaries": [
+      20,
+      30,
+      40
+    ],
+    "seeds": [
+      2026110801,
+      2026110802,
+      2026110803
+    ],
+    "games": 800,
+    "simulations": 400,
+    "search_batch_size": 1,
+    "workers": 128,
+    "opening_plies": 4,
+    "max_game_plies": 512,
+    "root_noise": false,
+    "minimum_score": 0.55,
+    "maximum_one_sided_p": 0.016666666666666666,
+    "multiple_look_correction": "Bonferroni over the three prespecified independent arenas; no reseeding of failed tests."
+  },
+  "training_promotion": {
+    "games": 200,
+    "minimum_score": 0.55,
+    "maximum_p": 0.05,
+    "probe_games": 64,
+    "maximum_probe_draw_rate": 0.2
+  },
+  "publication": "Keep config/training.toml and its champion unchanged until the new lineage passes independent confirmation and required checks.",
+  "performance": "Measure old and cleaned source on the same M4 Max, fixed workloads and checkpoint; interleave runs without concurrent training. Training wall times are observations, not speedup estimates.",
+  "command": [
+    "cargo",
+    "run",
+    "--release",
+    "--",
+    "train",
+    "--config",
+    "config/retrain-20261108.toml",
+    "--generations",
+    "20"
+  ],
+  "limits": [
+    "One training seed cannot prove unchanged learning efficiency across seeds.",
+    "Finite strength arenas and benchmarks cannot prove absence of every regression."
+  ]
+}

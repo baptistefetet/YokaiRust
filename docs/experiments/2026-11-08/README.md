@@ -39,10 +39,15 @@ python3 docs/experiments/2026-11-08/confirm.py 26
 ```
 
 It compares only the final accepted champion, writes its identity before the
-arena starts, and refuses to overwrite existing observations. Boundaries N+10
-and N+20 are permitted only after the preceding planned comparison fails. Each
-continuation runs ten more attempts with the same configuration. Every arena
-uses a distinct seed and the stricter significance threshold in the protocol.
+arena starts, and refuses to overwrite existing observations. After the failed comparison at 26, continue until one further promotion with
+`python3 docs/experiments/2026-11-08/continue_until_promotion.py 26`.
+The second arena uses that successor and the second independent seed.
+If needed, the third comparison follows ten more attempts, with unchanged
+training settings. Every arena
+uses a disjoint range of 400 pair seeds and the stricter significance
+threshold in the protocol. The unused base seeds were separated by 1000
+after detecting that adjacent bases would reuse almost every pair; the first
+arena was unaffected and remains unchanged.
 
 ## Fixed-workload performance comparison
 

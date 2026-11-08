@@ -1,0 +1,47 @@
+{
+  "recorded_at": "2026-11-08T16:34:01.106312+00:00",
+  "source_commit": "837f319b75f5c4fa14841de8ffac6e47a2d1820b",
+  "protocol_sha256": "53c69efbed38214175c1a9c45805be2150110b60acff4548b72d6e34558d586b",
+  "attempt_boundary": 26,
+  "candidate_generation": 26,
+  "candidate_files_sha256": {
+    "model.safetensors": "363dccb2d9001f8fd3b074199fe10fbb874af0f8dfe14b1484d2cb2d6437a8cc",
+    "metadata.json": "dcfb2aac8e7600b2d667360adcf6be8ff23d66e8015181b568b1e951af3bd846",
+    "training-model.bin": "2bde2738c7ce342b770142d31c93138815a33857ba3d8b323075242cb73f3302",
+    "optimizer.bin": "8dca626051fda507675e74fa357bb68b8b98c89b04792f37dc0b0320a247b25b"
+  },
+  "reference": {
+    "root": "models/references/pre-cleanup-20261108",
+    "generation": 21,
+    "files_sha256": {
+      "metadata.json": "d1de8febb45160d7b8060d4e9da702bdfd88c905374e3f5fa28005794db78013",
+      "model.safetensors": "9a0e348b484e09ba73cbc3f10d0f3441da50eae93b7dce3cd0da6595d546bdee",
+      "optimizer.bin": "bf1496e9b2d30575bf8c3ee0dc1e09603248d137b3ebef3eb024d68fca9c43b2",
+      "training-model.bin": "6430b6530c415be16596c70107b5a8b63cf83700047cdceb35c95eae5faebf57"
+    }
+  },
+  "seed": 2026110801,
+  "confirmation": {
+    "attempt_boundaries": [
+      26,
+      36,
+      46
+    ],
+    "seeds": [
+      2026110801,
+      2026110802,
+      2026110803
+    ],
+    "games": 800,
+    "simulations": 400,
+    "search_batch_size": 1,
+    "workers": 128,
+    "opening_plies": 4,
+    "max_game_plies": 512,
+    "root_noise": false,
+    "minimum_score": 0.55,
+    "maximum_one_sided_p": 0.016666666666666666,
+    "multiple_look_correction": "Bonferroni over the three prespecified independent arenas; no reseeding of failed tests.",
+    "attempt_boundary_rule": "Let N be the first completed attempt >= 22 that promotes a successor to champion 20. Compare at N, N+10 and N+20, stopping on the first successful independent confirmation. Resolve N from internal promotion reports before launching the first reference arena."
+  }
+}

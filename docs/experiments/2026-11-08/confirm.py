@@ -23,6 +23,11 @@ protocol_path = Path(__file__).with_name("protocol.json")
 protocol = json.loads(protocol_path.read_text())
 boundary = int(sys.argv[1])
 confirmation = protocol["confirmation"]
+# Arena pair i uses base_seed + i, so changing the base by one is not a new
+# holdout. Reserve disjoint seed ranges before comparing another candidate.
+pairs = confirmation["games"] // 2
+seeds = confirmation["seeds"]
+assert all(abs(left - right) >= pairs for i, left in enumerate(seeds) for right in seeds[i+1:])
 index = confirmation["attempt_boundaries"].index(boundary)
 seed = confirmation["seeds"][index]
 config_path = Path(protocol["configuration"])

@@ -24,8 +24,8 @@
     ],
     "seeds": [
       2026110801,
-      2026110802,
-      2026110803
+      2026111801,
+      2026112801
     ],
     "games": 800,
     "simulations": 400,
@@ -37,7 +37,8 @@
     "minimum_score": 0.55,
     "maximum_one_sided_p": 0.016666666666666666,
     "multiple_look_correction": "Bonferroni over the three prespecified independent arenas; no reseeding of failed tests.",
-    "attempt_boundary_rule": "First arena at 26. Resolve M as the first internally promoted successor of 26; subsequent boundaries are M and M+10, stopping when confirmation succeeds."
+    "attempt_boundary_rule": "First arena at 26. Resolve M as the first internally promoted successor of 26; subsequent boundaries are M and M+10, stopping when confirmation succeeds.",
+    "seed_ranges": "Each arena uses 400 pair seeds [base, base+399]; successive bases differ by 1000, so holdout seed ranges do not overlap."
   },
   "training_promotion": {
     "games": 200,
@@ -100,6 +101,22 @@
       ],
       "new_boundary_rule": "First arena remains at 26. Let M be the first internally promoted successor of 26; run the second arena at M, and the third after M+10 attempts only if still needed.",
       "unchanged": "Reference, second/third independent seeds, budgets, score threshold and three-look significance correction."
+    },
+    {
+      "recorded_at": "2026-11-08T16:42:53.786102+00:00",
+      "reason": "Before the second independent arena, inspection of run_arena confirmed that pair i uses base_seed+i. Initially adjacent base seeds would overlap 399 of 400 pairs. Preserve the first completed arena and mechanically separate the unused base seeds by 1000.",
+      "previous_seeds": [
+        2026110801,
+        2026110802,
+        2026110803
+      ],
+      "new_seeds": [
+        2026110801,
+        2026111801,
+        2026112801
+      ],
+      "independent_arenas_completed": 1,
+      "selection_of_new_seeds": "first_seed + 1000 * comparison_index; no outcomes inspected on the new ranges"
     }
   ],
   "continuation_commands": [

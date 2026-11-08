@@ -20,7 +20,9 @@
   "selection": "The first accepted successor to 20 was 26, selected for the first independent arena. Following the user request, train from 26 to its next internally promoted successor M and compare only that accepted checkpoint on the second independent seed. If still needed, run ten more attempts and compare latest on the third seed. Retain every observation.",
   "confirmation": {
     "attempt_boundaries": [
-      26
+      26,
+      30,
+      40
     ],
     "seeds": [
       2026110801,
@@ -137,5 +139,11 @@
     "first_promotion_after_20": 26,
     "generation_report": "data/alpha-zero-from-scratch-20261108/reports/generation-000026.json",
     "independent_arenas_started": 0
+  },
+  "second_boundary_resolution": {
+    "recorded_at": "2026-11-08T17:00:59.856057+00:00",
+    "first_promotion_after_26": 30,
+    "generation_report": "data/alpha-zero-from-scratch-20261108/reports/generation-000030.json",
+    "independent_arenas_completed": 1
   }
 }

@@ -28,13 +28,14 @@ initial 20-attempt command, run two more attempts with `--generations 2`.
 A second user amendment extends this block until the next promotion after
 champion 20, even beyond attempt 22. Call that attempt N. Before the first
 reference arena, resolve the boundaries to N, N+10 and N+20 from the internal
-promotion reports. Independent seeds and thresholds remain unchanged.
+promotion reports. Independent seeds and thresholds remain unchanged. The next promotion was
+attempt **26**, so the resolved boundaries are **26, 36 and 46**.
 
 At a planned boundary, the confirmation runner verifies the accepted champion
 chain, configuration and reference hashes before comparing networks:
 
 ```bash
-python3 docs/experiments/2026-11-08/confirm.py N
+python3 docs/experiments/2026-11-08/confirm.py 26
 ```
 
 It compares only the final accepted champion, writes its identity before the

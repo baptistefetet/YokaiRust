@@ -19,7 +19,11 @@
   "seed": 20261108,
   "selection": "Complete attempts through the first promotion after champion 20, no earlier than attempt 22. Select only that accepted champion for the first independent arena. If confirmation fails, continue unchanged for ten more attempts, then ten more if needed; select only latest accepted champion at each boundary. Retain every outcome.",
   "confirmation": {
-    "attempt_boundaries": [],
+    "attempt_boundaries": [
+      26,
+      36,
+      46
+    ],
     "seeds": [
       2026110801,
       2026110802,
@@ -101,5 +105,11 @@
       "--generations",
       "2"
     ]
-  ]
+  ],
+  "boundary_resolution": {
+    "recorded_at": "2026-11-08T16:34:01.010278+00:00",
+    "first_promotion_after_20": 26,
+    "generation_report": "data/alpha-zero-from-scratch-20261108/reports/generation-000026.json",
+    "independent_arenas_started": 0
+  }
 }

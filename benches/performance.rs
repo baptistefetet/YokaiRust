@@ -10,9 +10,16 @@
 //!
 //! They are excluded from the correctness suite because they load runtime
 //! checkpoints and may occupy the GPU for several minutes.
+//!
+//! `compare_saved_generations` takes `YOKAI_CANDIDATE_MODELS`,
+//! `YOKAI_CANDIDATE_GENERATION`, `YOKAI_REFERENCE_MODELS` and
+//! `YOKAI_REFERENCE_GENERATION`. Optional `YOKAI_ARENA_GAMES` (200 by default),
+//! `YOKAI_ARENA_SEED` (30000) and `YOKAI_ARENA_REPORT` select the independent
+//! comparison and a new JSON result file. This command never promotes a model.
 
 use std::{
     env,
+    fs::OpenOptions,
     hint::black_box,
     path::Path,
     time::{Duration, Instant},
@@ -22,7 +29,7 @@ use burn::prelude::Backend;
 use yokai::{
     AlphaZeroNetworkConfig, ArenaConfig, CpuBackend, EvaluationRequest, Evaluator, Game,
     InferenceService, MetalBackend, NetworkEvaluator, Player, SelfPlayConfig, generate_self_play,
-    load_generation, run_arena,
+    load_generation, run_arena, run_arena_with_progress,
 };
 
 const BATCH_SIZES: [usize; 6] = [1, 8, 16, 32, 64, 128];
@@ -206,31 +213,47 @@ fn compare_saved_generations_from_environment() {
             .expect("arena games must be an unsigned integer")
     });
     assert!(games > 0 && games.is_multiple_of(2));
+    // Independent confirmations need a seed chosen before inspecting results.
+    let seed = env::var("YOKAI_ARENA_SEED").map_or(30_000, |value| {
+        value
+            .parse::<u64>()
+            .expect("arena seed must be an unsigned integer")
+    });
+    // Refuse to overwrite an earlier observation, even if this run fails later.
+    let report_file = env::var("YOKAI_ARENA_REPORT").ok().map(|path| {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .expect("arena report must be a new writable file")
+    });
 
     let device = burn::backend::wgpu::WgpuDevice::default();
-    let (candidate_model, _) = load_generation::<MetalBackend>(
+    let (candidate_model, candidate_metadata) = load_generation::<MetalBackend>(
         Path::new(&candidate_models),
         candidate_generation,
         &device,
     )
     .expect("candidate checkpoint");
-    let (reference_model, _) = load_generation::<MetalBackend>(
+    let (reference_model, reference_metadata) = load_generation::<MetalBackend>(
         Path::new(&reference_models),
         reference_generation,
         &device,
     )
     .expect("reference checkpoint");
     let workers = games.min(128);
+    // Match the pipeline: each network serves roughly half the concurrent games.
+    let minimum_batch = workers.div_ceil(2);
     let candidate = InferenceService::start_with_batching(
         NetworkEvaluator::new(candidate_model, device.clone()),
-        workers,
+        minimum_batch,
         128,
         Duration::from_millis(1),
     )
     .expect("candidate inference service");
     let reference = InferenceService::start_with_batching(
         NetworkEvaluator::new(reference_model, device),
-        workers,
+        minimum_batch,
         128,
         Duration::from_millis(1),
     )
@@ -246,18 +269,48 @@ fn compare_saved_generations_from_environment() {
         max_candidate_self_play_draw_rate: 1.0,
     };
     let started = Instant::now();
-    let result = run_arena(
+    let result = run_arena_with_progress(
         &candidate.client(),
         &reference.client(),
         &config,
         512,
-        30_000,
+        seed,
+        &|progress| {
+            if progress.completed.is_multiple_of(40) {
+                eprintln!(
+                    "arena {}/{} score={:.4}",
+                    progress.completed,
+                    progress.total,
+                    progress.score()
+                );
+            }
+        },
     )
     .expect("cross-version arena");
     println!(
-        "candidate={candidate_models}/generation-{candidate_generation:06} reference={reference_models}/generation-{reference_generation:06} games={games} elapsed={:.1?} result={result:?}",
+        "candidate={candidate_models}/generation-{candidate_generation:06} reference={reference_models}/generation-{reference_generation:06} games={games} seed={seed} elapsed={:.1?} result={result:?}",
         started.elapsed(),
     );
+    if let Some(file) = report_file {
+        serde_json::to_writer_pretty(
+            file,
+            &serde_json::json!({
+                "candidate_models": candidate_models,
+                "candidate_metadata": candidate_metadata,
+                "reference_models": reference_models,
+                "reference_metadata": reference_metadata,
+                "seed": seed,
+                "configuration": config,
+                "max_game_plies": 512,
+                "inference_minimum_batch": minimum_batch,
+                "inference_maximum_batch": 128,
+                "inference_wait_ms": 1,
+                "elapsed_seconds": started.elapsed().as_secs_f64(),
+                "arena": result,
+            }),
+        )
+        .expect("arena report must serialize");
+    }
 }
 
 #[allow(clippy::cast_precision_loss)]

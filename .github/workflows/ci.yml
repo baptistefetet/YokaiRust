@@ -26,3 +26,19 @@ jobs:
         run: cargo test
       - name: Documentation
         run: cargo doc --no-deps
+
+  wasm:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        backend: [flex, webgpu]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the pinned toolchain and WASM target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # These backends are mutually exclusive; --all-features cannot check them.
+      - name: Check browser backend
+        run: cargo clippy --locked -p yokai-web --target wasm32-unknown-unknown --no-default-features --features ${{ matrix.backend }} -- -D warnings

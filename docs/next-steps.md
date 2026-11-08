@@ -25,6 +25,10 @@ TUI; they are a separate task from the current cleanup.
 - Generation orchestration delegates self-play, dataset preparation, candidate
   training/recovery and evaluation to private phase helpers. Journal and
   publication order remain explicit, and recovery preserves saved data and weights.
+- User TOML rejects unknown fields and reports invalid settings precisely;
+  journal JSON remains compatible. Training and standalone search share draw bounds.
+- Official outcome values, result counts and CLI metric formatting are shared.
+  Rust names the WDL loss explicitly while preserving the report's `value_loss` key.
 
 These refactorings do not change the network architecture, targets or artifact
 versions. A fresh training run is not required to use them. Existing checkpoints
@@ -70,6 +74,9 @@ from both colors. Keep evaluation cases out of training.
 Measure inference batching on a fixed Metal workload, including partial leaf
 requests and generation tails. Collection time and the reason a batch starts
 are more informative than mean client latency alone.
+Profile the complete workload before changing per-step metric readbacks, policy
+mirroring or cached legality masks. Add long-history search cases before changing
+MCTS game cloning; isolated request and search timings are not a cost breakdown.
 
 **Done when:** diagnostics explain whether a weakness comes from rules,
 representation, predictions or search, and measurements identify a useful
@@ -81,6 +88,11 @@ Define the hypothesis, compute budgets, seeds, promotion gates and fixed
 reference before starting. Keep the reference identifier in the report, and
 retain the checkpoint for independent comparisons. Start from `latest`; rejected
 candidates never become self-play sources.
+
+Define a versioned seed derivation for a future protocol: the current probe's
+`generation << 56` repeats every 256 attempts, and the arena's `<< 40` every
+2²⁴ attempts. Preserve existing seeds for reproducibility of the current protocol;
+changing the derivation changes experimental trajectories.
 
 A fresh run is appropriate when testing a changed representation or when clean
 trajectory ancestry is required. Use separate model/data directories and keep

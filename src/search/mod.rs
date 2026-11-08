@@ -382,7 +382,7 @@ impl<E> Mcts<E> {
         Ok(completed)
     }
 
-    /// Validates the evaluator reply, releases the virtual losses, then
+    /// Releases the virtual losses, validates the evaluator reply, then
     /// expands and backpropagates every evaluated leaf. Shared verbatim by
     /// the synchronous and asynchronous batch drivers so they cannot drift.
     fn integrate_evaluations(
@@ -391,26 +391,15 @@ impl<E> Mcts<E> {
         evaluations: Result<Vec<Evaluation>, EvaluationError>,
         add_root_noise: bool,
     ) -> Result<usize, SearchError> {
-        if evaluations
-            .as_ref()
-            .is_ok_and(|evaluations| evaluations.len() != pending.len())
-        {
-            let actual = evaluations.as_ref().map_or(0, Vec::len);
-            self.release_pending(&pending);
+        self.release_pending(&pending);
+        let evaluations = evaluations?;
+        if evaluations.len() != pending.len() {
             return Err(EvaluationError::BatchSizeMismatch {
                 expected: pending.len(),
-                actual,
+                actual: evaluations.len(),
             }
             .into());
         }
-        let evaluations = match evaluations {
-            Ok(evaluations) => evaluations,
-            Err(error) => {
-                self.release_pending(&pending);
-                return Err(error.into());
-            }
-        };
-        self.release_pending(&pending);
 
         let mut completed = 0;
         for (simulation, evaluation) in pending.into_iter().zip(evaluations) {
@@ -466,7 +455,7 @@ impl<E> Mcts<E> {
                     self.config.starter_draw_value,
                 ),
                 LeafEvaluation::RandomRollout { .. } => {
-                    official_value(game.outcome(), game.position().side_to_move())
+                    game.outcome().value_for(game.position().side_to_move())
                 }
             };
             self.backpropagate(&path, value);
@@ -994,7 +983,7 @@ pub fn random_rollout_value<R: Rng + ?Sized>(
     let mut rollout = game.clone();
     for _ in 0..max_plies {
         if rollout.outcome().is_terminal() {
-            return Ok(official_value(rollout.outcome(), perspective));
+            return Ok(rollout.outcome().value_for(perspective));
         }
         let legal_actions = rollout.legal_actions();
         if legal_actions.is_empty() {
@@ -1005,15 +994,7 @@ pub fn random_rollout_value<R: Rng + ?Sized>(
             .apply(action)
             .map_err(|_| SearchError::InvalidTreeAction)?;
     }
-    Ok(official_value(rollout.outcome(), perspective))
-}
-
-fn official_value(outcome: Outcome, perspective: Player) -> f32 {
-    match outcome {
-        Outcome::Win { player, .. } if player == perspective => 1.0,
-        Outcome::Win { .. } => -1.0,
-        Outcome::Ongoing | Outcome::Draw { .. } => 0.0,
-    }
+    Ok(rollout.outcome().value_for(perspective))
 }
 
 fn sanitize_prior(prior: f32) -> f32 {
@@ -1079,12 +1060,16 @@ fn role_aware_value(
     } else {
         0.0
     };
-    let draw_utility = if player_to_move == initial_player {
+    let utility = draw_utility(player_to_move, initial_player, starter_draw_value);
+    sanitize_value(evaluation.value + utility * draw_probability)
+}
+
+fn draw_utility(player_to_move: Player, initial_player: Player, starter_draw_value: f32) -> f32 {
+    if player_to_move == initial_player {
         starter_draw_value
     } else {
         -starter_draw_value
-    };
-    sanitize_value(evaluation.value + draw_utility * draw_probability)
+    }
 }
 
 fn terminal_value(
@@ -1095,19 +1080,13 @@ fn terminal_value(
     starter_draw_value: f32,
 ) -> f32 {
     match outcome {
-        Outcome::Ongoing => 0.0,
         // `player_to_move` is the opponent of the player whose move completed
         // the repetition, so a positive value makes that action unattractive
         // to the player who caused the draw on the preceding tree edge.
         Outcome::Draw { .. } if starter_draw_value > 0.0 => {
-            if player_to_move == initial_player {
-                starter_draw_value
-            } else {
-                -starter_draw_value
-            }
+            draw_utility(player_to_move, initial_player, starter_draw_value)
         }
         Outcome::Draw { .. } => repetition_contempt,
-        Outcome::Win { player, .. } if player == player_to_move => 1.0,
-        Outcome::Win { .. } => -1.0,
+        _ => outcome.value_for(player_to_move),
     }
 }

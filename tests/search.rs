@@ -642,6 +642,25 @@ impl Evaluator for BrokenBatchEvaluator {
 }
 
 #[test]
+fn mcts_releases_pending_leaves_after_an_incomplete_batch() {
+    let game = Game::new(Player::First);
+    let mut search = Mcts::new(BrokenBatchEvaluator, SearchConfig::default(), 42).unwrap();
+    for _ in 0..2 {
+        // A retry must reach the evaluator again, rather than leave the root
+        // permanently reserved by the first incomplete response.
+        assert!(matches!(
+            search.search(&game, 0.0),
+            Err(yokai::SearchError::Evaluation(
+                EvaluationError::BatchSizeMismatch {
+                    expected: 1,
+                    actual: 0,
+                }
+            ))
+        ));
+    }
+}
+
+#[test]
 fn prediction_cache_rejects_an_incomplete_backend_batch() {
     let game = Game::new(Player::First);
     let request = EvaluationRequest::from_game(&game);

@@ -157,6 +157,7 @@ impl HandPiece {
 }
 
 /// A compact board coordinate, stored as a row-major index in `[0, 11]`.
+/// Row 0 is rank 4 at the top; row 3 is rank 1 at the bottom.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct Square(u8);
@@ -335,6 +336,18 @@ pub enum Outcome {
 }
 
 impl Outcome {
+    /// Returns the official result from `player`'s perspective: a win is `1`,
+    /// a loss is `-1`, and a draw or ongoing game is `0`.
+    /// Search-specific draw preferences do not change this value.
+    #[must_use]
+    pub fn value_for(self, player: Player) -> f32 {
+        match self {
+            Self::Win { player: winner, .. } if winner == player => 1.0,
+            Self::Win { .. } => -1.0,
+            Self::Ongoing | Self::Draw { .. } => 0.0,
+        }
+    }
+
     /// Reports whether no further action may legally be applied.
     #[must_use]
     pub const fn is_terminal(self) -> bool {
@@ -904,7 +917,7 @@ impl Game {
     }
 }
 
-const KROPOKKURU_MOVES: &[(i8, i8)] = &[
+const KOROPOKKURU_MOVES: &[(i8, i8)] = &[
     (-1, -1),
     (-1, 0),
     (-1, 1),
@@ -923,7 +936,7 @@ const KODAMA_SAMURAI_MOVES: &[(i8, i8)] = &[(1, -1), (1, 0), (1, 1), (0, -1), (0
 
 fn movement_offsets(kind: PieceKind) -> &'static [(i8, i8)] {
     match kind {
-        PieceKind::Koropokkuru => KROPOKKURU_MOVES,
+        PieceKind::Koropokkuru => KOROPOKKURU_MOVES,
         PieceKind::Tanuki => TANUKI_MOVES,
         PieceKind::Kitsune => KITSUNE_MOVES,
         PieceKind::Kodama => KODAMA_MOVES,

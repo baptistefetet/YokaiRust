@@ -434,7 +434,7 @@ impl SelfPlayRecorder {
                 action_repetition_counts: pending.action_repetition_counts,
                 history: [None; HISTORY_POSITIONS],
                 policy: pending.policy,
-                value: outcome_value(outcome, pending.position.side_to_move()),
+                value: outcome.value_for(pending.position.side_to_move()),
             })
             .collect();
         Ok(SelfPlayGame {
@@ -952,14 +952,6 @@ fn validate_policy(
         return Err(TrainingDataError::IllegalPolicyMass(illegal_mass));
     }
     Ok(())
-}
-
-fn outcome_value(outcome: Outcome, perspective: Player) -> f32 {
-    match outcome {
-        Outcome::Ongoing | Outcome::Draw { .. } => 0.0,
-        Outcome::Win { player, .. } if player == perspective => 1.0,
-        Outcome::Win { .. } => -1.0,
-    }
 }
 
 /// Serde support for any `[T; POLICY_ACTIONS]` field: serde only derives

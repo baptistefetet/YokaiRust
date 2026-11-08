@@ -1,19 +1,17 @@
 # Next steps
 
-The 3×4 baseline has now been trained again from random initialization and
-compared with the retained October champion. The new accepted model wins the
-independent comparison. [Training results](training-results.md) record the full
-run, including rejected candidates and the failed first confirmation;
-[performance results](performance-results.md) separate execution costs from
-playing strength. The [reading guide](reading-guide.md) describes the current
-implementation.
+The 3×4 implementation has a validated training and performance baseline.
+[Training results](training-results.md) describe the accepted champion and its
+independent evaluation; [performance results](performance-results.md) record
+execution costs and compatibility checks. The [reading guide](reading-guide.md)
+describes the implementation.
 
 The web interface remains dedicated to playing. Diagnostics belong in the TUI.
 The 5×6 expert game is a separate implementation milestone.
 
 ## 1. Preserve this baseline while improving durability
 
-Keep the new checkpoint history, replay ancestry, fixed reference and experiment
+Keep checkpoint history, replay ancestry, fixed reference and experiment
 reports available for regression comparisons. Future candidates must still pass
 both the paired strength arena and noisy productivity probe.
 
@@ -27,16 +25,13 @@ without weakening promotion or rewriting checkpoint history.
 
 ## 2. Profile the costs that matter for larger training runs
 
-The fixed-workload comparison preserves exact observed behavior across cleanup.
-It also records a small CPU request-construction overhead; do not describe the
-cleanup as cost-free. Metal timings overlap, so their lower or higher medians
-alone do not justify a speedup or slowdown claim.
-
-In the fresh run, game generation, promotion arenas and productivity probes
-occupied almost all pipeline time. Measure inference batch collection, partial
+Game generation, promotion arenas and productivity probes occupy almost all
+measured pipeline time. Measure inference batch collection, partial
 requests and generation tails before changing batching or optimizer readbacks.
 Use identical checkpoints, inputs and interleaved timings without concurrent
-training. Preserve outputs as well as timing measurements.
+training. Preserve outputs as well as timing measurements. The performance
+baseline also identifies CPU request preparation as a small measurable cost;
+Metal measurements need enough repetitions to distinguish changes from noise.
 
 Measure replay-buffer memory and I/O before changing its representation.
 Splits and augmentation clone examples; generation files and the buffer retain

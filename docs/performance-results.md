@@ -1,29 +1,29 @@
-# Performance and compatibility — 8 November 2026
+# Performance baseline — 8 November 2026
 
-The before/after workload produced **identical game replays, inference work
-counts, optimizer metrics and post-update predictions in all six runs**.
-The main Metal timings overlap; this experiment does not establish a speedup
-or a material end-to-end slowdown. A small CPU cost remains measurable:
-preparing an evaluation request is about **3–3.5% slower** after cleanup.
+On an Apple M4 Max, the fixed Metal workload takes a median **25.293 s for
+64 self-play games** and **4.288 s for 400 optimizer updates with validation**.
+These measurements use a frozen checkpoint and corpus; the current champion's
+playing strength is measured separately in [training results](training-results.md).
 
-The new model's strength is a separate result in
-[training results](training-results.md). This comparison uses the **same old
-checkpoint and same data on both code versions**, so stronger weights cannot
-explain a timing or behavioral difference.
+A paired code-revision comparison produced **identical game replays, inference
+work counts, optimizer metrics and post-update predictions in all six runs**.
+The measured revision spends **3–3.5% more time preparing CPU evaluation
+requests** than the reference revision. Metal timing ranges overlap and do not
+establish a speedup or a material end-to-end slowdown.
 
 ## Protocol
 
-- Before cleanup: `3247ee7`; after cleanup: `f3ce726`.
+- Measured revision: `f3ce726`; comparison reference: `3247ee7`.
 - Same Apple M4 Max, Rust 1.97.1, default Cargo release profile; CPU not pinned.
-- Order: before, after, after, before, before, after. No concurrent training or
-  other deliberately launched GPU workload.
+- Order: reference, measured, measured, reference, reference, measured.
+  No concurrent training or other deliberately launched GPU workload.
 - CPU: `benches/engine.rs`, its default iterations and five inner samples per
   case; fixed 22-ply middle position, 200-simulation MCTS, batch 8, seed 42,
   uniform evaluation and a fresh tree.
-- Metal: old generation 21 from the frozen reference, seed `20261108`;
+- Metal: fixed reference checkpoint, generation 21, seed `20261108`;
   inference batches 8 and 128, each with 20 warm-up and 200 timed batches;
   64 self-play games, 16 workers, 200 simulations and search batches of eight.
-- Optimization: restore the same old Adam state, then perform 400 updates at
+- Optimization: restore the same Adam state, then perform 400 updates at
   learning rate 0.00025 and batch size 256, validating every 100 steps on the
   same first-generation corpus. This does not modify any stored checkpoint.
 
@@ -32,7 +32,8 @@ The [protocol](experiments/2026-11-08/performance-protocol.json),
 and [raw measurement summary](experiments/2026-11-08/performance-observations.json)
 record inputs, code revisions and reproduction steps. The build refreshes
 archived source timestamps to prevent Cargo's shared target cache from reusing
-the other revision's crate; before/after binaries were separately retained.
+the other revision's crate; both executables are retained separately. The raw
+records label the reference and measured revisions `before` and `after`.
 
 ## Measured costs
 
@@ -41,7 +42,7 @@ parentheses. CPU values are medians of the existing five-sample run medians.
 A positive change means more time or memory; the ranges are not confidence
 intervals. Loading checkpoints/data and compilation are outside phase timers.
 
-| Workload | Before | After | Median change |
+| Workload | Reference revision | Measured revision | Median change |
 | --- | ---: | ---: | ---: |
 | Request, initial position | 0.614 µs (0.608–0.620) | 0.632 µs (0.630–0.635) | +3.0% |
 | Request, middle game | 2.294 µs (2.282–2.298) | 2.375 µs (2.375–2.394) | +3.5% |
@@ -59,8 +60,8 @@ MCTS/perft are around 1.5% slower. Middle-game MCTS is essentially unchanged.
 Metal self-play varies substantially between repetitions; its lower median
 is not evidence of a general speedup. Optimization is 3.6% higher by the median,
 within overlapping observed ranges. Maximum resident memory increased by
-about 3.2 MiB. These observations do not support a literal zero-cost claim for
-the cleanup, nor do they establish a training-throughput regression.
+about 3.2 MiB. The observed CPU cost and memory differences are measurable;
+the Metal ranges do not establish a training-throughput regression.
 
 ## Observable behavior
 
@@ -71,11 +72,11 @@ across code versions and repetitions. The frozen training split contained
 
 Every optimizer metric at steps 100, 200, 300 and 400 matched exactly. The
 initial-position policy after 400 updates matched in its f32 bits, and the
-post-update value was identical. Perft still counted **21,323** six-ply paths.
+post-update value was identical. Perft counted **21,323** six-ply paths.
 The summary stores digests and per-run work counts.
 
 This is a bounded compatibility check on real self-play and optimization,
 complementing the rules/search/training tests. It is not an exhaustive proof
 for every state, and it does not measure the future 5×6 architecture. The
-separate fresh run demonstrates that this cleaned implementation can train a
-player stronger than the retained October reference.
+training baseline measures the accepted champion against a fixed opponent
+under its own independent evaluation protocol.

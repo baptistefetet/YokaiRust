@@ -16,10 +16,10 @@ and every public item documented.
   ownership, error handling and module boundaries, explained for a Rust beginner.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
-- [Training results](docs/training-results.md) — the champion, evaluation
-  protocol, generation results and limits of the measurements.
-- [Engine performance](docs/performance-results.md) — benchmark protocol and
-  measured CPU costs.
+- [Training results](docs/training-results.md) — the current champion,
+  training baseline and independent evaluation.
+- [Engine performance](docs/performance-results.md) — measured CPU and Metal
+  costs, compatibility checks and benchmark protocol.
 - [Next steps](docs/next-steps.md) — proposed priorities, their rationale and
   completion criteria for future work.
 - [Web build guide](web/README.md) — building and deploying the browser mode.

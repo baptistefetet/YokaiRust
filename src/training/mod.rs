@@ -3,7 +3,7 @@
 //! The training loop (self-play → replay buffer → optimization → arena →
 //! guarded promotion) and its vocabulary are explained step by step in
 //! `docs/alphazero-guide.md`; `docs/reading-guide.md` suggests a reading
-//! order through these modules for developers coming from C++.
+//! order through these modules for someone learning Rust.
 
 pub mod arena;
 pub mod config;

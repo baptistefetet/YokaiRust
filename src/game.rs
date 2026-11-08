@@ -248,7 +248,7 @@ impl Square {
 
 /// A complete player decision: either move a board piece or drop a hand piece.
 ///
-/// This domain type is shared by rules, replays, search and the future UI. The
+/// This domain type is shared by rules, replays, search and the interfaces. The
 /// neural network uses [`crate::PolicyIndex`] only as a derived representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -738,7 +738,7 @@ pub enum MoveError {
 }
 
 /// A game adds history-dependent rules (currently repetition) around a compact
-/// `Position`. `Position` stays cheap to copy for future tree search.
+/// `Position`. `Position` stays cheap to copy during tree search.
 #[derive(Clone, Debug)]
 pub struct Game {
     position: Position,

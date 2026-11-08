@@ -3,8 +3,8 @@
 //! One convolutional trunk extracts shared board features. Two heads then ask
 //! different questions: the policy head returns one logit per encoded action,
 //! while the WDL (Win / Draw / Loss) head returns three outcome logits. Burn's
-//! `Tensor<B, 4>` is a rank-four tensor on backend `B`, analogous to a C++
-//! template parameter constrained by the [`Backend`] trait.
+//! `Tensor<B, 4>` is a four-dimensional tensor. The type parameter `B` selects
+//! a computation backend implementing the [`Backend`] trait.
 //!
 //! A note on [`BatchNorm`]: Burn switches its behavior with the backend type —
 //! batch statistics while training (autodiff backend), stored running

@@ -53,3 +53,25 @@ The stronger material validation was also checked against the retained active
 buffer: 204,348 example positions and 7,482 non-empty restart-history positions
 in 4,864 games satisfy the two-piece limit for each physical kind. Kodama and
 promoted Kodama count together. No stored data or checkpoint was rewritten.
+
+## Shared board-move traversal — November 8, 2026
+
+The cleanup replaces the duplicated enumeration and existence-check loops with
+one lazy traversal, and shares movement geometry with attack detection. The
+comparison uses `d8d138d` before and `46b5448` after, on Apple M4 Max with Rust
+1.97.1 and the same command, iteration counts and five-sample protocol above.
+The perft result remains 21,323. These are medians from one before/after pair:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| Evaluation request, initial | 0.602 µs | 0.621 µs |
+| Evaluation request, middle | 2.335 µs | 2.409 µs |
+| Perft, initial, depth 6 | 7.154 ms | 7.576 ms |
+| MCTS, initial | 0.378 ms | 0.391 ms |
+| MCTS, middle | 0.458 ms | 0.477 ms |
+
+The observed medians are 3–6% higher; this refactor makes no speedup claim.
+One sequential pair does not separate a small implementation cost from machine
+load or frequency changes. The change is retained to share rule traversal;
+repeated interleaved measurements would be needed to characterize its cost.
+These CPU timings do not measure neural inference or Metal self-play.

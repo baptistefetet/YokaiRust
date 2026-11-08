@@ -3,7 +3,9 @@
 The web application is a presentation layer around the Rust engine. The rules,
 game history, neural encoder, champion inference and MCTS all run in WebAssembly
 inside a Web Worker. JavaScript only renders Rust snapshots with Phaser and
-submits actions chosen by the player.
+submits actions chosen by the player. Board dimensions come from Rust snapshots.
+The browser uses the same `NetworkEvaluator` and `ModelMetadata` as native
+clients; its asynchronous search awaits tensor readback.
 
 The generated site has no API and no server-side runtime. It tries WebGPU first
 and automatically loads the Burn Flex CPU build when WebGPU is unavailable.
@@ -64,3 +66,17 @@ If Rust is not installed on the web server, download the web archive from the
 [latest GitHub Release](https://github.com/baptistefetet/YokaiRust/releases/latest)
 and extract it into the HTTPS document root. All generated JavaScript,
 WebAssembly and champion files are included; no build step runs on the server.
+
+## Source and verification
+
+Edit `web/crate/src/lib.rs` for the browser adapter and `web/static/` for
+presentation. `web/generated/` and `web/dist/` contain generated artifacts;
+editing generated `yokai_web.js` bindings will not change their Rust source.
+
+Before release, compile both WASM backends (the CI does this separately), run
+`./web/scripts/build.sh`, then serve `web/dist/` locally. Verify initial loading,
+a human move and AI reply, captures/drops, game completion and reset. Inspect a
+mobile viewport as well as desktop. Exercise the Flex module explicitly even
+when WebGPU is available; successful fallback alone does not validate WebGPU.
+Check the browser console and failed requests, and ensure the release contains
+both WASM modules, model bytes, metadata and static assets.

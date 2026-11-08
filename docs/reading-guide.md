@@ -20,7 +20,8 @@ programming language is required.
 6. [`search/mod.rs`](../src/search/mod.rs): PUCT and the contiguous node arena; its
    executable specification is [`tests/search.rs`](../tests/search.rs).
 7. [`neural.rs`](../src/neural.rs) and the `neural/` directory: canonical input,
-   residual network, checkpoints and batched inference.
+   residual network, shared inference and model metadata; native checkpoints
+   add filesystem storage around that metadata.
 8. [`training/data.rs`](../src/training/data.rs): supervised examples and the
    rolling replay buffer.
 9. [`training/trainer.rs`](../src/training/trainer.rs): losses and optimization.
@@ -74,6 +75,8 @@ hands, then computes captures, promotion and decisive wins. Both `Game::apply`
 and the repetition preview call it after checking legality. Only `Game` consults
 the earlier positions to detect a draw. Previewing a move therefore needs no
 temporary history or repetition map, and the movement rules live in one place.
+A lazy board-move traversal serves both full enumeration and the early-exit
+check for whether any move exists.
 
 Large neural models are moved into an `InferenceService`. Worker games only
 clone an `InferenceClient`, a small handle used to send prediction requests to
@@ -114,11 +117,11 @@ valid Yokai position. Recoverable runtime failures use `Result` instead.
 The following boundaries connect the rules, network and interfaces:
 
 - `Position` stores absolute board orientation.
-- Neural encoding alone canonicalizes the player-to-move perspective.
+- Policy mapping and neural encoding share the player-to-move orientation.
 - `Game` owns repetition history and the official outcome.
 - `Action` is the UI, replay and engine move type.
 - `PolicyIndex` is only the neural representation of an action.
-- Illegal policy logits are masked before probabilities reach MCTS.
+- MCTS selects legal policy probabilities and renormalizes them before expansion.
 - Repetition contempt changes self-play search, never official outcomes.
 
 These boundaries let the Ratatui layer (`src/ui.rs`) render a `Game`, submit an
@@ -137,30 +140,37 @@ child back to its parent changes player, so backpropagation negates the value at
 each level. Consequently PUCT reads a child's value as `-child.mean_value()`.
 The sign convention is tested explicitly in `tests/search.rs`.
 
-## Reading one training generation
+The root retains the complete position history. Reuse requires either that
+exact history or its extension by the action just played. A different path
+resets the tree, even when it reaches the same board: repetition and the neural
+history would otherwise make old evaluations invalid.
 
-For a new attempt, `run_generation_with_progress` in `training/pipeline.rs`
-performs these steps:
+## Following the native and browser paths
 
-1. load the accepted champion and record the attempt's configuration;
-2. generate self-play and persist replays;
-3. split whole trajectory families between training and validation, keeping
-   restarts with their source family;
-4. restore the trainable weights and Adam moments, then apply a fixed number of
-   sampled mini-batch updates;
-5. save the candidate without changing the champion;
-6. `run_official_arena` against the champion;
-7. `run_exploratory_diagnostic`, a noisy self-play draw-rate probe;
-8. save the decision report, then publish the candidate only when the strength
-   and exploratory checks pass.
+`NetworkEvaluator` in `neural/evaluator.rs` prepares tensors, runs the network
+and decodes policy/WDL probabilities. Native search uses its synchronous
+`Evaluator` implementation. Browser search uses `AsyncEvaluator` to await the
+GPU readback. Both call the same prediction and decoding code; an evaluator
+only needs the trait required by its search entry point.
 
-The journal also lets an interrupted attempt reuse completed self-play and a
-saved candidate. See [One generation](alphazero-guide.md#one-generation) for
-the persistence boundaries, and [Training results](training-results.md) for
-examples of accepted and rejected candidates.
+`EvaluationRequest::from_game` collects recent positions and action-specific
+repetition counts. The recorder and encoder use the same helpers, so training
+and inference agree about historical context. The cache key includes that
+context: identical boards can still need different predictions.
 
-Progress is represented as the `TrainingProgress` enum. The pipeline emits data;
-`main.rs` decides how to print it.
+`ModelMetadata` in `neural/metadata.rs` is shared by native and browser loaders.
+It rejects incompatible formats, encoders, rules, policy widths and empty
+network layers before loading weights. `checkpoint.rs` adds native file I/O and
+optimizer persistence; the browser adapter loads exported bytes.
+
+The rules define board dimensions. Tensors and terminal layout derive their
+sizes from those constants; browser snapshots carry rows and columns for
+JavaScript. Policy width derives from the board, movement directions and hand
+piece list. These are still the fixed 3×4 rules and model representation.
+
+For the complete learning sequence and persistence boundaries, follow
+[One generation](alphazero-guide.md#one-generation) alongside
+`training/pipeline.rs`. It emits `TrainingProgress` data; `main.rs` formats it.
 
 ## Why the training code is split into modules
 
@@ -175,8 +185,9 @@ The module boundaries are dependency boundaries, not arbitrary file sizes:
 - `main.rs` owns command-line input and textual output, not training policy.
 
 `Evaluator` is usually used through a generic type parameter. For example,
-`Mcts<E>` can work with any type `E` that implements `Evaluator`. The compiler
-produces code for the concrete evaluator types used by the program; this is
+`Mcts<E>::search` requires `Evaluator`, while `search_async` requires
+`AsyncEvaluator`; construction and tree management need neither trait. The
+compiler produces code for the concrete evaluator types used by the program; this is
 called monomorphization. The search algorithm can therefore be reused without
 choosing an evaluator implementation at each call during execution.
 
@@ -186,11 +197,6 @@ clients send requests through channels, which transfer messages between threads.
 When the service is dropped, Rust calls its `Drop` implementation. That code
 requests shutdown and waits for the worker to finish, tying thread cleanup to
 the lifetime of the owning value.
-
-`TrainingProgress` is an enum whose variants carry different data, such as a
-count of completed games or a set of training metrics. `pipeline.rs` produces
-these events and `main.rs` handles them with an exhaustive `match`. Adding a new
-variant makes the compiler identify the matches that need another branch.
 
 ## Safe modification workflow
 
@@ -222,15 +228,18 @@ For CPU rules and search timings without a GPU or saved model, run:
 cargo bench --no-default-features --bench engine -- all
 ```
 
-Replace `all` with `request`, `perft`, or `mcts` to select cases. These use fixed
-initial and middle-game positions, five timed samples after warm-up, and report
-the median plus minimum and maximum nanoseconds per operation. Set
-`YOKAI_BENCH_ITERATIONS` to override the iterations per sample. The MCTS cases
-create a fresh tree for each 200-simulation search, with batches of eight and
-uniform leaf evaluation. The perft case counts legal move sequences reaching
-exactly six plies, including the normal repetition rules; games ending earlier
-contribute zero. Compare release measurements on the same otherwise idle machine
-and keep the compiler version, command and output with the result.
+Replace `all` with `request`, `perft`, or `mcts` to select cases. The protocol
+and measurements live in [Engine performance](performance-results.md).
 
-The [engine performance measurements](performance-results.md) record the
-baseline and the effect of sharing the position transition.
+The CI also checks both browser backends separately. `flex` and `webgpu` are
+mutually exclusive, so a workspace-wide `--all-features` is not suitable:
+
+```bash
+cargo clippy --locked -p yokai-web --target wasm32-unknown-unknown --no-default-features --features flex -- -D warnings
+cargo clippy --locked -p yokai-web --target wasm32-unknown-unknown --no-default-features --features webgpu -- -D warnings
+```
+
+After web changes, follow the [web build and smoke-test workflow](../web/README.md).
+The Metal training-state round-trip test is a separate diagnostic, run with
+`cargo test --test neural metal_training_state_round_trip_runs_one_real_update -- --ignored --exact`.
+It needs access to a real GPU and is not a regression gate.

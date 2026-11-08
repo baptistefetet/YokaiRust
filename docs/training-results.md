@@ -183,6 +183,26 @@ reconstruct missing ancestry; an experiment requiring a clean validation split
 needs a fresh self-play directory. The strength arenas generate their own
 openings independently of that split.
 
+## Compatibility after the 3×4 cleanup — November 8, 2026
+
+The cleanup retains accepted generation 21 without retraining or changing
+`latest`. Model format 5, encoder version 4, rules version 1 and the 132-slot
+policy remain unchanged. Historical strength results above still describe this
+checkpoint; the cleanup does not establish a new strength improvement.
+
+A one-off CPU comparison recorded raw policy/WDL float bits and complete MCTS
+results before sharing inference code, then repeated it after source commit
+`46b5448`. It used generation 21, seed 42, 64 simulations and batches of eight,
+starting one game from each absolute player and stopping at game end or 24
+plies. All 28 visited positions matched exactly. This is a bounded compatibility
+check, not an exhaustive proof or a strength arena.
+
+Browser checks exercised the rebuilt WebGPU worker through three completed
+games (30 plies, 14 captures and three drops), then the Flex module explicitly
+through a completed game (eight plies, three captures and one drop). Reset and
+rejection of invalid network dimensions also passed. Desktop/mobile rendering
+and a human move with an AI reply were inspected separately.
+
 ## Checkpoints and reports
 
 Paths are configured in `config/training.toml`:

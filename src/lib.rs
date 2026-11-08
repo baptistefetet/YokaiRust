@@ -8,8 +8,8 @@
 //! readable Rust and `AlphaZero` learning project, not only an executable engine.
 //!
 //! Two companion documents live in `docs/` at the repository root:
-//! `reading-guide.md` proposes a reading order and a C++-to-Rust translation
-//! table, and `alphazero-guide.md` explains every machine-learning concept
+//! `reading-guide.md` explains the Rust types and module boundaries,
+//! and `alphazero-guide.md` explains the machine-learning concepts
 //! the code relies on.
 
 #![warn(missing_docs)]

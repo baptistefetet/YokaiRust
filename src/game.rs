@@ -553,25 +553,7 @@ impl Position {
         actions.clear();
         actions.reserve(32);
 
-        for from in Square::ALL {
-            let Some(piece) = self.piece_at(from) else {
-                continue;
-            };
-            if piece.owner != self.side_to_move {
-                continue;
-            }
-
-            for &(relative_row, relative_column) in movement_offsets(piece.kind) {
-                let row_delta = relative_row * piece.owner.forward_delta();
-                let Some(to) = from.offset(row_delta, relative_column) else {
-                    continue;
-                };
-                let action = Action::Move { from, to };
-                if self.is_legal_action(action) {
-                    actions.push(action);
-                }
-            }
-        }
+        actions.extend(self.legal_board_moves());
 
         for hand_piece in HandPiece::ALL {
             if self.hand_count(self.side_to_move, hand_piece) == 0 {
@@ -599,26 +581,32 @@ impl Position {
     /// Checks whether at least one legal move or drop exists without allocating.
     #[must_use]
     pub fn has_legal_action(&self) -> bool {
-        for from in Square::ALL {
-            let Some(piece) = self.piece_at(from) else {
-                continue;
-            };
-            if piece.owner != self.side_to_move {
-                continue;
-            }
-            for &(relative_row, relative_column) in movement_offsets(piece.kind) {
-                let row_delta = relative_row * piece.owner.forward_delta();
-                if let Some(to) = from.offset(row_delta, relative_column)
-                    && self.is_legal_board_move(from, to)
-                {
-                    return true;
-                }
-            }
+        if self.legal_board_moves().next().is_some() {
+            return true;
         }
 
         HandPiece::ALL.iter().any(|&piece| {
             self.hand_count(self.side_to_move, piece) > 0 && self.board.iter().any(Option::is_none)
         })
+    }
+
+    // This lazy traversal supports both complete enumeration and early exit.
+    fn legal_board_moves(&self) -> impl Iterator<Item = Action> + '_ {
+        Square::ALL
+            .into_iter()
+            .filter_map(move |from| {
+                let piece = self.piece_at(from)?;
+                (piece.owner == self.side_to_move).then_some((from, piece))
+            })
+            .flat_map(move |(from, piece)| {
+                movement_offsets(piece.kind)
+                    .iter()
+                    .filter_map(move |&(row, column)| {
+                        let to = from.offset(row * piece.owner.forward_delta(), column)?;
+                        self.is_legal_board_move(from, to)
+                            .then_some(Action::Move { from, to })
+                    })
+            })
     }
 
     /// Applies a previously checked action without allocating game history.
@@ -703,13 +691,7 @@ impl Position {
             return false;
         }
 
-        let absolute_row = i16::from(to.row()) - i16::from(from.row());
-        let column = i16::from(to.column()) - i16::from(from.column());
-        let relative_row = absolute_row * i16::from(piece.owner.forward_delta());
-        let movement_matches = movement_offsets(piece.kind)
-            .iter()
-            .any(|&(row, col)| i16::from(row) == relative_row && i16::from(col) == column);
-        if !movement_matches {
+        if !matches_movement(piece, from, to) {
             return false;
         }
 
@@ -962,11 +944,15 @@ fn square_is_attacked(
             return false;
         }
 
-        let absolute_row = i16::from(target.row()) - i16::from(from.row());
-        let column = i16::from(target.column()) - i16::from(from.column());
-        let relative_row = absolute_row * i16::from(piece.owner.forward_delta());
-        movement_offsets(piece.kind)
-            .iter()
-            .any(|&(row, col)| i16::from(row) == relative_row && i16::from(col) == column)
+        matches_movement(piece, from, target)
     })
+}
+
+fn matches_movement(piece: Piece, from: Square, to: Square) -> bool {
+    let absolute_row = i16::from(to.row()) - i16::from(from.row());
+    let column = i16::from(to.column()) - i16::from(from.column());
+    let relative_row = absolute_row * i16::from(piece.owner.forward_delta());
+    movement_offsets(piece.kind)
+        .iter()
+        .any(|&(row, col)| i16::from(row) == relative_row && i16::from(col) == column)
 }

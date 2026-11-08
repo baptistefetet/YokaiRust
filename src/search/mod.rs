@@ -945,22 +945,8 @@ fn validate_config(config: SearchConfig) -> Result<(), SearchError> {
             "Dirichlet weight must be between zero and one",
         ));
     }
-    if !config.repetition_contempt.is_finite() || !(0.0..=1.0).contains(&config.repetition_contempt)
-    {
-        return Err(SearchError::InvalidConfiguration(
-            "repetition contempt must be finite and between zero and one",
-        ));
-    }
-    if !config.starter_draw_value.is_finite() || !(0.0..1.0).contains(&config.starter_draw_value) {
-        return Err(SearchError::InvalidConfiguration(
-            "starter draw value must be finite and in [0, 1)",
-        ));
-    }
-    if config.repetition_contempt > 0.0 && config.starter_draw_value > 0.0 {
-        return Err(SearchError::InvalidConfiguration(
-            "repetition contempt and starter draw value are mutually exclusive",
-        ));
-    }
+    validate_draw_values(config.repetition_contempt, config.starter_draw_value)
+        .map_err(SearchError::InvalidConfiguration)?;
     if matches!(
         config.leaf_evaluation,
         LeafEvaluation::RandomRollout { max_plies: 0 }
@@ -968,6 +954,23 @@ fn validate_config(config: SearchConfig) -> Result<(), SearchError> {
         return Err(SearchError::InvalidConfiguration(
             "random rollout limit must be greater than zero",
         ));
+    }
+    Ok(())
+}
+
+/// Shared bounds for standalone search and native training configuration.
+pub(crate) fn validate_draw_values(
+    repetition_contempt: f32,
+    starter_draw_value: f32,
+) -> Result<(), &'static str> {
+    if !repetition_contempt.is_finite() || !(0.0..=1.0).contains(&repetition_contempt) {
+        return Err("repetition_contempt must be finite and between zero and one");
+    }
+    if !starter_draw_value.is_finite() || !(0.0..1.0).contains(&starter_draw_value) {
+        return Err("starter_draw_value must be finite and in [0, 1)");
+    }
+    if repetition_contempt > 0.0 && starter_draw_value > 0.0 {
+        return Err("repetition_contempt and starter_draw_value are mutually exclusive");
     }
     Ok(())
 }

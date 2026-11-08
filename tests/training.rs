@@ -704,6 +704,113 @@ fn checked_in_training_configuration_loads_and_validates() {
 }
 
 #[test]
+fn training_toml_rejects_unknown_fields_in_nested_sections() {
+    let source = fs::read_to_string("config/training.toml").unwrap();
+    let root = std::env::temp_dir().join(format!("yokai-config-typos-{}", std::process::id()));
+    fs::create_dir(&root).unwrap();
+    let path = root.join("training.toml");
+    for header in [
+        "",
+        "[network]\n",
+        "[self_play]\n",
+        "[self_play.bootstrap]\n",
+        "[optimization]\n",
+        "[[optimization.learning_rate_schedule]]\n",
+        "[optimization.terminal_window_schedule]\n",
+        "[optimization.replay_buffer]\n",
+        "[arena]\n",
+        "[paths]\n",
+    ] {
+        let modified = source.replacen(header, &format!("{header}unknown_setting = 1\n"), 1);
+        fs::write(&path, modified).unwrap();
+        let error = TrainingConfig::load(&path).unwrap_err();
+        assert!(
+            matches!(error, TrainingConfigError::UnknownFields(_)),
+            "{header}: {error}"
+        );
+        assert!(
+            error.to_string().contains("unknown_setting"),
+            "{header}: {error}"
+        );
+    }
+    fs::write(
+        &path,
+        source.replace("restart_simulations", "restart_simulation"),
+    )
+    .unwrap();
+    let error = TrainingConfig::load(&path).unwrap_err();
+    assert!(
+        error.to_string().contains("self_play.restart_simulation"),
+        "{error}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_configuration_still_accepts_historical_fields() {
+    let config = test_config();
+    let mut json = serde_json::to_value(&config).unwrap();
+    json["retired_setting"] = serde_json::json!(true);
+    json["self_play"]["retired_setting"] = serde_json::json!(true);
+    json["network"]["retired_setting"] = serde_json::json!(true);
+    let decoded: TrainingConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(decoded, config);
+    decoded.validate().unwrap();
+}
+
+#[test]
+fn training_validation_identifies_fields_and_shares_search_draw_bounds() {
+    let mut config = test_config();
+    config.arena.search_batch_size = 0;
+    assert!(
+        config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("arena.search_batch_size")
+    );
+    config.arena.search_batch_size = 1;
+    config.optimization.validation_interval_steps = config.optimization.steps_per_generation + 1;
+    assert!(
+        config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("optimization.validation_interval_steps")
+    );
+    config.optimization.validation_interval_steps = 1;
+    config.optimization.terminal_window_schedule = Some(TerminalWindowSchedule {
+        initial_plies: 1,
+        growth_factor: 1,
+        decisive_fraction: 0.0,
+        full_dataset_generation: 2,
+    });
+    config
+        .validate()
+        .expect("zero tail fraction preserves the full dataset");
+    for (contempt, starter, valid) in [
+        (0.0, 0.0, true),
+        (1.0, 0.0, true),
+        (0.0, 0.99, true),
+        (-0.1, 0.0, false),
+        (0.0, 1.0, false),
+        (0.5, 0.5, false),
+        (f32::NAN, 0.0, false),
+        (0.0, f32::INFINITY, false),
+    ] {
+        config.self_play.repetition_contempt = contempt;
+        config.self_play.starter_draw_value = starter;
+        assert_eq!(config.validate().is_ok(), valid);
+        let search = SearchConfig {
+            repetition_contempt: contempt,
+            starter_draw_value: starter,
+            ..SearchConfig::default()
+        };
+        assert_eq!(Mcts::new(UniformEvaluator, search, 42).is_ok(), valid);
+    }
+}
+
+#[test]
 fn config_validation_rejects_out_of_range_values() {
     let mut invalid = test_config();
     invalid.arena.games = 3;

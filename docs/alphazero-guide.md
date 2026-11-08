@@ -265,7 +265,10 @@ after a rejection because the replay buffer grew and its random seed changed.
 Promotion checks both playing strength and the draw rate in noisy self-play.
 
 A `pending-generation.json` journal reserves the attempt and snapshots its
-configuration. Self-play is reused after an interruption; once candidate
+configuration. Loading a user TOML rejects unknown keys, including nested ones,
+and identifies invalid settings by field name. Journal JSON keeps its existing
+compatibility rules so historical fields can still be read.
+Self-play is reused after an interruption; once candidate
 weights exist, optimization metrics and weights are reused too. Arena and
 productivity checks may run again. The completed decision report is written
 before `latest`: if publishing the pointer fails, restarting finishes that

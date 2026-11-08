@@ -5,7 +5,9 @@ use std::{fs, io, path::Path};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{AlphaZeroNetworkConfig, ReplayBufferConfig, SelfPlayEvaluator};
+use crate::{
+    AlphaZeroNetworkConfig, ReplayBufferConfig, SelfPlayEvaluator, search::validate_draw_values,
+};
 
 /// Burn execution backend selected by the training configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -149,7 +151,8 @@ pub struct TerminalWindowSchedule {
     pub initial_plies: usize,
     /// Multiplicative window growth applied after each generation.
     pub growth_factor: usize,
-    /// Desired fraction of training samples belonging to the decisive tail.
+    /// Desired fraction in `[0, 1)` of training samples belonging to the decisive tail.
+    /// Zero adds no extra tail samples.
     pub decisive_fraction: f32,
     /// This generation and all later ones use the complete replay buffer.
     pub full_dataset_generation: u32,
@@ -266,13 +269,24 @@ const fn default_non_starter_draw_policy_weight() -> f32 {
 }
 
 impl TrainingConfig {
-    /// Loads and validates a TOML training configuration.
+    /// Loads and validates a TOML training configuration, rejecting unknown keys.
+    ///
+    /// Strictness applies here, at the user-input boundary. JSON journals retain
+    /// ordinary Serde compatibility with fields from older configurations.
     ///
     /// # Errors
     ///
     /// Returns [`TrainingConfigError`] on I/O, TOML, or semantic errors.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, TrainingConfigError> {
-        let config: Self = toml::from_str(&fs::read_to_string(path)?)?;
+        let source = fs::read_to_string(path)?;
+        let mut unknown = Vec::new();
+        let config: Self =
+            serde_ignored::deserialize(toml::de::Deserializer::parse(&source)?, |path| {
+                unknown.push(path.to_string())
+            })?;
+        if !unknown.is_empty() {
+            return Err(TrainingConfigError::UnknownFields(unknown.join(", ")));
+        }
         config.validate()?;
         Ok(config)
     }
@@ -282,187 +296,220 @@ impl TrainingConfig {
     /// # Errors
     ///
     /// Returns [`TrainingConfigError::Invalid`] with a focused diagnostic.
-    #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> Result<(), TrainingConfigError> {
-        if self.network.filters == 0
-            || self.network.residual_blocks == 0
-            || self.network.shared_hidden == 0
-            || self.network.value_hidden == 0
-        {
-            return Err(TrainingConfigError::Invalid(
-                "network dimensions must be positive",
-            ));
-        }
-        if self.self_play.games_per_generation == 0
-            || self.self_play.workers == 0
-            || self.self_play.simulations == 0
-            || self.self_play.search_batch_size == 0
-            || self.self_play.max_game_plies == 0
-            || self.self_play.inference_batch_size == 0
-        {
-            return Err(TrainingConfigError::Invalid(
-                "self-play counts and limits must be positive",
-            ));
-        }
-        for temperature in [
-            self.self_play.exploration_temperature,
-            self.self_play.final_temperature,
+        for (positive, message) in [
+            (self.network.filters > 0, "network.filters must be positive"),
+            (
+                self.network.residual_blocks > 0,
+                "network.residual_blocks must be positive",
+            ),
+            (
+                self.network.shared_hidden > 0,
+                "network.shared_hidden must be positive",
+            ),
+            (
+                self.network.value_hidden > 0,
+                "network.value_hidden must be positive",
+            ),
+            (
+                self.self_play.games_per_generation > 0,
+                "self_play.games_per_generation must be positive",
+            ),
+            (
+                self.self_play.workers > 0,
+                "self_play.workers must be positive",
+            ),
+            (
+                self.self_play.simulations > 0,
+                "self_play.simulations must be positive",
+            ),
+            (
+                self.self_play.search_batch_size > 0,
+                "self_play.search_batch_size must be positive",
+            ),
+            (
+                self.self_play.max_game_plies > 0,
+                "self_play.max_game_plies must be positive",
+            ),
+            (
+                self.self_play.inference_batch_size > 0,
+                "self_play.inference_batch_size must be positive",
+            ),
+            (
+                self.self_play.bootstrap.rollout_max_plies > 0,
+                "self_play.bootstrap.rollout_max_plies must be positive",
+            ),
+            (
+                self.optimization.steps_per_generation > 0,
+                "optimization.steps_per_generation must be positive",
+            ),
+            (
+                self.optimization.validation_interval_steps > 0,
+                "optimization.validation_interval_steps must be positive",
+            ),
+            (
+                self.optimization.batch_size > 0,
+                "optimization.batch_size must be positive",
+            ),
+            (
+                self.optimization.replay_buffer.max_games > 0,
+                "optimization.replay_buffer.max_games must be positive",
+            ),
+            (
+                self.optimization.replay_buffer.generations_to_keep > 0,
+                "optimization.replay_buffer.generations_to_keep must be positive",
+            ),
+            (self.arena.workers > 0, "arena.workers must be positive"),
+            (
+                self.arena.simulations > 0,
+                "arena.simulations must be positive",
+            ),
+            (
+                self.arena.search_batch_size > 0,
+                "arena.search_batch_size must be positive",
+            ),
+            (
+                self.arena.candidate_self_play_games > 0,
+                "arena.candidate_self_play_games must be positive",
+            ),
         ] {
-            if !temperature.is_finite() || temperature < 0.0 {
-                return Err(TrainingConfigError::Invalid(
-                    "self-play temperatures must be finite and non-negative",
-                ));
-            }
+            ensure(positive, message)?;
         }
-        if !self.self_play.repetition_contempt.is_finite()
-            || !(0.0..=1.0).contains(&self.self_play.repetition_contempt)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "self-play repetition contempt must be finite and in [0, 1]",
-            ));
-        }
-        if !self.self_play.starter_draw_value.is_finite()
-            || !(0.0..1.0).contains(&self.self_play.starter_draw_value)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "self-play starter draw value must be finite and in [0, 1)",
-            ));
-        }
-        if self.self_play.repetition_contempt > 0.0 && self.self_play.starter_draw_value > 0.0 {
-            return Err(TrainingConfigError::Invalid(
-                "self-play repetition contempt and starter draw value are mutually exclusive",
-            ));
-        }
-        if !self.self_play.restart_fraction.is_finite()
-            || !(0.0..=1.0).contains(&self.self_play.restart_fraction)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "self-play restart fraction must be finite and in [0, 1]",
-            ));
-        }
-        if self
-            .self_play
-            .restart_simulations
-            .is_some_and(|simulations| simulations < self.self_play.simulations)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "restart simulations must be at least the regular self-play budget",
-            ));
-        }
-        if self.self_play.bootstrap.rollout_max_plies == 0 {
-            return Err(TrainingConfigError::Invalid(
-                "self-play bootstrap rollout limit must be greater than zero",
-            ));
-        }
+        ensure(
+            self.self_play.exploration_temperature.is_finite()
+                && self.self_play.exploration_temperature >= 0.0,
+            "self_play.exploration_temperature must be finite and non-negative",
+        )?;
+        ensure(
+            self.self_play.final_temperature.is_finite() && self.self_play.final_temperature >= 0.0,
+            "self_play.final_temperature must be finite and non-negative",
+        )?;
+        validate_draw_values(
+            self.self_play.repetition_contempt,
+            self.self_play.starter_draw_value,
+        )
+        .map_err(TrainingConfigError::Invalid)?;
+        ensure(
+            self.self_play.restart_fraction.is_finite()
+                && (0.0..=1.0).contains(&self.self_play.restart_fraction),
+            "self_play.restart_fraction must be finite and in [0, 1]",
+        )?;
+        ensure(
+            self.self_play
+                .restart_simulations
+                .is_none_or(|budget| budget >= self.self_play.simulations),
+            "self_play.restart_simulations must be at least self_play.simulations",
+        )?;
         let optimization = &self.optimization;
-        if optimization.steps_per_generation == 0
-            || optimization.validation_interval_steps == 0
-            || optimization.validation_interval_steps > optimization.steps_per_generation
-            || optimization.batch_size == 0
-            || !optimization.learning_rate.is_finite()
-            || optimization.learning_rate <= 0.0
-            || !optimization.weight_decay.is_finite()
-            || optimization.weight_decay < 0.0
-        {
-            return Err(TrainingConfigError::Invalid(
-                "optimization steps, validation interval, learning rate and decay are invalid",
-            ));
-        }
+        ensure(
+            optimization.validation_interval_steps <= optimization.steps_per_generation,
+            "optimization.validation_interval_steps must not exceed optimization.steps_per_generation",
+        )?;
+        ensure(
+            optimization.learning_rate.is_finite() && optimization.learning_rate > 0.0,
+            "optimization.learning_rate must be finite and positive",
+        )?;
+        ensure(
+            optimization.weight_decay.is_finite() && optimization.weight_decay >= 0.0,
+            "optimization.weight_decay must be finite and non-negative",
+        )?;
         let mut previous_generation = 0;
         let mut previous_learning_rate = optimization.learning_rate;
         for stage in &optimization.learning_rate_schedule {
-            if stage.source_generation <= previous_generation
-                || !stage.learning_rate.is_finite()
-                || stage.learning_rate <= 0.0
-                || stage.learning_rate >= previous_learning_rate
-            {
-                return Err(TrainingConfigError::Invalid(
-                    "learning-rate stages require strictly increasing source generations and strictly decreasing positive rates",
-                ));
-            }
+            ensure(
+                stage.source_generation > previous_generation,
+                "optimization.learning_rate_schedule.source_generation must be positive and strictly increasing",
+            )?;
+            ensure(
+                stage.learning_rate.is_finite()
+                    && stage.learning_rate > 0.0
+                    && stage.learning_rate < previous_learning_rate,
+                "optimization.learning_rate_schedule.learning_rate must be finite, positive and strictly decreasing",
+            )?;
             previous_generation = stage.source_generation;
             previous_learning_rate = stage.learning_rate;
         }
-        if !optimization.validation_fraction.is_finite()
-            || !(0.0..1.0).contains(&optimization.validation_fraction)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "validation fraction must be in [0, 1)",
-            ));
-        }
-        if !optimization.non_starter_draw_policy_weight.is_finite()
-            || !(0.0..=1.0).contains(&optimization.non_starter_draw_policy_weight)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "non-starter draw policy weight must be in [0, 1]",
-            ));
-        }
-        if !optimization.scalar_value_loss_weight.is_finite()
-            || !(0.0..=1.0).contains(&optimization.scalar_value_loss_weight)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "scalar value loss weight must be in [0, 1]",
-            ));
-        }
+        ensure(
+            optimization.validation_fraction.is_finite()
+                && (0.0..1.0).contains(&optimization.validation_fraction),
+            "optimization.validation_fraction must be finite and in [0, 1)",
+        )?;
+        ensure(
+            optimization.non_starter_draw_policy_weight.is_finite()
+                && (0.0..=1.0).contains(&optimization.non_starter_draw_policy_weight),
+            "optimization.non_starter_draw_policy_weight must be finite and in [0, 1]",
+        )?;
+        ensure(
+            optimization.scalar_value_loss_weight.is_finite()
+                && (0.0..=1.0).contains(&optimization.scalar_value_loss_weight),
+            "optimization.scalar_value_loss_weight must be finite and in [0, 1]",
+        )?;
         validate_terminal_window(optimization)?;
-        if optimization.replay_buffer.max_games == 0
-            || optimization.replay_buffer.generations_to_keep == 0
-        {
-            return Err(TrainingConfigError::Invalid(
-                "replay buffer limits must be positive",
-            ));
-        }
-        // Two games is the technical minimum (one color-swapped pair). Real
-        // promotion decisions need a statistically meaningful sample; the
-        // checked-in configuration uses 200. The low floor exists so smoke
-        // tests and quick local experiments stay possible.
-        if self.arena.games < 2
-            || !self.arena.games.is_multiple_of(2)
-            || self.arena.workers == 0
-            || self.arena.simulations == 0
-            || self.arena.search_batch_size == 0
-            || self.arena.opening_plies >= self.self_play.max_game_plies
-            || self.arena.candidate_self_play_games == 0
-            || !self.arena.score_threshold.is_finite()
-            || !(0.5..=1.0).contains(&self.arena.score_threshold)
-            || !self.arena.max_candidate_self_play_draw_rate.is_finite()
-            || !(0.0..=1.0).contains(&self.arena.max_candidate_self_play_draw_rate)
-        {
-            return Err(TrainingConfigError::Invalid(
-                "arena requires a positive even game count, a bounded opening, simulations, and valid diagnostic thresholds",
-            ));
-        }
-        if self.paths.models.trim().is_empty() || self.paths.self_play.trim().is_empty() {
-            return Err(TrainingConfigError::Invalid(
-                "model and self-play paths cannot be empty",
-            ));
-        }
+        ensure(
+            self.arena.games >= 2 && self.arena.games.is_multiple_of(2),
+            "arena.games must be even and at least two",
+        )?;
+        ensure(
+            self.arena.opening_plies < self.self_play.max_game_plies,
+            "arena.opening_plies must be less than self_play.max_game_plies",
+        )?;
+        ensure(
+            self.arena.score_threshold.is_finite()
+                && (0.5..=1.0).contains(&self.arena.score_threshold),
+            "arena.score_threshold must be finite and in [0.5, 1]",
+        )?;
+        ensure(
+            self.arena.max_candidate_self_play_draw_rate.is_finite()
+                && (0.0..=1.0).contains(&self.arena.max_candidate_self_play_draw_rate),
+            "arena.max_candidate_self_play_draw_rate must be finite and in [0, 1]",
+        )?;
+        ensure(
+            !self.paths.models.trim().is_empty(),
+            "paths.models must not be empty",
+        )?;
+        ensure(
+            !self.paths.self_play.trim().is_empty(),
+            "paths.self_play must not be empty",
+        )?;
         Ok(())
     }
 }
 
-fn validate_terminal_window(optimization: &OptimizationConfig) -> Result<(), TrainingConfigError> {
-    if optimization.terminal_window_plies == Some(0) {
-        return Err(TrainingConfigError::Invalid(
-            "terminal training window must contain at least one ply",
-        ));
+fn ensure(condition: bool, message: &'static str) -> Result<(), TrainingConfigError> {
+    if condition {
+        Ok(())
+    } else {
+        Err(TrainingConfigError::Invalid(message))
     }
+}
+
+fn validate_terminal_window(optimization: &OptimizationConfig) -> Result<(), TrainingConfigError> {
+    ensure(
+        optimization.terminal_window_plies != Some(0),
+        "optimization.terminal_window_plies must be positive when set",
+    )?;
     if let Some(schedule) = optimization.terminal_window_schedule {
-        if optimization.terminal_window_plies.is_some() {
-            return Err(TrainingConfigError::Invalid(
-                "static and scheduled terminal windows cannot both be configured",
-            ));
-        }
-        if schedule.initial_plies == 0
-            || schedule.growth_factor == 0
-            || !schedule.decisive_fraction.is_finite()
-            || !(0.0..1.0).contains(&schedule.decisive_fraction)
-            || schedule.full_dataset_generation < 2
-        {
-            return Err(TrainingConfigError::Invalid(
-                "terminal window schedule requires positive sizes, a decisive fraction in (0, 1), and a full-dataset generation of at least two",
-            ));
-        }
+        ensure(
+            optimization.terminal_window_plies.is_none(),
+            "optimization.terminal_window_plies and terminal_window_schedule are mutually exclusive",
+        )?;
+        ensure(
+            schedule.initial_plies > 0,
+            "optimization.terminal_window_schedule.initial_plies must be positive",
+        )?;
+        ensure(
+            schedule.growth_factor > 0,
+            "optimization.terminal_window_schedule.growth_factor must be positive",
+        )?;
+        ensure(
+            schedule.decisive_fraction.is_finite()
+                && (0.0..1.0).contains(&schedule.decisive_fraction),
+            "optimization.terminal_window_schedule.decisive_fraction must be finite and in [0, 1)",
+        )?;
+        ensure(
+            schedule.full_dataset_generation >= 2,
+            "optimization.terminal_window_schedule.full_dataset_generation must be at least two",
+        )?;
     }
     Ok(())
 }
@@ -476,6 +523,9 @@ pub enum TrainingConfigError {
     /// Configuration text is not valid TOML for this schema.
     #[error("invalid training TOML: {0}")]
     Toml(#[from] toml::de::Error),
+    /// The user-supplied TOML contains misspelled or unsupported keys.
+    #[error("unknown training configuration field(s): {0}")]
+    UnknownFields(String),
     /// Values parse correctly but violate a cross-field invariant.
     #[error("invalid training configuration: {0}")]
     Invalid(&'static str),

@@ -13,85 +13,23 @@ use burn::{
     store::{ModuleSnapshot, SafetensorsStore},
     tensor::backend::AutodiffBackend,
 };
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    ENCODER_VERSION, POLICY_ACTIONS, RULES_VERSION,
-    neural::model::{AlphaZeroNetwork, AlphaZeroNetworkConfig},
+    neural::{metadata::ModelMetadataError, model::AlphaZeroNetwork},
     training::{
         config::OptimizationConfig,
         trainer::{AlphaZeroTrainingState, new_optimizer},
     },
 };
 
-pub use super::MODEL_FORMAT_VERSION;
+pub use super::{MODEL_FORMAT_VERSION, metadata::ModelMetadata};
 
 const MODEL_FILE: &str = "model.safetensors";
 const METADATA_FILE: &str = "metadata.json";
 const LATEST_FILE: &str = "latest";
 const TRAINING_MODEL_FILE: &str = "training-model";
 const OPTIMIZER_FILE: &str = "optimizer";
-
-/// Compatibility information stored alongside every set of weights.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelMetadata {
-    /// Checkpoint storage schema version.
-    pub format_version: u16,
-    /// Neural feature-encoder version expected by the weights.
-    pub encoder_version: u16,
-    /// Game rules version that generated the training data.
-    pub rules_version: u16,
-    /// Fixed width of the policy output layer.
-    pub policy_actions: usize,
-    /// Monotonic candidate generation identifier.
-    pub generation: u32,
-    /// Layer dimensions needed to reconstruct the Burn module before loading.
-    pub architecture: AlphaZeroNetworkConfig,
-}
-
-impl ModelMetadata {
-    /// Creates metadata populated with every current compatibility version.
-    #[must_use]
-    pub fn new(generation: u32, architecture: AlphaZeroNetworkConfig) -> Self {
-        Self {
-            format_version: MODEL_FORMAT_VERSION,
-            encoder_version: ENCODER_VERSION,
-            rules_version: RULES_VERSION,
-            policy_actions: POLICY_ACTIONS,
-            generation,
-            architecture,
-        }
-    }
-
-    fn validate(&self) -> Result<(), ModelStoreError> {
-        if self.format_version != MODEL_FORMAT_VERSION {
-            return Err(ModelStoreError::Incompatible(format!(
-                "model format {} is not supported (expected {})",
-                self.format_version, MODEL_FORMAT_VERSION
-            )));
-        }
-        if self.encoder_version != ENCODER_VERSION {
-            return Err(ModelStoreError::Incompatible(format!(
-                "encoder version {} does not match {}",
-                self.encoder_version, ENCODER_VERSION
-            )));
-        }
-        if self.rules_version != RULES_VERSION {
-            return Err(ModelStoreError::Incompatible(format!(
-                "rules version {} does not match {}",
-                self.rules_version, RULES_VERSION
-            )));
-        }
-        if self.policy_actions != POLICY_ACTIONS {
-            return Err(ModelStoreError::Incompatible(format!(
-                "policy width {} does not match {}",
-                self.policy_actions, POLICY_ACTIONS
-            )));
-        }
-        Ok(())
-    }
-}
 
 /// Checkpoint compatibility, persistence and publication failures.
 #[derive(Debug, Error)]
@@ -117,6 +55,12 @@ pub enum ModelStoreError {
     /// The `latest` champion pointer is absent or does not contain a generation.
     #[error("champion pointer is missing or invalid")]
     InvalidLatest,
+}
+
+impl From<ModelMetadataError> for ModelStoreError {
+    fn from(error: ModelMetadataError) -> Self {
+        Self::Incompatible(error.to_string())
+    }
 }
 
 /// Writes a complete generation and atomically makes its final directory
@@ -235,18 +179,7 @@ where
     B::InnerBackend: Backend<FloatElem = f32>,
 {
     let directory = generation_directory(root.as_ref(), generation);
-    if !directory.is_dir() {
-        return Err(ModelStoreError::GenerationMissing(generation));
-    }
-    let metadata: ModelMetadata =
-        serde_json::from_slice(&fs::read(directory.join(METADATA_FILE))?)?;
-    metadata.validate()?;
-    if metadata.generation != generation {
-        return Err(ModelStoreError::Incompatible(format!(
-            "directory generation {generation} contains generation {}",
-            metadata.generation
-        )));
-    }
+    let metadata = load_metadata(&directory, generation)?;
 
     let model_path = directory.join(format!("{TRAINING_MODEL_FILE}.bin"));
     let optimizer_path = directory.join(format!("{OPTIMIZER_FILE}.bin"));
@@ -290,18 +223,7 @@ pub fn load_generation<B: Backend>(
     device: &B::Device,
 ) -> Result<(AlphaZeroNetwork<B>, ModelMetadata), ModelStoreError> {
     let directory = generation_directory(root.as_ref(), generation);
-    if !directory.is_dir() {
-        return Err(ModelStoreError::GenerationMissing(generation));
-    }
-    let metadata: ModelMetadata =
-        serde_json::from_slice(&fs::read(directory.join(METADATA_FILE))?)?;
-    metadata.validate()?;
-    if metadata.generation != generation {
-        return Err(ModelStoreError::Incompatible(format!(
-            "directory generation {generation} contains generation {}",
-            metadata.generation
-        )));
-    }
+    let metadata = load_metadata(&directory, generation)?;
 
     let mut model = metadata.architecture.init::<B>(device);
     let mut store = SafetensorsStore::from_file(directory.join(MODEL_FILE));
@@ -403,4 +325,20 @@ fn publish_pointer(root: &Path, generation: u32) -> Result<(), ModelStoreError> 
 
 fn generation_directory(root: &Path, generation: u32) -> PathBuf {
     root.join(format!("generation-{generation:06}"))
+}
+
+fn load_metadata(directory: &Path, generation: u32) -> Result<ModelMetadata, ModelStoreError> {
+    if !directory.is_dir() {
+        return Err(ModelStoreError::GenerationMissing(generation));
+    }
+    let metadata: ModelMetadata =
+        serde_json::from_slice(&fs::read(directory.join(METADATA_FILE))?)?;
+    metadata.validate()?;
+    if metadata.generation != generation {
+        return Err(ModelStoreError::Incompatible(format!(
+            "directory generation {generation} contains generation {}",
+            metadata.generation
+        )));
+    }
+    Ok(metadata)
 }

@@ -4,12 +4,11 @@ use burn::{
     module::Module,
     record::{BinBytesRecorder, FullPrecisionSettings, Recorder},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use yokai::{
-    Action, AlphaZeroNetworkConfig, DrawReason, ENCODER_VERSION, Game, MODEL_FORMAT_VERSION, Mcts,
-    NetworkEvaluator, Outcome, POLICY_ACTIONS, Piece, Player, RULES_VERSION, SearchConfig,
-    SearchError, Transition, WinReason,
+    Action, DrawReason, Game, Mcts, ModelMetadata, NetworkEvaluator, Outcome, Piece, Player,
+    SearchConfig, SearchError, Transition, WinReason,
 };
 
 #[cfg(all(feature = "flex", feature = "webgpu"))]
@@ -28,33 +27,6 @@ type WebBackend = Wgpu<f32, i32>;
 type WebBackend = burn::backend::Flex<f32, i32>;
 
 const DEFAULT_SEED: u64 = 0x594f_4b41_4957_4542;
-
-#[derive(Debug, Deserialize)]
-struct WebModelMetadata {
-    format_version: u16,
-    encoder_version: u16,
-    rules_version: u16,
-    policy_actions: usize,
-    generation: u32,
-    architecture: AlphaZeroNetworkConfig,
-}
-
-impl WebModelMetadata {
-    fn validate(&self) -> Result<(), JsValue> {
-        let versions_match = self.format_version == MODEL_FORMAT_VERSION
-            && self.encoder_version == ENCODER_VERSION
-            && self.rules_version == RULES_VERSION
-            && self.policy_actions == POLICY_ACTIONS;
-        if versions_match {
-            Ok(())
-        } else {
-            Err(js_error(format!(
-                "incompatible model metadata (format={}, encoder={}, rules={}, policy={})",
-                self.format_version, self.encoder_version, self.rules_version, self.policy_actions
-            )))
-        }
-    }
-}
 
 #[derive(Serialize)]
 struct Snapshot<'a> {
@@ -217,9 +189,11 @@ pub async fn create_game(
     if simulations == 0 {
         return Err(js_error("simulations must be greater than zero"));
     }
-    let metadata: WebModelMetadata = serde_json::from_str(&metadata_json)
+    let metadata: ModelMetadata = serde_json::from_str(&metadata_json)
         .map_err(|error| js_error(format!("invalid model metadata: {error}")))?;
-    metadata.validate()?;
+    metadata
+        .validate()
+        .map_err(|error| js_error(format!("incompatible model: {error}")))?;
 
     initialize_backend().await;
 

@@ -38,15 +38,15 @@ pub use neural::{
     encode_game, encode_position, encode_position_with_history, encoded_batch_tensor,
     evaluator::NetworkEvaluator,
     global_batch_tensor,
+    metadata::{ModelMetadata, ModelMetadataError},
     model::{AlphaZeroNetwork, AlphaZeroNetworkConfig, NetworkOutput},
     policy_context_batch_tensor,
 };
 #[cfg(feature = "native")]
 pub use neural::{
     checkpoint::{
-        ModelMetadata, ModelStoreError, load_champion, load_generation, load_training_generation,
-        next_generation, publish_champion, save_generation, save_training_generation,
-        stored_generations,
+        ModelStoreError, load_champion, load_generation, load_training_generation, next_generation,
+        publish_champion, save_generation, save_training_generation, stored_generations,
     },
     evaluator::{CpuBackend, CpuTrainingBackend, MetalBackend, MetalTrainingBackend},
     service::{InferenceClient, InferenceService, InferenceServiceError, InferenceStats},

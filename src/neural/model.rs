@@ -24,9 +24,10 @@ use burn::{
     tensor::activation::relu,
 };
 
-use crate::{GLOBAL_INPUT_FEATURES, INPUT_PLANES, POLICY_ACTIONS, POLICY_CONTEXT_FEATURES};
+use crate::{
+    BOARD_SQUARES, GLOBAL_INPUT_FEATURES, INPUT_PLANES, POLICY_ACTIONS, POLICY_CONTEXT_FEATURES,
+};
 
-const BOARD_VALUES: usize = 12;
 /// Serializable architecture metadata stored next to every checkpoint.
 #[derive(Config, Debug, PartialEq, Eq)]
 pub struct AlphaZeroNetworkConfig {
@@ -77,7 +78,7 @@ impl AlphaZeroNetworkConfig {
             input_norm,
             residual_tower,
             shared_hidden: LinearConfig::new(
-                self.filters * BOARD_VALUES + GLOBAL_INPUT_FEATURES,
+                self.filters * BOARD_SQUARES + GLOBAL_INPUT_FEATURES,
                 self.shared_hidden,
             )
             .init(device),

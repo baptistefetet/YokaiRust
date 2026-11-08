@@ -5,8 +5,6 @@ const LAYOUT = {
     boardY: 130,
     boardWidth: 476,
     boardHeight: 638,
-    columns: 3,
-    rows: 4,
     squareWidth: 159,
     squareHeight: 159,
     characterSize: 128,
@@ -162,10 +160,10 @@ class GameScene extends Phaser.Scene {
         }
         const column = Math.floor(localX / (LAYOUT.squareWidth * this.scaleX));
         const row = Math.floor(localY / (LAYOUT.squareHeight * this.scaleY));
-        if (column >= LAYOUT.columns || row >= LAYOUT.rows) {
+        if (column >= this.state.columns || row >= this.state.rows) {
             return null;
         }
-        return { column, row, index: row * LAYOUT.columns + column };
+        return { column, row, index: row * this.state.columns + column };
     }
 
     handCenter(player, index) {
@@ -232,8 +230,8 @@ class GameScene extends Phaser.Scene {
     }
 
     makeBoardPiece(index, piece) {
-        const row = Math.floor(index / LAYOUT.columns);
-        const column = index % LAYOUT.columns;
+        const row = Math.floor(index / this.state.columns);
+        const column = index % this.state.columns;
         const position = this.toPixel(column, row);
         const sprite = this.add.sprite(
             position.x,
@@ -424,8 +422,8 @@ class GameScene extends Phaser.Scene {
 
     showActionTargets(actions, color) {
         for (const action of actions) {
-            const row = Math.floor(action.to / LAYOUT.columns);
-            const column = action.to % LAYOUT.columns;
+            const row = Math.floor(action.to / this.state.columns);
+            const column = action.to % this.state.columns;
             const center = this.toPixel(column, row);
             const highlight = this.add.rectangle(
                 center.x,
@@ -554,8 +552,8 @@ class GameScene extends Phaser.Scene {
         this.stopPulseAnimations();
         const action = response.action;
         const player = previousState.side_to_move;
-        const destinationRow = Math.floor(action.to / LAYOUT.columns);
-        const destinationColumn = action.to % LAYOUT.columns;
+        const destinationRow = Math.floor(action.to / this.state.columns);
+        const destinationColumn = action.to % this.state.columns;
         const destination = this.toPixel(destinationColumn, destinationRow);
         const capturedSprite = this.pieces.get(action.to) || null;
         let movingSprite;
@@ -574,7 +572,7 @@ class GameScene extends Phaser.Scene {
 
         if (!movingSprite) {
             const source = action.type === 'move'
-                ? this.toPixel(action.from % LAYOUT.columns, Math.floor(action.from / LAYOUT.columns))
+                ? this.toPixel(action.from % this.state.columns, Math.floor(action.from / this.state.columns))
                 : this.handCenter(player, 0);
             movingSprite = this.add.sprite(
                 source.x,

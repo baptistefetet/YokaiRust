@@ -164,27 +164,23 @@ pub struct Square(u8);
 impl<'de> Deserialize<'de> for Square {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let index = u8::deserialize(deserializer)?;
-        Self::from_index(index)
-            .ok_or_else(|| serde::de::Error::custom("square index must be in 0..12"))
+        Self::from_index(index).ok_or_else(|| {
+            serde::de::Error::custom(format!("square index must be in 0..{BOARD_SQUARES}"))
+        })
     }
 }
 
 impl Square {
     /// Every board square in row-major order.
-    pub const ALL: [Self; BOARD_SQUARES] = [
-        Self(0),
-        Self(1),
-        Self(2),
-        Self(3),
-        Self(4),
-        Self(5),
-        Self(6),
-        Self(7),
-        Self(8),
-        Self(9),
-        Self(10),
-        Self(11),
-    ];
+    pub const ALL: [Self; BOARD_SQUARES] = {
+        let mut squares = [Self(0); BOARD_SQUARES];
+        let mut index = 0;
+        while index < BOARD_SQUARES {
+            squares[index] = Self(index as u8);
+            index += 1;
+        }
+        squares
+    };
 
     /// Builds a square from zero-based absolute row and column coordinates.
     ///

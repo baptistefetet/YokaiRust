@@ -7,8 +7,8 @@ use burn::{
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use yokai::{
-    Action, DrawReason, Game, Mcts, ModelMetadata, NetworkEvaluator, Outcome, Piece, Player,
-    SearchConfig, SearchError, Transition, WinReason,
+    Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, Mcts, ModelMetadata,
+    NetworkEvaluator, Outcome, Piece, Player, SearchConfig, SearchError, Transition, WinReason,
 };
 
 #[cfg(all(feature = "flex", feature = "webgpu"))]
@@ -30,7 +30,9 @@ const DEFAULT_SEED: u64 = 0x594f_4b41_4957_4542;
 
 #[derive(Serialize)]
 struct Snapshot<'a> {
-    board: &'a [Option<Piece>; 12],
+    columns: u8,
+    rows: u8,
+    board: &'a [Option<Piece>; BOARD_SQUARES],
     hands: &'a [[u8; 3]; 2],
     side_to_move: Player,
     outcome: Outcome,
@@ -144,6 +146,8 @@ impl WebGame {
 impl WebGame {
     fn snapshot(&self) -> Snapshot<'_> {
         Snapshot {
+            columns: BOARD_WIDTH,
+            rows: BOARD_HEIGHT,
             board: self.game.position().board(),
             hands: self.game.position().hands(),
             side_to_move: self.game.position().side_to_move(),

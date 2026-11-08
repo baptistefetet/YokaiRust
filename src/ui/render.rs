@@ -10,8 +10,8 @@ use ratatui::{
     widgets::{Block, BorderType, Cell, Paragraph, Row, Table, Wrap},
 };
 use yokai::{
-    Action, ActionAnalysis, DrawReason, HandPiece, Outcome, Piece, PieceKind, Player, Square,
-    WinReason,
+    Action, ActionAnalysis, BOARD_HEIGHT, BOARD_WIDTH, DrawReason, HandPiece, Outcome, Piece,
+    PieceKind, Player, Square, WinReason,
 };
 
 use super::app::App;
@@ -128,7 +128,7 @@ pub(super) fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect, now: Ins
 pub(super) fn render_board_column(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
     let [second_hand, board, first_hand] = Layout::vertical([
         Constraint::Length(3),
-        Constraint::Length(12),
+        Constraint::Length(3 * u16::from(BOARD_HEIGHT)),
         Constraint::Length(3),
     ])
     .areas(area);
@@ -178,9 +178,12 @@ pub(super) fn render_hand(frame: &mut Frame<'_>, app: &App, player: Player, area
 }
 
 pub(super) fn render_board(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
-    let rows = Layout::vertical([Constraint::Length(3); 4]).split(area);
+    let rows = Layout::vertical([Constraint::Length(3); BOARD_HEIGHT as usize]).split(area);
     for (row, row_area) in rows.iter().enumerate() {
-        let columns = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(*row_area);
+        let columns = Layout::horizontal(
+            [Constraint::Ratio(1, u32::from(BOARD_WIDTH)); BOARD_WIDTH as usize],
+        )
+        .split(*row_area);
         for (column, &cell_area) in columns.iter().enumerate() {
             let row = u8::try_from(row).expect("board row fits in u8");
             let column = u8::try_from(column).expect("board column fits in u8");

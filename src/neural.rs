@@ -96,7 +96,15 @@ pub fn encoded_batch_tensor<B: Backend>(
         .flat_map(|position| position.values.iter().copied())
         .collect::<Vec<_>>();
     Tensor::from_data(
-        TensorData::new(values, [positions.len(), INPUT_PLANES, 4, 3]),
+        TensorData::new(
+            values,
+            [
+                positions.len(),
+                INPUT_PLANES,
+                BOARD_HEIGHT as usize,
+                BOARD_WIDTH as usize,
+            ],
+        ),
         device,
     )
 }
@@ -272,5 +280,3 @@ const fn piece_plane(kind: PieceKind) -> usize {
 const fn index(plane: usize, square: Square) -> usize {
     plane * BOARD_SQUARES + square.index()
 }
-
-const _: () = assert!(BOARD_HEIGHT == 4 && BOARD_WIDTH == 3);

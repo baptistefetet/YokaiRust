@@ -26,8 +26,12 @@ use serde::{Deserialize, Serialize};
 use crate::game::{Action, BOARD_SQUARES, Game, HandPiece, Player, Square};
 
 /// Width of the policy head: 12 origins × 8 directions + 12 squares × 3 drops.
-pub const POLICY_ACTIONS: usize = 132;
-const BOARD_POLICY_ACTIONS: u8 = 96;
+pub const POLICY_ACTIONS: usize = BOARD_SQUARES * (DIRECTIONS.len() + HandPiece::ALL.len());
+const MOVE_DIRECTIONS: u8 = DIRECTIONS.len() as u8;
+const DROP_KINDS: u8 = HandPiece::ALL.len() as u8;
+const BOARD_POLICY_ACTIONS: u8 = BOARD_SQUARES as u8 * MOVE_DIRECTIONS;
+// The compact index is part of the current 3×4 representation.
+const _: () = assert!(POLICY_ACTIONS <= u8::MAX as usize + 1);
 
 /// A validated index into the fixed `AlphaZero` policy vector.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -37,7 +41,9 @@ pub struct PolicyIndex(u8);
 impl<'de> Deserialize<'de> for PolicyIndex {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let index = u8::deserialize(deserializer)?;
-        Self::new(index).ok_or_else(|| serde::de::Error::custom("policy index must be in 0..132"))
+        Self::new(index).ok_or_else(|| {
+            serde::de::Error::custom(format!("policy index must be in 0..{POLICY_ACTIONS}"))
+        })
     }
 }
 
@@ -91,14 +97,15 @@ impl Action {
                 let column_delta =
                     i16::from(canonical_to.column()) - i16::from(canonical_from.column());
                 let direction = direction_index(row_delta, column_delta)?;
-                let index = u8::try_from(canonical_from.index()).ok()? * 8 + direction;
+                let index =
+                    u8::try_from(canonical_from.index()).ok()? * MOVE_DIRECTIONS + direction;
                 PolicyIndex::new(index)
             }
             Self::Drop { piece, to } => {
                 let canonical_to = canonical_square(to, player);
                 let destination = u8::try_from(canonical_to.index()).ok()?;
                 let piece_index = u8::try_from(piece.index()).ok()?;
-                PolicyIndex::new(BOARD_POLICY_ACTIONS + destination * 3 + piece_index)
+                PolicyIndex::new(BOARD_POLICY_ACTIONS + destination * DROP_KINDS + piece_index)
             }
         }
     }
@@ -108,8 +115,8 @@ impl Action {
     pub fn from_policy_index(index: PolicyIndex, player: Player) -> Option<Self> {
         let raw = index.get();
         if raw < BOARD_POLICY_ACTIONS {
-            let from_index = raw / 8;
-            let direction = raw % 8;
+            let from_index = raw / MOVE_DIRECTIONS;
+            let direction = raw % MOVE_DIRECTIONS;
             let canonical_from = Square::from_index(from_index)?;
             let (row_delta, column_delta) = direction_delta(direction)?;
             let canonical_to = canonical_from.offset(row_delta, column_delta)?;
@@ -119,16 +126,11 @@ impl Action {
             })
         } else {
             let drop_index = raw - BOARD_POLICY_ACTIONS;
-            let destination = drop_index / 3;
+            let destination = drop_index / DROP_KINDS;
             if usize::from(destination) >= BOARD_SQUARES {
                 return None;
             }
-            let piece = match drop_index % 3 {
-                0 => HandPiece::Tanuki,
-                1 => HandPiece::Kitsune,
-                2 => HandPiece::Kodama,
-                _ => return None,
-            };
+            let piece = HandPiece::ALL[usize::from(drop_index % DROP_KINDS)];
             let canonical_to = Square::from_index(destination)?;
             Some(Self::Drop {
                 piece,

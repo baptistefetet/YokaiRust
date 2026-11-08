@@ -6,6 +6,9 @@
   branches or pull requests unless explicitly requested.
 - Keep changes isolated: one focused change per commit, with a message that
   explains the reasoning.
+- Prioritize tests of algorithms, observable behavior and meaningful regressions;
+  extend existing scenarios rather than adding checks that merely repeat
+  defaults, error wording, presentation labels or implementation details.
 
 ## Required checks before pushing
 

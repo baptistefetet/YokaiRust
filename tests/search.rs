@@ -1,14 +1,17 @@
 //! Behavioral tests for PUCT perspective, noise, batching and subtree reuse.
 
+mod common;
+
+use common::{position_with, square};
+
 use std::sync::{Arc, Mutex};
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use yokai::{
-    Action, AsyncEvaluator, BOARD_SQUARES, CachedEvaluator, Evaluation, EvaluationError,
-    EvaluationRequest, Evaluator, Game, LeafEvaluation, Mcts, POLICY_ACTIONS, Piece, PieceKind,
-    Player, Position, Replay, SearchConfig, Square, TemperatureSchedule, UniformEvaluator,
-    random_rollout_value,
+    Action, AsyncEvaluator, CachedEvaluator, Evaluation, EvaluationError, EvaluationRequest,
+    Evaluator, Game, LeafEvaluation, Mcts, POLICY_ACTIONS, PieceKind, Player, Position,
+    SearchConfig, Square, TemperatureSchedule, UniformEvaluator, random_rollout_value,
 };
 
 #[derive(Clone)]
@@ -68,10 +71,6 @@ impl Evaluator for BatchRecordingEvaluator {
     }
 }
 
-fn square(row: u8, column: u8) -> Square {
-    Square::new(row, column).expect("test square must be valid")
-}
-
 #[test]
 fn a_small_positive_temperature_preserves_a_dominant_winning_move() {
     let position = position_with(
@@ -100,18 +99,6 @@ fn a_small_positive_temperature_preserves_a_dominant_winning_move() {
         // Sampling temperature does not change the supervised visit target.
         assert!(result.policy.iter().filter(|&&p| p > 0.0).count() > 1);
     }
-}
-
-fn position_with(
-    pieces: &[(u8, u8, PieceKind, Player)],
-    hands: [[u8; 3]; 2],
-    side_to_move: Player,
-) -> Position {
-    let mut board = [None; BOARD_SQUARES];
-    for &(row, column, kind, owner) in pieces {
-        board[square(row, column).index()] = Some(Piece::new(kind, owner));
-    }
-    Position::from_parts(board, hands, side_to_move).expect("test position must be valid")
 }
 
 fn search_config(simulations: u32) -> SearchConfig {
@@ -574,22 +561,6 @@ fn subtree_reuse_checks_history_even_when_the_parent_board_matches() {
     assert!(!search.advance_root(action, &right));
     assert_eq!(search.node_count(), 1);
     search.search(&right, 0.0).unwrap();
-}
-
-#[test]
-fn replay_round_trip_preserves_optional_search_analysis() {
-    let mut game = Game::new(Player::First);
-    let mut mcts = Mcts::new(UniformEvaluator, search_config(16), 17).expect("valid search");
-    let result = mcts.search(&game, 0.0).expect("search must succeed");
-    game.apply(result.selected_action)
-        .expect("selected action must be legal");
-    let replay = Replay::from_game(&game, Some(17)).with_analyses(vec![result.analysis]);
-
-    let decoded = Replay::from_json(&replay.to_json_pretty().expect("serializable replay"))
-        .expect("valid replay");
-
-    assert_eq!(decoded, replay);
-    assert_eq!(decoded.analyses.as_ref().map(Vec::len), Some(1));
 }
 
 #[derive(Debug, Default)]

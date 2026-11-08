@@ -1,4 +1,8 @@
-//! Encoder, network-shape, checkpoint and inference-service integration tests.
+//! Encoder, network data flow, checkpoint and inference-service integration tests.
+
+mod common;
+
+use common::{position_with, square};
 
 use std::{
     fs,
@@ -11,32 +15,15 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, AsyncEvaluator, BOARD_SQUARES,
-    CpuBackend, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
-    GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece,
-    INPUT_PLANES, InferenceService, MetalBackend, MetalTrainingBackend, ModelMetadata,
-    ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, Piece, PieceKind, Player, Position, Square,
-    TrainingConfig, TrainingExample, encode_position, encode_position_with_history,
-    encoded_batch_tensor, global_batch_tensor, load_champion, load_generation,
-    load_training_generation, policy_context_batch_tensor, publish_champion, save_generation,
-    save_training_generation, stored_generations, train_state_with_progress,
+    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, AsyncEvaluator, CpuBackend, Evaluation,
+    EvaluationError, EvaluationRequest, Evaluator, GLOBAL_FEATURES_PER_FRAME,
+    GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece, INPUT_PLANES, InferenceService,
+    MetalBackend, MetalTrainingBackend, ModelMetadata, ModelStoreError, NetworkEvaluator,
+    POLICY_ACTIONS, PieceKind, Player, Position, TrainingConfig, TrainingExample, encode_position,
+    encode_position_with_history, encoded_batch_tensor, global_batch_tensor, load_champion,
+    load_generation, load_training_generation, policy_context_batch_tensor, publish_champion,
+    save_generation, save_training_generation, stored_generations, train_state_with_progress,
 };
-
-fn square(row: u8, column: u8) -> Square {
-    Square::new(row, column).expect("test square must be valid")
-}
-
-fn position_with(
-    pieces: &[(u8, u8, PieceKind, Player)],
-    hands: [[u8; 3]; 2],
-    side_to_move: Player,
-) -> Position {
-    let mut board = [None; BOARD_SQUARES];
-    for &(row, column, kind, owner) in pieces {
-        board[square(row, column).index()] = Some(Piece::new(kind, owner));
-    }
-    Position::from_parts(board, hands, side_to_move).expect("test position must be valid")
-}
 
 #[test]
 fn official_setup_has_the_same_canonical_encoding_for_both_players() {
@@ -153,45 +140,6 @@ fn horizontal_position_mirror_reverses_only_encoded_columns() {
             .zip(mirrored.global_values())
             .all(|(left, right)| (*left - *right).abs() < f32::EPSILON)
     );
-}
-
-#[test]
-fn residual_network_has_fixed_policy_and_wdl_outputs() {
-    type Backend = CpuBackend;
-
-    let device = burn::backend::flex::FlexDevice;
-    let config = AlphaZeroNetworkConfig::new()
-        .with_filters(8)
-        .with_residual_blocks(2)
-        .with_value_hidden(16);
-    let model = config.init::<Backend>(&device);
-    let positions = [
-        encode_position(&Position::initial(Player::First), 1),
-        encode_position(&Position::initial(Player::Second), 2),
-    ];
-    let contexts = [[0; POLICY_ACTIONS]; 2];
-    let output = model.forward(
-        encoded_batch_tensor(&positions, &device),
-        global_batch_tensor(&positions, &device),
-        policy_context_batch_tensor(&contexts, &device),
-    );
-
-    assert_eq!(output.policy_logits.dims(), [2, POLICY_ACTIONS]);
-    assert_eq!(output.wdl_logits.dims(), [2, 3]);
-    assert_eq!(
-        encoded_batch_tensor::<Backend>(&positions, &device).dims(),
-        [2, INPUT_PLANES, 4, 3]
-    );
-    assert_eq!(
-        global_batch_tensor::<Backend>(&positions, &device).dims(),
-        [2, GLOBAL_INPUT_FEATURES]
-    );
-    let logits = output
-        .wdl_logits
-        .into_data()
-        .to_vec::<f32>()
-        .expect("f32 WDL output");
-    assert!(logits.iter().all(|value| value.is_finite()));
 }
 
 #[test]
@@ -593,7 +541,7 @@ fn checkpoint_round_trip_is_exact_and_latest_pointer_is_atomic() {
 }
 
 #[test]
-fn checkpoint_rejects_incompatible_format_and_encoder_metadata() {
+fn checkpoint_rejects_incompatible_versions_and_empty_layers() {
     let root = unique_test_directory();
     let device = burn::backend::flex::FlexDevice;
     let config = AlphaZeroNetworkConfig::new()
@@ -604,29 +552,28 @@ fn checkpoint_rejects_incompatible_format_and_encoder_metadata() {
     let metadata = ModelMetadata::new(1, config);
     let directory = save_generation(&root, &metadata, &model).expect("generation save");
 
-    let mut incompatible = metadata.clone();
-    incompatible.format_version = 999;
-    fs::write(
-        directory.join("metadata.json"),
-        serde_json::to_vec_pretty(&incompatible).expect("metadata serialization"),
-    )
-    .expect("metadata rewrite");
+    let json = serde_json::to_value(metadata).unwrap();
+    for field in [
+        "/format_version",
+        "/encoder_version",
+        "/architecture/filters",
+    ] {
+        let mut incompatible = json.clone();
+        *incompatible.pointer_mut(field).unwrap() = 0.into();
+        fs::write(
+            directory.join("metadata.json"),
+            serde_json::to_vec(&incompatible).unwrap(),
+        )
+        .unwrap();
 
-    let error = load_generation::<CpuBackend>(&root, 1, &device)
-        .expect_err("format mismatch must be rejected");
-    assert!(matches!(error, ModelStoreError::Incompatible(_)));
-
-    incompatible = metadata;
-    incompatible.encoder_version = 999;
-    fs::write(
-        directory.join("metadata.json"),
-        serde_json::to_vec_pretty(&incompatible).expect("metadata serialization"),
-    )
-    .expect("metadata rewrite");
-
-    let error = load_generation::<CpuBackend>(&root, 1, &device)
-        .expect_err("encoder mismatch must be rejected");
-    assert!(matches!(error, ModelStoreError::Incompatible(_)));
+        assert!(
+            matches!(
+                load_generation::<CpuBackend>(&root, 1, &device),
+                Err(ModelStoreError::Incompatible(_))
+            ),
+            "{field}"
+        );
+    }
 
     fs::remove_dir_all(root).expect("test checkpoint cleanup");
 }

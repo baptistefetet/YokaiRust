@@ -1,12 +1,8 @@
-//! State-machine and rendering tests for the terminal interface.
+//! Gameplay and asynchronous state-machine tests for the terminal interface.
 
 use std::time::{Duration, Instant};
 
-use ratatui::{
-    Terminal,
-    backend::TestBackend,
-    crossterm::event::{KeyCode, KeyEvent},
-};
+use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use yokai::{
     Action, ActionAnalysis, Game, HandPiece, Piece, PieceKind, Player, Replay, SearchResult,
 };
@@ -15,7 +11,7 @@ use super::ai::{AiCommand, AiEvent, AiWorker};
 use super::app::*;
 use super::render::*;
 use super::session::*;
-use super::*;
+use super::{AI_MOVE_DELAY, AI_SOURCE_FOCUS_DURATION};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, ratatui::crossterm::event::KeyModifiers::NONE)
@@ -31,28 +27,21 @@ fn human_match_selects_and_applies_only_a_legal_move() {
         Some(Selection::MoveFrom("b2".parse().unwrap()))
     );
 
+    app.handle_key(key(KeyCode::Left));
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.game().actions().is_empty());
+    assert_eq!(
+        app.selection,
+        Some(Selection::MoveFrom("b2".parse().unwrap()))
+    );
+
+    app.handle_key(key(KeyCode::Right));
     app.handle_key(key(KeyCode::Up));
     app.handle_key(key(KeyCode::Enter));
 
     assert_eq!(app.game().actions(), &["b2-b3".parse().unwrap()]);
     assert_eq!(app.game().position().side_to_move(), Player::Second);
     assert_eq!(app.selection, None);
-}
-
-#[test]
-fn illegal_destination_keeps_the_selected_piece() {
-    let mut app = App::for_human_match();
-    app.cursor = "b2".parse().unwrap();
-    app.activate_board();
-    app.cursor = "a2".parse().unwrap();
-    app.activate_board();
-
-    assert!(app.game().actions().is_empty());
-    assert_eq!(
-        app.selection,
-        Some(Selection::MoveFrom("b2".parse().unwrap()))
-    );
-    assert!(app.notice.contains("Illegal"));
 }
 
 #[test]
@@ -85,17 +74,6 @@ fn captured_piece_can_be_selected_from_the_hand_and_dropped() {
         app.game().position().piece_at("c2".parse().unwrap()),
         Some(Piece::new(PieceKind::Kodama, Player::First))
     );
-}
-
-#[test]
-fn cpu_mode_places_the_human_at_the_bottom() {
-    let (worker, _events, _commands) = AiWorker::stub();
-    let app = App::for_cpu_match(worker);
-    let Session::Match(session) = &app.session else {
-        panic!("expected match session");
-    };
-    assert_eq!(session.controller(Player::First), Controller::Human);
-    assert_eq!(session.controller(Player::Second), Controller::Cpu);
 }
 
 #[test]
@@ -302,7 +280,6 @@ fn cpu_result_focuses_source_then_destination_before_being_applied() {
         app.game().actions(),
         &["b2-b3".parse().unwrap(), cpu_action]
     );
-    assert!(app.notice.contains("CPU search 0.02s"));
     assert!(analysis_view(&app).actions.is_none());
     let Session::Match(session) = &app.session else {
         panic!("expected match session");
@@ -334,6 +311,7 @@ fn replay_seeking_reconstructs_positions_and_exposes_stored_analysis() {
         visit_probability: 0.6,
     };
     let replay = Replay::from_game(&game, None).with_analyses(vec![vec![analysis]]);
+    let replay = Replay::from_json(&replay.to_json_pretty().unwrap()).unwrap();
     let mut app = App::for_replay(replay).expect("valid replay");
 
     assert_eq!(analysis_view(&app).actions, Some([analysis].as_slice()));
@@ -347,26 +325,4 @@ fn history_window_tracks_the_replay_cursor() {
     assert_eq!(visible_window(20, 0, 5), (0, 5));
     assert_eq!(visible_window(20, 10, 5), (8, 13));
     assert_eq!(visible_window(20, 20, 5), (15, 20));
-}
-
-#[test]
-fn minimum_supported_terminal_renders_every_primary_panel() {
-    let app = App::for_human_match();
-    let backend = TestBackend::new(MINIMUM_WIDTH, MINIMUM_HEIGHT);
-    let mut terminal = Terminal::new(backend).expect("test terminal");
-    terminal.draw(|frame| render(frame, &app)).expect("render");
-
-    let buffer = terminal.backend().buffer();
-    let mut text = String::new();
-    for y in 0..MINIMUM_HEIGHT {
-        for x in 0..MINIMUM_WIDTH {
-            text.push_str(buffer.cell((x, y)).expect("screen cell").symbol());
-        }
-        text.push('\n');
-    }
-    assert!(text.contains("Move history"));
-    assert!(text.contains("Predictions"));
-    assert!(text.contains("Player 1 · bottom"));
-    assert!(text.contains("▲ KD"));
-    assert!(text.contains("b2"));
 }

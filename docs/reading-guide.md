@@ -206,6 +206,12 @@ the lifetime of the owning value.
 
 ## Safe modification workflow
 
+Tests focus on observable behavior: legal play, search decisions, learning
+objectives, dataset partitioning and recovery after interrupted training.
+Use complete save/load scenarios for persistence contracts. Avoid separate
+tests that merely repeat defaults, error wording or presentation labels.
+Keep fixtures small and share board construction through `tests/common`.
+
 After changing rules, policy encoding or repetition behavior, run:
 
 ```bash

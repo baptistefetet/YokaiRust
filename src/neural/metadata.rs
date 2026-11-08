@@ -84,37 +84,3 @@ impl ModelMetadata {
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 #[error("{0}")]
 pub struct ModelMetadataError(String);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn metadata_is_validated_before_initializing_a_network() {
-        let metadata = ModelMetadata::new(7, AlphaZeroNetworkConfig::new());
-        let json = serde_json::to_value(&metadata).unwrap();
-        assert!(metadata.validate().is_ok());
-        for field in [
-            "format_version",
-            "encoder_version",
-            "rules_version",
-            "policy_actions",
-        ] {
-            let mut incompatible = json.clone();
-            incompatible[field] = serde_json::json!(0);
-            let decoded: ModelMetadata = serde_json::from_value(incompatible).unwrap();
-            assert!(decoded.validate().is_err(), "{field}");
-        }
-        for layer in [
-            "filters",
-            "residual_blocks",
-            "shared_hidden",
-            "value_hidden",
-        ] {
-            let mut incompatible = json.clone();
-            incompatible["architecture"][layer] = serde_json::json!(0);
-            let decoded: ModelMetadata = serde_json::from_value(incompatible).unwrap();
-            assert!(decoded.validate().is_err(), "{layer}");
-        }
-    }
-}

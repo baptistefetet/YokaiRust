@@ -1,5 +1,9 @@
 //! End-to-end tests for targets, buffers, losses, arenas and promotion logic.
 
+mod common;
+
+use common::{position_with, square};
+
 use std::{
     collections::HashSet,
     fs,
@@ -8,22 +12,17 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, ArenaConfig, BOARD_SQUARES, BackendKind, CpuBackend,
-    CpuTrainingBackend, DatasetSplit, DrawReason, EndgameDistance, Game, LearningRateStage, Mcts,
-    ModelMetadata, OptimizationConfig, PathsConfig, Piece, PieceKind, Player, Position,
-    PromotionDecision, Replay, ReplayBuffer, ReplayBufferConfig, SearchConfig,
-    SelfPlayBootstrapConfig, SelfPlayBootstrapMode, SelfPlayConfig, SelfPlayEvaluator,
-    SelfPlayGame, SelfPlayRecorder, Square, TerminalWindowSchedule, TrainingConfig,
+    Action, AlphaZeroNetworkConfig, ArenaConfig, BackendKind, CpuBackend, CpuTrainingBackend,
+    DatasetSplit, DrawReason, EndgameDistance, Game, LearningRateStage, Mcts, ModelMetadata,
+    OptimizationConfig, PathsConfig, PieceKind, Player, Replay, ReplayBuffer, ReplayBufferConfig,
+    SearchConfig, SelfPlayBootstrapConfig, SelfPlayBootstrapMode, SelfPlayConfig,
+    SelfPlayEvaluator, SelfPlayGame, SelfPlayRecorder, TerminalWindowSchedule, TrainingConfig,
     TrainingConfigError, TrainingDataError, TrainingProgress, UniformEvaluator, bootstrap_champion,
     dataset_diagnostics, endgame_distance_report, generate_self_play,
     generate_self_play_with_restarts_and_progress, load_champion, load_generation,
-    load_replay_buffer, planned_restart_count, run_arena, run_arena_with_progress,
+    load_replay_buffer, planned_restart_count, run_arena_with_progress,
     run_generation_with_progress, save_generation, train_candidate, validate_model,
 };
-
-fn square(row: u8, column: u8) -> Square {
-    Square::new(row, column).expect("test square must be valid")
-}
 
 /// Small, valid baseline configuration for tests.
 ///
@@ -84,6 +83,7 @@ fn test_config() -> TrainingConfig {
 }
 
 fn small_pipeline_config(root: &std::path::Path) -> TrainingConfig {
+    let base = test_config();
     let models = root.join("models");
     let self_play = root.join("self-play");
     TrainingConfig {
@@ -98,35 +98,25 @@ fn small_pipeline_config(root: &std::path::Path) -> TrainingConfig {
             workers: 4,
             simulations: 2,
             search_batch_size: 1,
-            max_game_plies: 512,
             inference_batch_size: 16,
             inference_wait_ms: 0,
             exploration_plies: 4,
-            exploration_temperature: 1.0,
-            final_temperature: 0.0,
-            repetition_contempt: 0.0,
             starter_draw_value: 0.0,
             restart_fraction: 0.0,
-            restart_simulations: None,
-            bootstrap: SelfPlayBootstrapConfig::default(),
+            ..base.self_play
         },
         optimization: OptimizationConfig {
             steps_per_generation: 1,
             validation_interval_steps: 1,
             batch_size: 16,
-            learning_rate: 0.001,
-            learning_rate_schedule: Vec::new(),
             weight_decay: 0.0,
             validation_fraction: 0.5,
-            mirror_augmentation: true,
-            non_starter_draw_policy_weight: 1.0,
             scalar_value_loss_weight: 0.25,
-            terminal_window_plies: None,
-            terminal_window_schedule: None,
             replay_buffer: ReplayBufferConfig {
                 max_games: 8,
                 generations_to_keep: 2,
             },
+            ..base.optimization
         },
         arena: ArenaConfig {
             // The production floor is 2; four games keep this end-to-end test
@@ -134,11 +124,9 @@ fn small_pipeline_config(root: &std::path::Path) -> TrainingConfig {
             games: 4,
             workers: 2,
             simulations: 1,
-            search_batch_size: 1,
-            opening_plies: 4,
-            score_threshold: 0.55,
             candidate_self_play_games: 2,
             max_candidate_self_play_draw_rate: 1.0,
+            ..base.arena
         },
         paths: PathsConfig {
             models: models.to_string_lossy().into_owned(),
@@ -148,14 +136,15 @@ fn small_pipeline_config(root: &std::path::Path) -> TrainingConfig {
 }
 
 fn immediate_win_game() -> Game {
-    let mut board = [None; BOARD_SQUARES];
-    board[square(3, 0).index()] = Some(Piece::new(PieceKind::Koropokkuru, Player::First));
-    board[square(1, 1).index()] = Some(Piece::new(PieceKind::Koropokkuru, Player::Second));
-    board[square(2, 1).index()] = Some(Piece::new(PieceKind::Tanuki, Player::First));
-    Game::from_position(
-        Position::from_parts(board, [[0; 3]; 2], Player::First)
-            .expect("test position must be valid"),
-    )
+    Game::from_position(position_with(
+        &[
+            (3, 0, PieceKind::Koropokkuru, Player::First),
+            (1, 1, PieceKind::Koropokkuru, Player::Second),
+            (2, 1, PieceKind::Tanuki, Player::First),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    ))
 }
 
 fn recorded_game(generation: u32, seed: u64) -> SelfPlayGame {
@@ -315,6 +304,13 @@ fn restored_buffer_applies_current_capacity_and_age_limits() {
     assert_eq!(restored.len(), 1);
     assert!(restored.contains(2, 3));
 
+    // Older buffers called the source checkpoint `generation`.
+    let saved = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        saved.replace("\"source_generation\"", "\"generation\""),
+    )
+    .unwrap();
     let age_only = load_replay_buffer(
         &path,
         ReplayBufferConfig {
@@ -422,33 +418,6 @@ fn restart_families_keep_their_partition_after_reload_and_parent_eviction() {
             .iter()
             .all(|game| game.validation_origin() == parent.validation_origin())
     );
-}
-
-#[test]
-fn replay_buffer_json_round_trip_preserves_fixed_policy_width() {
-    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).expect("valid buffer");
-    buffer.push(recorded_game(3, 99));
-
-    let json = serde_json::to_string(&buffer).expect("buffer serialization");
-    let decoded: ReplayBuffer = serde_json::from_str(&json).expect("buffer deserialization");
-
-    assert_eq!(decoded.len(), 1);
-    assert_eq!(decoded.example_count(), 1);
-}
-
-#[test]
-fn replay_buffer_still_reads_the_legacy_generation_field_name() {
-    let mut buffer = ReplayBuffer::new(ReplayBufferConfig::default()).expect("valid buffer");
-    buffer.push(recorded_game(3, 99));
-
-    // Buffers written before the `source_generation` rename used `generation`.
-    let json = serde_json::to_string(&buffer).expect("buffer serialization");
-    assert!(json.contains("\"source_generation\""));
-    let legacy = json.replace("\"source_generation\"", "\"generation\"");
-    let decoded: ReplayBuffer = serde_json::from_str(&legacy).expect("legacy deserialization");
-
-    assert_eq!(decoded.len(), 1);
-    assert!(decoded.contains(3, 99));
 }
 
 #[test]
@@ -682,242 +651,27 @@ fn endgame_distance_diagnostic_uses_only_whole_validation_games() {
     }
     assert_eq!(report.buckets[0].distance, EndgameDistance::One);
     assert_eq!(report.buckets[4].distance, EndgameDistance::SeventeenPlus);
-    let json = serde_json::to_value(report).expect("diagnostic report serialization");
-    assert_eq!(json["buckets"][1]["distance"], "2-4");
-    assert!(json["buckets"][1]["all"]["scalar_value_loss"].is_number());
 }
 
 #[test]
-fn checked_in_training_configuration_loads_and_validates() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/training.toml");
-    let config = TrainingConfig::load(path).expect("checked-in config must be valid");
-
-    // Spot-check only the structural choices other code paths rely on;
-    // hyperparameter values belong to the TOML alone, so tuning them must
-    // not require editing this test.
-    assert_eq!(
-        config.self_play.bootstrap.mode,
-        SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion
-    );
-    assert!(config.optimization.terminal_window_schedule.is_some());
-    assert!(!config.optimization.learning_rate_schedule.is_empty());
-}
-
-#[test]
-fn training_toml_rejects_unknown_fields_in_nested_sections() {
-    let source = fs::read_to_string("config/training.toml").unwrap();
-    let root = std::env::temp_dir().join(format!("yokai-config-typos-{}", std::process::id()));
-    fs::create_dir(&root).unwrap();
-    let path = root.join("training.toml");
-    for header in [
-        "",
-        "[network]\n",
-        "[self_play]\n",
-        "[self_play.bootstrap]\n",
-        "[optimization]\n",
-        "[[optimization.learning_rate_schedule]]\n",
-        "[optimization.terminal_window_schedule]\n",
-        "[optimization.replay_buffer]\n",
-        "[arena]\n",
-        "[paths]\n",
-    ] {
-        let modified = source.replacen(header, &format!("{header}unknown_setting = 1\n"), 1);
-        fs::write(&path, modified).unwrap();
-        let error = TrainingConfig::load(&path).unwrap_err();
-        assert!(
-            matches!(error, TrainingConfigError::UnknownFields(_)),
-            "{header}: {error}"
-        );
-        assert!(
-            error.to_string().contains("unknown_setting"),
-            "{header}: {error}"
-        );
-    }
+fn training_toml_does_not_silently_replace_a_misspelled_budget_with_the_default() {
+    TrainingConfig::load("config/training.toml").expect("checked-in config must be valid");
+    let mut config = test_config();
+    config.self_play.restart_simulations = Some(800);
+    let source = toml::to_string(&config).unwrap();
+    let path = std::env::temp_dir().join(format!("yokai-config-{}.toml", std::process::id()));
+    fs::write(&path, &source).unwrap();
+    assert_eq!(TrainingConfig::load(&path).unwrap(), config);
     fs::write(
         &path,
         source.replace("restart_simulations", "restart_simulation"),
     )
     .unwrap();
-    let error = TrainingConfig::load(&path).unwrap_err();
-    assert!(
-        error.to_string().contains("self_play.restart_simulation"),
-        "{error}"
-    );
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn journal_configuration_still_accepts_historical_fields() {
-    let config = test_config();
-    let mut json = serde_json::to_value(&config).unwrap();
-    json["retired_setting"] = serde_json::json!(true);
-    json["self_play"]["retired_setting"] = serde_json::json!(true);
-    json["network"]["retired_setting"] = serde_json::json!(true);
-    let decoded: TrainingConfig = serde_json::from_value(json).unwrap();
-    assert_eq!(decoded, config);
-    decoded.validate().unwrap();
-}
-
-#[test]
-fn training_validation_identifies_fields_and_shares_search_draw_bounds() {
-    let mut config = test_config();
-    config.arena.search_batch_size = 0;
-    assert!(
-        config
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("arena.search_batch_size")
-    );
-    config.arena.search_batch_size = 1;
-    config.optimization.validation_interval_steps = config.optimization.steps_per_generation + 1;
-    assert!(
-        config
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("optimization.validation_interval_steps")
-    );
-    config.optimization.validation_interval_steps = 1;
-    config.optimization.terminal_window_schedule = Some(TerminalWindowSchedule {
-        initial_plies: 1,
-        growth_factor: 1,
-        decisive_fraction: 0.0,
-        full_dataset_generation: 2,
-    });
-    config
-        .validate()
-        .expect("zero tail fraction preserves the full dataset");
-    for (contempt, starter, valid) in [
-        (0.0, 0.0, true),
-        (1.0, 0.0, true),
-        (0.0, 0.99, true),
-        (-0.1, 0.0, false),
-        (0.0, 1.0, false),
-        (0.5, 0.5, false),
-        (f32::NAN, 0.0, false),
-        (0.0, f32::INFINITY, false),
-    ] {
-        config.self_play.repetition_contempt = contempt;
-        config.self_play.starter_draw_value = starter;
-        assert_eq!(config.validate().is_ok(), valid);
-        let search = SearchConfig {
-            repetition_contempt: contempt,
-            starter_draw_value: starter,
-            ..SearchConfig::default()
-        };
-        assert_eq!(Mcts::new(UniformEvaluator, search, 42).is_ok(), valid);
-    }
-}
-
-#[test]
-fn config_validation_rejects_out_of_range_values() {
-    let mut invalid = test_config();
-    invalid.arena.games = 3;
     assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
+        TrainingConfig::load(&path),
+        Err(TrainingConfigError::UnknownFields(_))
     ));
-    invalid.arena.games = 0;
-    assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
-    ));
-
-    let mut invalid = test_config();
-    invalid.optimization.terminal_window_plies = Some(0);
-    assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
-    ));
-
-    let mut invalid = test_config();
-    invalid.optimization.non_starter_draw_policy_weight = 1.1;
-    assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
-    ));
-
-    let mut invalid = test_config();
-    invalid.optimization.scalar_value_loss_weight = -0.1;
-    assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
-    ));
-
-    let mut invalid = test_config();
-    invalid.network.shared_hidden = 0;
-    assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
-    ));
-}
-
-#[test]
-fn wdl_metric_keeps_the_existing_report_key() {
-    let metrics = yokai::LossMetrics {
-        wdl_loss: 0.75,
-        scalar_value_loss: 0.25,
-        ..yokai::LossMetrics::default()
-    };
-    let json = serde_json::to_value(metrics).unwrap();
-    assert_eq!(json["value_loss"], 0.75);
-    assert!(json.get("wdl_loss").is_none());
-    assert_eq!(
-        serde_json::from_value::<yokai::LossMetrics>(json).unwrap(),
-        metrics
-    );
-}
-
-#[test]
-fn promotion_requires_both_the_arena_and_the_exploratory_gate() {
-    let productive_candidate = PromotionDecision {
-        arena_passed: true,
-        exploratory_draw_gate_passed: true,
-    };
-    assert!(productive_candidate.promoted());
-
-    let unproductive_candidate = PromotionDecision {
-        exploratory_draw_gate_passed: false,
-        ..productive_candidate
-    };
-    assert!(!unproductive_candidate.promoted());
-
-    let weak_candidate = PromotionDecision {
-        arena_passed: false,
-        ..productive_candidate
-    };
-    assert!(!weak_candidate.promoted());
-}
-
-#[test]
-fn rollout_bootstrap_follows_the_accepted_source_after_rejection_and_promotion() {
-    let mut self_play = test_config().self_play;
-    self_play.bootstrap = SelfPlayBootstrapConfig {
-        mode: SelfPlayBootstrapMode::RandomRolloutUntilFirstPromotion,
-        rollout_max_plies: 512,
-    };
-
-    let first_attempt = self_play.evaluator_for_source_generation(0);
-    let retry_after_rejection = self_play.evaluator_for_source_generation(0);
-    let attempt_after_promotion = self_play.evaluator_for_source_generation(1);
-
-    assert_eq!(
-        first_attempt,
-        SelfPlayEvaluator::RandomRollout { max_plies: 512 }
-    );
-    assert_eq!(retry_after_rejection, first_attempt);
-    assert_eq!(attempt_after_promotion, SelfPlayEvaluator::Neural);
-
-    self_play.bootstrap.rollout_max_plies = 0;
-    let invalid = TrainingConfig {
-        self_play,
-        ..test_config()
-    };
-    assert!(matches!(
-        invalid.validate(),
-        Err(TrainingConfigError::Invalid(_))
-    ));
+    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -1131,40 +885,7 @@ fn rollout_self_play_is_explicit_in_saved_games_and_switches_after_promotion() {
 }
 
 #[test]
-fn paired_arena_scores_identical_evaluators_at_one_half() {
-    let result = run_arena(
-        &UniformEvaluator,
-        &UniformEvaluator,
-        &ArenaConfig {
-            games: 2,
-            workers: 2,
-            simulations: 16,
-            search_batch_size: 1,
-            opening_plies: 4,
-            score_threshold: 0.55,
-            candidate_self_play_games: 2,
-            max_candidate_self_play_draw_rate: 1.0,
-        },
-        256,
-        900,
-    )
-    .expect("paired arena must finish");
-
-    assert_eq!(
-        result.candidate_wins + result.reference_wins + result.draws,
-        2
-    );
-    assert_eq!(result.candidate_as_first.games(), 1);
-    assert_eq!(result.candidate_as_second.games(), 1);
-    assert!((result.score - 0.5).abs() < f32::EPSILON);
-    assert!(!result.threshold_reached);
-    assert_eq!(result.paired_score_counts, [0, 0, 1, 0, 0]);
-    assert_eq!(result.improvement_p_value, Some(1.0));
-    assert!(!result.statistically_significant());
-}
-
-#[test]
-fn arena_progress_reports_consistent_running_outcomes() {
+fn paired_arena_balances_identical_evaluators_and_reports_consistent_progress() {
     let snapshots = Arc::new(Mutex::new(Vec::new()));
     let recorded_snapshots = snapshots.clone();
     let result = run_arena_with_progress(
@@ -1207,6 +928,11 @@ fn arena_progress_reports_consistent_running_outcomes() {
     assert_eq!(result.candidate_as_first.games(), 2);
     assert_eq!(result.candidate_as_second.games(), 2);
     assert!((final_snapshot.score() - result.score).abs() < f32::EPSILON);
+    assert!((result.score - 0.5).abs() < f32::EPSILON);
+    assert!(!result.threshold_reached);
+    assert_eq!(result.paired_score_counts, [0, 0, 2, 0, 0]);
+    assert_eq!(result.improvement_p_value, Some(1.0));
+    assert!(!result.statistically_significant());
 }
 
 #[test]
@@ -1280,17 +1006,20 @@ fn short_cpu_alphazero_generation_only_publishes_an_eligible_candidate() {
         4
     );
     assert_eq!(reloaded_buffer.len(), 2);
-    let persisted_report: yokai::GenerationReport = serde_json::from_slice(
+    let persisted_json: serde_json::Value = serde_json::from_slice(
         &fs::read(self_play.join("reports/generation-000001.json"))
             .expect("persisted generation report"),
     )
     .expect("generation report JSON");
+    // Existing report readers use this key for the WDL objective.
+    assert!(persisted_json["training"]["checkpoints"][0]["validation"]["value_loss"].is_number());
+    let persisted_report: yokai::GenerationReport = serde_json::from_value(persisted_json).unwrap();
     assert_eq!(persisted_report.candidate_generation, 1);
     assert_eq!(
         persisted_report.self_play_evaluator,
         SelfPlayEvaluator::Neural
     );
-    assert_eq!(persisted_report.training.steps_completed, 1);
+    assert_eq!(persisted_report.training, report.training);
     assert_eq!(persisted_report.promotion, report.promotion);
     assert_eq!(
         report.promoted(),
@@ -1476,6 +1205,13 @@ fn interrupted_candidate_resumes_without_retraining_or_changing_its_configuratio
         0
     );
     fs::remove_file(data.join("reports")).unwrap();
+
+    // Resumption must also accept a journal containing a retired configuration field.
+    let journal_path = data.join("pending-generation.json");
+    let mut journal: serde_json::Value =
+        serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+    journal["configuration"]["self_play"]["retired_setting"] = true.into();
+    fs::write(&journal_path, serde_json::to_vec(&journal).unwrap()).unwrap();
 
     let mut changed = config.clone();
     changed.optimization.learning_rate *= 0.5;

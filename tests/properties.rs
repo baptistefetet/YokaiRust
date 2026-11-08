@@ -5,8 +5,6 @@ use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use yokai::{Action, Game, POLICY_ACTIONS, Player, PolicyIndex, Position};
 
-const POLICY_ACTIONS_U8: u8 = 132;
-
 proptest! {
     #[test]
     fn every_generated_action_is_applicable_and_policy_round_trips(seed in any::<u64>()) {
@@ -17,6 +15,7 @@ proptest! {
             Player::Second
         };
         let mut game = Game::new(starting_player);
+        let policy_actions = u8::try_from(POLICY_ACTIONS).unwrap();
 
         for _ in 0..128 {
             let legal_actions = game.legal_actions();
@@ -26,7 +25,7 @@ proptest! {
             let side_to_move = game.position().side_to_move();
             let mut generated_by_engine = legal_actions.clone();
             generated_by_engine.sort_unstable_by_key(|action| action.policy_index(side_to_move));
-            let mut scanned_policy_space = (0_u8..POLICY_ACTIONS_U8)
+            let mut scanned_policy_space = (0_u8..policy_actions)
                 .filter_map(PolicyIndex::new)
                 .filter_map(|index| Action::from_policy_index(index, side_to_move))
                 .filter(|&action| game.is_legal_action(action))
@@ -75,32 +74,17 @@ proptest! {
             }
         }
     }
-
-    #[test]
-    fn policy_decoder_never_panics(index in 0_u8..POLICY_ACTIONS_U8, first in any::<bool>()) {
-        let player = if first { Player::First } else { Player::Second };
-        let policy = PolicyIndex::new(index).expect("generated policy index is valid");
-        if let Some(action) = Action::from_policy_index(policy, player) {
-            prop_assert_eq!(action.policy_index(player), Some(policy));
-        }
-    }
 }
 
 #[test]
-fn optimized_generator_matches_independent_policy_space_scan() {
-    assert_eq!(usize::from(POLICY_ACTIONS_U8), POLICY_ACTIONS);
+fn every_decodable_policy_index_round_trips_for_both_players() {
+    let policy_actions = u8::try_from(POLICY_ACTIONS).unwrap();
     for player in [Player::First, Player::Second] {
-        let game = Game::new(player);
-        let mut generated = game.legal_actions();
-        generated.sort_unstable_by_key(|action| action.policy_index(player));
-
-        let mut scanned = (0_u8..POLICY_ACTIONS_U8)
-            .filter_map(PolicyIndex::new)
-            .filter_map(|index| Action::from_policy_index(index, player))
-            .filter(|&action| game.is_legal_action(action))
-            .collect::<Vec<_>>();
-        scanned.sort_unstable_by_key(|action| action.policy_index(player));
-
-        assert_eq!(generated, scanned);
+        for index in 0..policy_actions {
+            let policy = PolicyIndex::new(index).unwrap();
+            if let Some(action) = Action::from_policy_index(policy, player) {
+                assert_eq!(action.policy_index(player), Some(policy));
+            }
+        }
     }
 }

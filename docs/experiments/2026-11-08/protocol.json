@@ -17,13 +17,9 @@
   "configuration_sha256": "6d181edad2e2518addf912a9cdd3f951311179508824c0ca3a9b489c6a0a99cf",
   "initialization": "New seeded random network and empty replay buffer; no imported weights, optimizer or trajectories.",
   "seed": 20261108,
-  "selection": "Only latest accepted champion after 22 attempts; if independent confirmation fails, continue to 32, then 42 attempts at unchanged settings. Retain every result. Stop on first successful planned confirmation; never select a rejected candidate.",
+  "selection": "Complete attempts through the first promotion after champion 20, no earlier than attempt 22. Select only that accepted champion for the first independent arena. If confirmation fails, continue unchanged for ten more attempts, then ten more if needed; select only latest accepted champion at each boundary. Retain every outcome.",
   "confirmation": {
-    "attempt_boundaries": [
-      22,
-      32,
-      42
-    ],
+    "attempt_boundaries": [],
     "seeds": [
       2026110801,
       2026110802,
@@ -38,7 +34,8 @@
     "root_noise": false,
     "minimum_score": 0.55,
     "maximum_one_sided_p": 0.016666666666666666,
-    "multiple_look_correction": "Bonferroni over the three prespecified independent arenas; no reseeding of failed tests."
+    "multiple_look_correction": "Bonferroni over the three prespecified independent arenas; no reseeding of failed tests.",
+    "attempt_boundary_rule": "Let N be the first completed attempt >= 22 that promotes a successor to champion 20. Compare at N, N+10 and N+20, stopping on the first successful independent confirmation. Resolve N from internal promotion reports before launching the first reference arena."
   },
   "training_promotion": {
     "games": 200,
@@ -79,6 +76,17 @@
         42
       ],
       "unchanged": "Reference, seeds, arena budgets, thresholds, three-look multiplicity correction and all training hyperparameters."
+    },
+    {
+      "recorded_at": "2026-11-08T17:08:23.986793+01:00",
+      "reason": "User requested continuing until the next promoted generation after champion 20, even beyond attempt 22. No independent reference arena has begun.",
+      "previous_attempt_boundaries": [
+        22,
+        32,
+        42
+      ],
+      "new_boundary_rule": "First promotion after champion 20, with at least 22 completed attempts; if independent confirmation fails, compare again after 10 and 20 further attempts.",
+      "unchanged": "Reference, independent seeds, arena budgets, thresholds, three-look multiplicity correction and training hyperparameters."
     }
   ],
   "continuation_commands": [

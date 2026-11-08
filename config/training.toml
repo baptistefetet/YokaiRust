@@ -1,4 +1,4 @@
-seed = 42
+seed = 20261108
 backend = "metal"
 
 [network]
@@ -97,5 +97,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-visited-restarts-v26"
-self_play = "data/alpha-zero-visited-restarts-v26"
+models = "models/alpha-zero-from-scratch-20261108"
+self_play = "data/alpha-zero-from-scratch-20261108"

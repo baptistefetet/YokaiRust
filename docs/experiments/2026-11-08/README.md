@@ -25,11 +25,12 @@ use new paths and a new protocol for a repetition.
 Before any independent arena, the user requested extending the first block to
 22 attempts. The dated amendment is preserved in `protocol.json`; after the
 initial 20-attempt command, run two more attempts with `--generations 2`.
-A second user amendment extends this block until the next promotion after
-champion 20, even beyond attempt 22. Call that attempt N. Before the first
-reference arena, resolve the boundaries to N, N+10 and N+20 from the internal
-promotion reports. Independent seeds and thresholds remain unchanged. The next promotion was
-attempt **26**, so the resolved boundaries are **26, 36 and 46**.
+A second user amendment extended this block until the next promotion after
+champion 20, which occurred at **26**. The first independent comparison at 26
+failed. The user then requested one further promotion before the second duel;
+that successor is **30**. The current comparison boundaries are therefore
+**26, 30 and 40**, with the third used only if needed. All dated amendments and
+their reasons remain in `protocol.json`.
 
 At a planned boundary, the confirmation runner verifies the accepted champion
 chain, configuration and reference hashes before comparing networks:
@@ -39,13 +40,18 @@ python3 docs/experiments/2026-11-08/confirm.py 26
 ```
 
 It compares only the final accepted champion, writes its identity before the
-arena starts, and refuses to overwrite existing observations. After the failed comparison at 26, continue until one further promotion with
-`python3 docs/experiments/2026-11-08/continue_until_promotion.py 26`.
-The second arena uses that successor and the second independent seed.
-If needed, the third comparison follows ten more attempts, with unchanged
-training settings. Every arena
-uses a disjoint range of 400 pair seeds and the stricter significance
-threshold in the protocol. The unused base seeds were separated by 1000
+arena starts, and refuses to overwrite existing observations. The commands for
+the second block were:
+
+```bash
+python3 docs/experiments/2026-11-08/continue_until_promotion.py 26
+python3 docs/experiments/2026-11-08/confirm.py 30
+```
+
+The second comparison succeeded, so the third was unnecessary. Had it failed,
+the third comparison would have followed ten more attempts with unchanged
+training settings. Every arena uses a disjoint range of 400 pair seeds and the
+stricter significance threshold in the protocol. The unused base seeds were separated by 1000
 after detecting that adjacent bases would reuse almost every pair; the first
 arena was unaffected and remains unchanged.
 

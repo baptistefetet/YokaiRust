@@ -1,0 +1,48 @@
+{
+  "recorded_at": "2026-11-08T17:00:59.955893+00:00",
+  "source_commit": "1a2ec3eb6a423fbd5b06ef39cee782e0d6104c89",
+  "protocol_sha256": "fd63e77d0a66ae19ecb1ee4970bc2a479ae56e7b3a16f1a89999c31bbdb307f2",
+  "attempt_boundary": 30,
+  "candidate_generation": 30,
+  "candidate_files_sha256": {
+    "model.safetensors": "8505171b6d31b1ba12462f011d129d2a0716543cb32a8a013999878928f129ac",
+    "metadata.json": "0c0dbe703d81ce22330f8a4cefe8da14008ffba721b76c0eb711264145a434c7",
+    "training-model.bin": "119a00339043daa91f0dc477e291d7ad571c1a0f5b744b646b731f1d534ecbec",
+    "optimizer.bin": "8b7be10215d47ef18c204aa620cc728ebc28be6dafcad668372f19fec9fadee6"
+  },
+  "reference": {
+    "root": "models/references/pre-cleanup-20261108",
+    "generation": 21,
+    "files_sha256": {
+      "metadata.json": "d1de8febb45160d7b8060d4e9da702bdfd88c905374e3f5fa28005794db78013",
+      "model.safetensors": "9a0e348b484e09ba73cbc3f10d0f3441da50eae93b7dce3cd0da6595d546bdee",
+      "optimizer.bin": "bf1496e9b2d30575bf8c3ee0dc1e09603248d137b3ebef3eb024d68fca9c43b2",
+      "training-model.bin": "6430b6530c415be16596c70107b5a8b63cf83700047cdceb35c95eae5faebf57"
+    }
+  },
+  "seed": 2026111801,
+  "confirmation": {
+    "attempt_boundaries": [
+      26,
+      30,
+      40
+    ],
+    "seeds": [
+      2026110801,
+      2026111801,
+      2026112801
+    ],
+    "games": 800,
+    "simulations": 400,
+    "search_batch_size": 1,
+    "workers": 128,
+    "opening_plies": 4,
+    "max_game_plies": 512,
+    "root_noise": false,
+    "minimum_score": 0.55,
+    "maximum_one_sided_p": 0.016666666666666666,
+    "multiple_look_correction": "Bonferroni over the three prespecified independent arenas; no reseeding of failed tests.",
+    "attempt_boundary_rule": "First arena at 26. Resolve M as the first internally promoted successor of 26; subsequent boundaries are M and M+10, stopping when confirmation succeeds.",
+    "seed_ranges": "Each arena uses 400 pair seeds [base, base+399]; successive bases differ by 1000, so holdout seed ranges do not overlap."
+  }
+}

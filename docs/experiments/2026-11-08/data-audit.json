@@ -1,0 +1,7 @@
+{
+  "generated_games": 7680,
+  "unique_generation_seed_identities": 7680,
+  "restarted_games_with_root_origin": 1856,
+  "all_replays_present": true,
+  "every_restart_root_present_in_retained_history": true
+}

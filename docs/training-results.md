@@ -1,223 +1,192 @@
-# Training results
+# Training results — 8 November 2026
 
-The accepted champion is **generation 21**. It is the model selected by
-`latest` for local play, browser export and training. Generation **19** is
-the fixed reference for the October 2 continuation; the earlier comparison
-used generation **16**. All checkpoints, including rejected candidates,
-remain available in the local model directory.
+The accepted champion is **generation 30 of the new, freshly initialized
+lineage**. It beats the October reference, generation 21, in an independent
+800-game arena: **313 wins, 162 losses and 325 draws**, or **59.4375% of points**.
+The one-sided paired p-value is **3.54 × 10⁻¹⁵**, below the conservative
+three-comparison threshold of 0.05/3. Both color assignments favor the new model.
 
-The [AlphaZero guide](alphazero-guide.md) explains the learning algorithm and
-metrics; this page records the evaluation protocol and measured results.
+`config/training.toml` now selects this lineage for play, training and browser
+export. Generation numbers identify attempts within a lineage; they are not
+strength ratings and cannot be compared across lineages.
 
-## Training and evaluation protocol
+The [AlphaZero guide](alphazero-guide.md) explains the algorithm. This page
+contains only this experiment's observations; its
+[protocol and amendments](experiments/2026-11-08/protocol.json),
+[training observations](experiments/2026-11-08/training-observations.json) and
+[reproduction instructions](experiments/2026-11-08/README.md) retain provenance.
 
-The settings live in [`config/training.toml`](../config/training.toml). The
-network has 64 channels, four residual blocks, and 64-unit shared and value
-layers. Training runs on Metal with the following budget per attempt:
+## Initialization and controls
 
-| Phase | Budget |
+The run began with empty model/data directories, random weights seeded with
+`20261108`, and no imported optimizer state or replay. The training/search code
+is `f3ce72638d8e72bd645f525baa132413315969e5`. No rules, architecture, losses,
+search budgets or optimizer settings were changed during this run; only the
+seed and storage paths differ from the starting configuration.
+
+The network has 64 channels, four residual blocks and 64-unit shared/value
+layers. Model format 5, encoder version 4 and rules version 1 remain unchanged.
+The fixed reference was copied before training to
+`models/references/pre-cleanup-20261108/generation-000021/`, including its Adam
+state. Its weights SHA-256 is
+`9a0e348b484e09ba73cbc3f10d0f3441da50eae93b7dce3cd0da6595d546bdee`;
+all reference hashes are recorded in the protocol and rechecked before arenas.
+
+| Phase per attempt | Budget |
 | --- | --- |
-| Self-play | 256 games, 200 MCTS simulations per regular move |
-| Visited-state restarts | 25% of games when an archive is available, 800 simulations per move |
+| Self-play | 256 games, 200 simulations per regular move |
+| Visited-state restarts | 25% when an archive exists, 800 simulations per move |
 | Optimization | 400 Adam updates, batch size 256 |
-| Strength arena | 200 games against the source champion, 400 simulations per move |
-| Productivity probe | 64 noisy self-play games |
+| Promotion arena | 200 games, 400 simulations per move |
+| Noisy productivity probe | 64 games, at most 20% draws |
 
-The learning rate starts at 0.001 and becomes 0.00025 when the source champion
-reaches generation 7. Mirrored examples augment the training set. Decisive
-endgame tails are oversampled during bootstrap; from attempt 11, the complete
-buffer is used without this extra sampling.
+Promotion requires at least 55% of points **and** a one-sided paired p-value
+at most 0.05 **and** a passing productivity probe. A draw earns half a point;
+a score is not a win rate. Rejected candidates never supply subsequent weights,
+Adam state or self-play. Their attempt's games still enrich the replay buffer.
 
-Each arena pair shares a randomly sampled legal opening of 0–4 plies, then
-exchanges candidate colors. Search uses no root noise. Promotion requires at
-least 55% of points, a one-sided paired p-value at most 0.05, and at most 20%
-draws in the productivity probe. See
-[Promotion measurements](alphazero-guide.md#promotion-measurements) for the test
-and its assumptions.
+The learning rate is 0.001 until the accepted source reaches generation 7,
+then 0.00025. Early decisive-tail oversampling stops at attempt 11. Mirrored
+positions augment training examples; restarts inherit their root trajectory's
+train/validation family. The [data audit](experiments/2026-11-08/data-audit.json)
+found all 7,680 replay records, unique generation/seed identities, and complete
+root ancestry for all 1,856 restarted games.
 
-The accepted champion supplies self-play, trainable weights and Adam state.
-A rejected candidate never becomes the next training source. Games generated
-for its attempt remain in the rolling buffer, so the next attempt receives more
-examples while starting from the accepted weights.
+## Results by attempt
 
-## Results by generation
+Wins, losses and draws below are from the candidate's perspective against its
+accepted source. Every decision, including rejected improvements, is retained.
 
-Wins and losses are from the candidate's perspective. A win earns one point
-and a draw half a point: a score of 60% is not a 60% win rate. Generation zero
-is the randomly initialized network.
-
-| Candidate | Source champion | Wins / losses / draws | Score | Paired p-value | Probe draws | Recorded decision |
+| Candidate | Source | Wins / losses / draws | Score | Paired p | Probe draws | Decision |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 | 0 | 175 / 25 / 0 | 87.50% | — | 1/64 | Accepted |
-| 2 | 1 | 131 / 68 / 1 | 65.75% | — | 2/64 | Accepted |
-| 3 | 2 | 128 / 61 / 11 | 66.75% | — | 2/64 | Accepted |
-| 4 | 3 | 106 / 32 / 62 | 68.50% | — | 1/64 | Accepted |
-| 5 | 4 | 126 / 26 / 48 | 75.00% | — | 1/64 | Accepted |
-| 6 | 5 | 63 / 84 / 53 | 44.75% | — | 2/64 | Rejected |
-| 7 | 5 | 88 / 65 / 47 | 55.75% | — | 0/64 | Accepted |
-| 8 | 7 | 123 / 39 / 38 | 71.00% | — | 4/64 | Accepted |
-| 9 | 8 | 95 / 23 / 82 | 68.00% | — | 2/64 | Accepted |
-| 10 | 9 | 51 / 44 / 105 | 51.75% | — | 4/64 | Rejected |
-| 11 | 9 | 84 / 29 / 87 | 63.75% | — | 3/64 | Accepted |
-| 12 | 11 | 29 / 40 / 131 | 47.25% | — | 7/64 | Rejected |
-| 13 | 11 | 106 / 38 / 56 | 67.00% | — | 8/64 | Accepted |
-| 14 | 13 | 73 / 27 / 100 | 61.50% | — | 8/64 | Accepted |
-| 15 | 14 | 23 / 21 / 156 | 50.50% | — | 5/64 | Rejected |
-| 16 | 14 | 79 / 31 / 90 | 62.00% | — | 6/64 | Accepted |
-| 17 | 16 | 101 / 32 / 67 | 67.25% | 7.82e-13 | 5/64 | Accepted |
-| 18 | 17 | 94 / 88 / 18 | 51.50% | 0.1768 | 6/64 | Rejected |
-| 19 | 17 | 141 / 38 / 21 | 75.75% | 1.09e-15 | 5/64 | Accepted |
-| 20 | 19 | 34 / 102 / 64 | 33.00% | 1.0000 | 6/64 | Rejected |
-| 21 | 19 | 97 / 70 / 33 | 56.75% | 1.58e-5 | 5/64 | Accepted |
-| 22 | 21 | 56 / 49 / 95 | 51.75% | 0.2219 | 4/64 | Rejected |
+| 1 | 0 | 179 / 21 / 0 | 89.50% | 1.65e-24 | 2/64 | Accepted |
+| 2 | 1 | 175 / 23 / 2 | 88.00% | 6.62e-24 | 1/64 | Accepted |
+| 3 | 2 | 127 / 72 / 1 | 63.75% | 2.13e-06 | 2/64 | Accepted |
+| 4 | 3 | 90 / 84 / 26 | 51.50% | 0.366 | 4/64 | Rejected: arena |
+| 5 | 3 | 161 / 37 / 2 | 81.00% | 1.59e-17 | 1/64 | Accepted |
+| 6 | 5 | 134 / 55 / 11 | 69.75% | 6.4e-08 | 3/64 | Accepted |
+| 7 | 6 | 143 / 49 / 8 | 73.50% | 2e-15 | 4/64 | Accepted |
+| 8 | 7 | 155 / 26 / 19 | 82.25% | 5.29e-22 | 4/64 | Accepted |
+| 9 | 8 | 80 / 76 / 44 | 51.00% | 0.406 | 5/64 | Rejected: arena |
+| 10 | 8 | 87 / 56 / 57 | 57.75% | 0.00164 | 0/64 | Accepted |
+| 11 | 10 | 66 / 57 / 77 | 52.25% | 0.15 | 5/64 | Rejected: arena |
+| 12 | 10 | 101 / 30 / 69 | 67.75% | 4.73e-12 | 4/64 | Accepted |
+| 13 | 12 | 90 / 66 / 44 | 56.00% | 0.0282 | 6/64 | Accepted |
+| 14 | 13 | 45 / 84 / 71 | 40.25% | 1 | 11/64 | Rejected: arena |
+| 15 | 13 | 111 / 32 / 57 | 69.75% | 1.68e-17 | 9/64 | Accepted |
+| 16 | 15 | 43 / 27 / 130 | 54.00% | 0.00369 | 6/64 | Rejected: arena |
+| 17 | 15 | 40 / 40 / 120 | 50.00% | 0.547 | 17/64 | Rejected: both gates |
+| 18 | 15 | 39 / 29 / 132 | 52.50% | 0.0312 | 7/64 | Rejected: arena |
+| 19 | 15 | 35 / 53 / 112 | 45.50% | 0.987 | 4/64 | Rejected: arena |
+| 20 | 15 | 71 / 19 / 110 | 63.00% | 2.84e-14 | 7/64 | Accepted |
+| 21 | 20 | 37 / 54 / 109 | 45.75% | 0.998 | 14/64 | Rejected: both gates |
+| 22 | 20 | 65 / 24 / 111 | 60.25% | 3.22e-10 | 14/64 | Rejected: probe |
+| 23 | 20 | 43 / 16 / 141 | 56.75% | 3.67e-05 | 13/64 | Rejected: probe |
+| 24 | 20 | 41 / 30 / 129 | 52.75% | 0.0449 | 12/64 | Rejected: arena |
+| 25 | 20 | 49 / 31 / 120 | 54.50% | 0.000498 | 12/64 | Rejected: arena |
+| 26 | 20 | 65 / 21 / 114 | 61.00% | 7.92e-09 | 7/64 | Accepted |
+| 27 | 26 | 57 / 57 / 86 | 50.00% | 0.547 | 8/64 | Rejected: arena |
+| 28 | 26 | 82 / 28 / 90 | 63.50% | 7.11e-15 | 20/64 | Rejected: probe |
+| 29 | 26 | 39 / 26 / 135 | 53.25% | 0.011 | 5/64 | Rejected: arena |
+| 30 | 26 | 63 / 40 / 97 | 55.75% | 0.00021 | 7/64 | Accepted |
 
-Decisions are reported as recorded in the checkpoints' generation reports.
-A dash means paired counts were not saved, so the p-value cannot be
-reconstructed. Those accepted rows do not establish that the statistical
-requirement stated above was met.
+Generation 22 passed its strength arena but drew 14/64 noisy games; generation
+23 drew 13/64. Both exceeded the 20% limit and were rejected. Generation 28
+likewise won its arena but drew 20/64. The final champion, generation 30,
+passed both checks: 55.75% against generation 26, p = 0.0002098, and 7/64 probe
+draws. Its promotion was followed by the independent comparison below.
 
-Generation 21 scored 53.0% as First and 60.5% as Second against its source
-champion, generation 19. Its productivity probe drew 5/64 games (7.81%).
-Generation 22 is a useful example of rejection: its draw rate was acceptable,
-but its strength improvement was not established. A larger generation number
-alone does not mean a stronger model.
+## Independent comparisons with the October champion
 
-## Continuation on October 2, 2026
+The user extended the initial 20-attempt plan to at least 22, then to the next
+promotion, which occurred at 26. After its failed independent comparison, the
+user requested one further promotion before another duel; that successor was
+30. These selection changes were recorded before the corresponding independent
+arena. Neither candidate was selected by testing several checkpoints against
+the reference and keeping the best result.
 
-Attempts 20–22 used the existing configuration and replay buffer, without
-changing the architecture, losses or search budgets. Model format 5,
-encoder version 4 and rules version 1 remained compatible. Every attempt
-resumed the accepted champion's weights and Adam state: attempts 20 and 21
-started from 19, then attempt 22 started from the newly accepted 21.
+Both arenas used 800 games, 400 simulations per move, exact sequential PUCT
+(one leaf per request), 128 game workers, no root noise and paired random legal
+openings of 0–4 plies. Each pair swaps candidate colors. The inference services
+used minimum/maximum batches of 64/128 with a 1 ms collection wait.
 
-The three-attempt budget, fixed reference 19, its file hashes and the
-independent confirmation protocol were recorded before training in
-`experiments/continuation-20-22-20261002.json` under the self-play directory.
-The run used source commit `f46135d7f9d58d3dac3b72654e1d8a884deffbc4` and
-configuration SHA-256
-`3b360f401ff1232b2c0f1279f08c51458e5544f3f1fbabdce775ed01f576388e`.
-The reference weights have SHA-256
-`655ddd1f7d0dcfe7539210508f1a7a5a2bccc471f7ae602d8515c1b502cb9a9b`;
-its weights, metadata and training state were checked unchanged after the run.
+| New candidate vs old generation 21 | Wins / losses / draws | Score | Paired p | Result |
+| --- | --- | ---: | ---: | --- |
+| 26 | 232 / 386 / 182 | 40.375% | ≈ 1 | Failed |
+| **30** | **313 / 162 / 325** | **59.4375%** | **3.54 × 10⁻¹⁵** | **Confirmed** |
 
-Elapsed times below come from whole-second timestamps in
-`logs/continuation-20-22-20261002.log`. Self-play includes the 64 archive restarts
-per attempt; optimization includes validation metrics.
+The first arena used base seed `2026110801` and took 392.00 seconds. The second
+used `2026111801` and took 430.21 seconds. Pair i uses base seed + i: before the
+second arena, the unused seed bases were corrected to be 1,000 apart, avoiding
+the overlap that initially adjacent bases would have caused. Thus the completed
+arenas used disjoint 400-seed ranges. Their opening histories contained 169 and
+166 distinct values respectively; repeated openings within a sampled arena are
+expected. The first arena's data was not changed or rerun.
 
-| Attempt | Self-play | Optimization | Arena | Probe | Total |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 20 | 1:48 | 0:07 | 2:38 | 0:23 | 4:57 |
-| 21 | 1:50 | 0:05 | 3:10 | 0:31 | 5:37 |
-| 22 | 3:18 | 0:05 | 2:48 | 0:27 | 6:40 |
-| **Block** | **6:56** | **0:17** | **8:36** | **1:21** | **17:14** |
-
-Times are minutes:seconds. Totals include four seconds of transitions outside
-the listed phases; compilation took another 29.24 seconds. The independent
-confirmation below is separate. The previous block, attempts 17–19, took
-17:09, but used different weights, trajectories and buffer contents. These
-observations do not measure a speedup from the engine changes. In this block,
-generating and evaluating games took almost all the time; optimizer updates
-and validation took 17 seconds in total.
-
-## Independent regression comparisons
-
-### September 5: generation 19 versus generation 16
-
-An independent arena compared generation 19 directly with generation 16 on
-400 games, with 400 MCTS simulations per move. The opening seed, `20260905`,
-was fixed before the comparison. The 200 pairs included 111 distinct opening
-histories.
-
-| Generation 19's seat | Wins / losses / draws | Score |
+| Generation 30's seat | Wins / losses / draws | Score |
 | --- | --- | ---: |
-| First | 81 / 65 / 54 | 54.00% |
-| Second | 108 / 55 / 37 | 63.25% |
-| Both | **189 / 120 / 91** | **58.625%** |
+| First | 156 / 86 / 158 | 58.750% |
+| Second | 157 / 76 / 167 | 60.125% |
 
-The one-sided paired p-value is **2.08e-11**, confirming an advantage under
-this protocol. Pair counts for 0, 0.5, 1, 1.5 and 2 candidate points are
-`[3, 6, 122, 57, 12]`. The comparison report records its full configuration
-and source commit, `c05515a7ebf00c603d9bdd5113eaf79101721ab3`.
+The successful comparison's paired score counts for 0, 0.5, 1, 1.5 and 2 points
+are `[9, 34, 219, 73, 65]`. The threshold remained 55% with p ≤ 0.05/3 throughout;
+the reserved third comparison was unnecessary. Full results and checkpoint
+identities are retained for [generation 26](experiments/2026-11-08/confirmation-26.json)
+and [generation 30](experiments/2026-11-08/confirmation-30.json), with their
+adjacent run-plan files.
 
-### October 2: generation 21 versus generation 19
+## Execution time
 
-The final accepted champion was compared with the fixed starting reference
-after all three attempts. The protocol selected this comparison before
-training, with no additional attempts or repeat arenas based on its outcome.
-It used 400 games, 400 MCTS simulations per move, one leaf per inference,
-128 game workers, no root noise and paired legal openings of 0–4 plies.
-The independent seed was `20261002`; the 200 pairs included 109 distinct
-opening histories. The arena took 303.21 seconds.
+The 30 complete attempts generated **7,680 self-play games** and applied
+**12,000 optimizer updates**. The pipeline took **2 h 25 min 47 s**, excluding
+compilation, pauses between commands, independent arenas and performance tests.
+These timings come from whole-second CLI timestamps on an Apple M4 Max with
+Rust 1.97.1 and the default release profile.
 
-| Generation 21's seat | Wins / losses / draws | Score |
-| --- | --- | ---: |
-| First | 87 / 75 / 38 | 53.00% |
-| Second | 91 / 71 / 38 | 55.00% |
-| Both | **178 / 146 / 76** | **54.00%** |
+| Phase | Total |
+| --- | ---: |
+| Self-play, including restarts | 55 min 56 s |
+| Optimization and validation | 2 min 29 s |
+| Promotion arenas | 1 h 16 min 12 s |
+| Noisy productivity probes | 10 min 39 s |
+| Other transitions | 31 s |
+| **Total** | **2 h 25 min 47 s** |
 
-The one-sided paired p-value is **0.0007079**, supporting an advantage against
-generation 19 under this protocol. However, the score is below the preplanned
-55% minimum, so the full independent confirmation criterion **was not met**.
-Generation 21 remains the accepted champion because it passed the training
-pipeline's selection arena and productivity gate; this separate comparison
-does not alter `latest`.
-Pair counts for 0, 0.5, 1, 1.5 and 2 candidate points are
-`[5, 9, 144, 33, 9]`.
+Early attempts overlapped compilation of the measurement executables and the
+required checks. These phase durations are observations, not an estimate of a
+speedup. The separate [fixed-workload performance comparison](performance-results.md)
+uses interleaved runs without concurrent training.
 
-The full protocol is in `confirmation-arenas/protocol-20261002.json`; the
-result is in
-`confirmation-arenas/generation-000021-versus-000019-seed-20261002.json`.
-Both use the source commit and reference hashes recorded for this continuation.
+## Verification
 
-## Limits of the measurements
+The required checks passed: 86 tests (two Metal tests normally ignored),
+Clippy with warnings denied, formatting and documentation generation. The
+Metal training-state round-trip diagnostic also passed before training.
+Browser verification completed three WebGPU games and two Flex games, including
+28 captures, 20 drops and resets; a human move with an AI reply was checked
+through the interface. Desktop and mobile layouts were inspected. Both release
+archives match their local files byte for byte and pass SHA-256 verification.
+See the [verification record](experiments/2026-11-08/verification.json).
 
-These arenas measure strength against particular opponents at a fixed search
-budget. They do not prove perfect play or a training-efficiency gain. Comparing
-learning efficiency requires complete runs at equal compute budgets, with
-multiple random seeds.
+The old local training/model directories were removed after preserving and
+rechecking the immutable October reference. All 31 new checkpoints, including
+initialization and rejected candidates, remain intact. The
+[cleanup record](experiments/2026-11-08/cleanup.json) lists the removed paths.
 
-The retained replay buffer contains trajectories without complete ancestry.
-Related training and validation examples can therefore overlap, limiting what
-validation losses say about generalization. The family split in the code cannot
-reconstruct missing ancestry; an experiment requiring a clean validation split
-needs a fresh self-play directory. The strength arenas generate their own
-openings independently of that split.
+## Artifacts and limits
 
-## Compatibility after the 3×4 cleanup — November 8, 2026
+- `models/alpha-zero-from-scratch-20261108/`: all new checkpoints and Adam states;
+  `latest` selects generation 30.
+- `data/alpha-zero-from-scratch-20261108/`: self-play, replay buffer, reports,
+  process logs, independent arenas and performance fixtures.
+- `models/references/pre-cleanup-20261108/`: immutable October reference retained
+  for future comparisons.
+- [Release v1.0.11](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v1.0.11):
+  deployable website and minimal accepted checkpoint as separate archives.
 
-The cleanup retains accepted generation 21 without retraining or changing
-`latest`. Model format 5, encoder version 4, rules version 1 and the 132-slot
-policy remain unchanged. Historical strength results above still describe this
-checkpoint; the cleanup does not establish a new strength improvement.
-
-A one-off CPU comparison recorded raw policy/WDL float bits and complete MCTS
-results before sharing inference code, then repeated it after source commit
-`46b5448`. It used generation 21, seed 42, 64 simulations and batches of eight,
-starting one game from each absolute player and stopping at game end or 24
-plies. All 28 visited positions matched exactly. This is a bounded compatibility
-check, not an exhaustive proof or a strength arena.
-
-Browser checks exercised the rebuilt WebGPU worker through three completed
-games (30 plies, 14 captures and three drops), then the Flex module explicitly
-through a completed game (eight plies, three captures and one drop). Reset and
-rejection of invalid network dimensions also passed. Desktop/mobile rendering
-and a human move with an AI reply were inspected separately.
-
-## Checkpoints and reports
-
-Paths are configured in `config/training.toml`:
-
-- `models/alpha-zero-visited-restarts-v26/`: checkpoints, optimizer states and
-  the `latest` champion pointer;
-- `data/alpha-zero-visited-restarts-v26/reports/`: generation reports, including
-  training metrics, arena outcomes and promotion decisions;
-- `data/alpha-zero-visited-restarts-v26/confirmation-arenas/`: independent
-  comparison results;
-- `data/alpha-zero-visited-restarts-v26/experiments/`: continuation protocols,
-  checkpoint hashes and completion records;
-- `data/alpha-zero-visited-restarts-v26/logs/`: execution logs and diagnostic
-  driver sources.
-
-These generated files are ignored by Git. The deployable website and minimal
-accepted checkpoint are available separately in the
-[latest release](https://github.com/baptistefetet/YokaiRust/releases/latest).
+This establishes a stronger player against this fixed opponent at the stated
+search budget. It does not prove perfect play or absence of every regression.
+One fresh seed and a historical checkpoint do not establish unchanged learning
+efficiency across seeds or equal-compute runs. The measured implementation
+compatibility and execution costs are reported separately; the small CPU
+preparation overhead is retained there rather than hidden by the strength gain.

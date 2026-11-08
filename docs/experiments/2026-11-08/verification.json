@@ -1,0 +1,106 @@
+{
+  "required_checks": [
+    {
+      "check": "test",
+      "exit_code": 0,
+      "seconds": 3.437189541
+    },
+    {
+      "check": "clippy",
+      "exit_code": 0,
+      "seconds": 0.47011220799999975
+    },
+    {
+      "check": "fmt",
+      "exit_code": 0,
+      "seconds": 0.09716350000000018
+    },
+    {
+      "check": "doc",
+      "exit_code": 0,
+      "seconds": 2.4590302910000004
+    }
+  ],
+  "tests": {
+    "passed": 86,
+    "failed": 0,
+    "ignored": 2
+  },
+  "metal_training_state_round_trip_diagnostic": "passed before training; diagnostic only",
+  "browser": {
+    "flex": {
+      "backend": "CPU (Flex)",
+      "captures": 12,
+      "drops": 9,
+      "games": [
+        {
+          "outcome": {
+            "player": "second",
+            "reason": "koropokkuru_captured",
+            "status": "win"
+          },
+          "plies": 14
+        },
+        {
+          "outcome": {
+            "player": "second",
+            "reason": "opponent_has_no_legal_action",
+            "status": "win"
+          },
+          "plies": 22
+        }
+      ],
+      "generation": 30
+    },
+    "status": "passed",
+    "webgpu": {
+      "backend": "WebGPU",
+      "captures": 16,
+      "drops": 11,
+      "games": [
+        {
+          "outcome": {
+            "player": "second",
+            "reason": "koropokkuru_captured",
+            "status": "win"
+          },
+          "plies": 14
+        },
+        {
+          "outcome": {
+            "player": "second",
+            "reason": "opponent_has_no_legal_action",
+            "status": "win"
+          },
+          "plies": 22
+        },
+        {
+          "outcome": {
+            "player": "second",
+            "reason": "koropokkuru_captured",
+            "status": "win"
+          },
+          "plies": 14
+        }
+      ]
+    }
+  },
+  "ui_human_move_and_ai_reply": {
+    "plies": 2,
+    "human_action": "b2-b3",
+    "both_moves_captured": "kodama"
+  },
+  "desktop_viewport": [
+    1280,
+    900
+  ],
+  "mobile_viewport": [
+    390,
+    844
+  ],
+  "visual_inspection": "passed; board and hands remain visible, no overflow",
+  "browser_errors": 0,
+  "worker_reset_after_each_complete_game": true,
+  "web_build": "passed for WebGPU and Flex; optional wasm-opt unavailable",
+  "archives": "SHA256SUMS and byte-for-byte members verified"
+}

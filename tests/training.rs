@@ -1319,17 +1319,33 @@ fn interrupted_candidate_resumes_without_retraining_or_changing_its_configuratio
     let data = std::path::Path::new(&config.paths.self_play);
     fs::create_dir_all(data).unwrap();
     fs::write(data.join("reports"), "obstruct report directory").unwrap();
+    let initial_events = Mutex::new(Vec::new());
     assert!(
         run_generation_with_progress::<CpuTrainingBackend, _>(
             &config,
             &mut buffer,
             &device,
-            &|_| {}
+            &|event| initial_events.lock().unwrap().push(event)
         )
         .is_err()
     );
+    let initial_events = initial_events.into_inner().unwrap();
+    let initial_dataset = initial_events
+        .iter()
+        .find(|event| matches!(event, TrainingProgress::DatasetReady { .. }))
+        .expect("dataset prepared before the interrupted publication");
     let checkpoint = root.join("models/generation-000001/model.safetensors");
     let weights_before = fs::read(&checkpoint).unwrap();
+    let unchanged_files = [
+        data.join("generation-000001.json"),
+        data.join("buffer.json"),
+        root.join("models/generation-000001/optimizer.bin"),
+        root.join("models/generation-000001/training-model.bin"),
+    ];
+    let contents_before: Vec<_> = unchanged_files
+        .iter()
+        .map(|path| fs::read(path).unwrap())
+        .collect();
     let games_before = buffer.len();
     assert_eq!(
         load_champion::<CpuBackend>(&config.paths.models, &device)
@@ -1362,8 +1378,22 @@ fn interrupted_candidate_resumes_without_retraining_or_changing_its_configuratio
     assert_eq!(report.candidate_generation, 1);
     assert_eq!(buffer.len(), games_before);
     assert_eq!(fs::read(checkpoint).unwrap(), weights_before);
+    for (path, before) in unchanged_files.iter().zip(contents_before) {
+        assert_eq!(fs::read(path).unwrap(), before, "{}", path.display());
+    }
     assert!(data.join("reports/generation-000001.json").is_file());
     let events = events.into_inner().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .find(|event| matches!(event, TrainingProgress::DatasetReady { .. })),
+        Some(initial_dataset),
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, TrainingProgress::SelfPlayResumed { .. }))
+    );
     assert!(
         events
             .iter()
@@ -1371,7 +1401,12 @@ fn interrupted_candidate_resumes_without_retraining_or_changing_its_configuratio
     );
     assert!(!events.iter().any(|event| matches!(
         event,
-        TrainingProgress::TrainingStarted { .. } | TrainingProgress::TrainingAdvanced { .. }
+        TrainingProgress::SelfPlayStarted { .. }
+            | TrainingProgress::SelfPlayFinished { .. }
+            | TrainingProgress::TrainingStarted { .. }
+            | TrainingProgress::TrainingAdvanced { .. }
+            | TrainingProgress::TrainingFinished { .. }
+            | TrainingProgress::CandidateSaved { .. }
     )));
     fs::remove_dir_all(root).unwrap();
 }

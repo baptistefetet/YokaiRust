@@ -171,6 +171,12 @@ piece list. These are still the fixed 3×4 rules and model representation.
 For the complete learning sequence and persistence boundaries, follow
 [One generation](alphazero-guide.md#one-generation) alongside
 `training/pipeline.rs`. It emits `TrainingProgress` data; `main.rs` formats it.
+Start at `run_generation_with_progress`: it reserves or resumes the attempt,
+then calls four private phase helpers in order: `load_or_generate_self_play`,
+`prepare_dataset`, `load_or_train_candidate` and `evaluate_candidate`.
+`complete_generation` saves the decision before publishing it. `PreparedDataset`
+groups the selected examples and their sampling statistics so they stay together
+through optimization and reporting; it does not introduce a new file format.
 
 ## Why the training code is split into modules
 

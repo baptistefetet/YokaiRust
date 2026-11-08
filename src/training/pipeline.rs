@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    AlphaZeroNetworkConfig, AlphaZeroTrainingState, ArenaError, ArenaProgress, ArenaResult,
-    DatasetDiagnostics, Evaluation, EvaluationError, EvaluationRequest, Evaluator, InferenceClient,
-    InferenceService, InferenceServiceError, InferenceStats, ModelMetadata, ModelStoreError,
-    NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig, ReplayError,
-    SelfPlayError, SelfPlayEvaluator, SelfPlayGame, TrainingConfig, TrainingExample,
+    AlphaZeroNetwork, AlphaZeroNetworkConfig, AlphaZeroTrainingState, ArenaError, ArenaProgress,
+    ArenaResult, DatasetDiagnostics, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
+    InferenceClient, InferenceService, InferenceServiceError, InferenceStats, ModelMetadata,
+    ModelStoreError, NetworkEvaluator, Outcome, Player, ReplayBuffer, ReplayBufferConfig,
+    ReplayError, SelfPlayError, SelfPlayEvaluator, SelfPlayGame, TrainingConfig, TrainingExample,
     TrainingReport, TrainingStepReport, dataset_diagnostics,
     generate_self_play_with_restarts_and_progress, load_champion, load_generation,
     load_training_generation, next_generation, planned_restart_count, publish_champion,
@@ -376,7 +376,6 @@ pub fn bootstrap_champion<B: Backend>(
 /// # Errors
 ///
 /// Returns [`PipelineError`] when any phase fails.
-#[allow(clippy::too_many_lines)]
 pub fn run_generation_with_progress<B, F>(
     config: &TrainingConfig,
     buffer: &mut ReplayBuffer,
@@ -419,112 +418,14 @@ where
         .self_play
         .evaluator_for_source_generation(source_metadata.generation);
 
-    let restart_archive_prefixes = pending.restart_archive_prefixes;
-    let persisted_games = load_self_play_generation(
-        &config.paths.self_play,
-        candidate_generation,
-        source_metadata.generation,
+    let games = load_or_generate_self_play::<B::InnerBackend, _>(
+        config,
+        &pending,
         self_play_evaluator,
+        buffer,
+        device,
+        progress,
     )?;
-    if persisted_games.is_none() && pending.training.is_some() {
-        return Err(PipelineError::InvalidPendingGeneration(
-            "trained candidate has no persisted self-play",
-        ));
-    }
-    let games = if let Some(games) = persisted_games {
-        let examples = games.iter().map(|game| game.examples.len()).sum();
-        let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
-        progress(TrainingProgress::SelfPlayResumed {
-            evaluator: self_play_evaluator,
-            games: games.len(),
-            examples,
-            restarted_games,
-        });
-        games
-    } else {
-        let planned_restarts = planned_restart_count(&config.self_play, restart_archive_prefixes);
-        progress(TrainingProgress::SelfPlayStarted {
-            evaluator: self_play_evaluator,
-            games: config.self_play.games_per_generation,
-            workers: config.self_play.workers,
-            simulations: config.self_play.simulations,
-            search_batch_size: config.self_play.search_batch_size,
-            repetition_contempt: config.self_play.repetition_contempt,
-            starter_draw_value: config.self_play.starter_draw_value,
-            restart_simulations: config
-                .self_play
-                .restart_simulations
-                .unwrap_or(config.self_play.simulations),
-            restart_archive: restart_archive_prefixes,
-            planned_restarts,
-        });
-        let base_seed = config
-            .seed
-            .wrapping_add(u64::from(candidate_generation) << 32);
-        // Materialize only the prefixes that will actually seed a restart; the
-        // complete visited-state archive is far too large to build eagerly.
-        let restart_archive = buffer.sample_restarts(planned_restarts, base_seed)?;
-        let report_progress = |completed, total| {
-            if progress_checkpoint(completed, total) {
-                progress(TrainingProgress::SelfPlayAdvanced { completed, total });
-            }
-        };
-        let (games, inference) = match self_play_evaluator {
-            SelfPlayEvaluator::Neural => {
-                let (source_for_self_play, _) = load_generation::<B::InnerBackend>(
-                    models_root,
-                    source_metadata.generation,
-                    device,
-                )?;
-                let self_play_service = InferenceService::start_with_batching(
-                    NetworkEvaluator::new(source_for_self_play, device.clone()),
-                    config
-                        .self_play
-                        .workers
-                        .saturating_mul(config.self_play.search_batch_size)
-                        .min(config.self_play.inference_batch_size),
-                    config.self_play.inference_batch_size,
-                    Duration::from_millis(config.self_play.inference_wait_ms),
-                )?;
-                let games = generate_self_play_with_restarts_and_progress(
-                    &self_play_service.client(),
-                    &config.self_play,
-                    source_metadata.generation,
-                    base_seed,
-                    &restart_archive,
-                    &report_progress,
-                )?;
-                let inference = self_play_service.stats();
-                drop(self_play_service);
-                (games, inference)
-            }
-            SelfPlayEvaluator::RandomRollout { .. } => (
-                generate_self_play_with_restarts_and_progress(
-                    &RolloutOnly,
-                    &config.self_play,
-                    source_metadata.generation,
-                    base_seed,
-                    &restart_archive,
-                    &report_progress,
-                )?,
-                InferenceStats::default(),
-            ),
-        };
-        let outcomes = outcome_stats(&games);
-        let examples = games.iter().map(|game| game.examples.len()).sum();
-        let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
-        progress(TrainingProgress::SelfPlayFinished {
-            evaluator: self_play_evaluator,
-            games: games.len(),
-            restarted_games,
-            examples,
-            outcomes,
-            inference,
-        });
-        save_self_play_generation(&config.paths.self_play, candidate_generation, &games)?;
-        save_self_play_replays(&config.paths.self_play, candidate_generation, &games)?;
-        games
-    };
     let self_play_outcomes = outcome_stats(&games);
     let initial_self_play_outcomes =
         outcome_stats(games.iter().filter(|game| game.restart_ply == 0));
@@ -533,7 +434,189 @@ where
     let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
     let (restart_ply_min, restart_ply_max, mean_restart_ply) = restart_ply_stats(&games);
     let generated_dataset_diagnostics = dataset_diagnostics(&games);
-    for game in &games {
+    let dataset = prepare_dataset(config, buffer, &games, candidate_generation, progress)?;
+    let (candidate, training) = load_or_train_candidate::<B, _>(
+        config,
+        &mut pending,
+        &source_metadata,
+        &dataset,
+        device,
+        progress,
+    )?;
+    let (arena, exploratory) =
+        evaluate_candidate::<B::InnerBackend, _>(config, &pending, candidate, device, progress)?;
+
+    let promotion = promotion_decision(&arena, exploratory, config);
+
+    let report = GenerationReport {
+        source_generation: source_metadata.generation,
+        self_play_evaluator,
+        candidate_generation,
+        generated_games: games.len(),
+        restarted_games,
+        restart_archive_prefixes: pending.restart_archive_prefixes,
+        restart_ply_min,
+        restart_ply_max,
+        mean_restart_ply,
+        buffer_games: buffer.len(),
+        buffer_examples: buffer.example_count(),
+        terminal_window_plies: dataset.terminal_window_plies,
+        terminal_extra_examples: dataset.terminal_extra_examples,
+        terminal_oversampling: dataset.terminal_oversampling,
+        self_play_outcomes,
+        initial_self_play_outcomes,
+        restarted_self_play_outcomes,
+        generated_dataset_diagnostics,
+        buffer_dataset_diagnostics: dataset.buffer_diagnostics,
+        training,
+        arena,
+        candidate_self_play: exploratory,
+        promotion,
+    };
+    complete_generation(config, &report, progress)?;
+    Ok(report)
+}
+
+/// Reuse completed games, or generate and persist them before preparing any data.
+fn load_or_generate_self_play<B, F>(
+    config: &TrainingConfig,
+    pending: &PendingGeneration,
+    self_play_evaluator: SelfPlayEvaluator,
+    buffer: &ReplayBuffer,
+    device: &B::Device,
+    progress: &F,
+) -> Result<Vec<SelfPlayGame>, PipelineError>
+where
+    B: Backend<FloatElem = f32> + 'static,
+    NetworkEvaluator<B>: Send,
+    F: Fn(TrainingProgress) + Sync,
+{
+    let models_root = Path::new(&config.paths.models);
+    let candidate_generation = pending.candidate_generation;
+    let restart_archive_prefixes = pending.restart_archive_prefixes;
+    let persisted_games = load_self_play_generation(
+        &config.paths.self_play,
+        candidate_generation,
+        pending.source_generation,
+        self_play_evaluator,
+    )?;
+    if persisted_games.is_none() && pending.training.is_some() {
+        return Err(PipelineError::InvalidPendingGeneration(
+            "trained candidate has no persisted self-play",
+        ));
+    }
+    if let Some(games) = persisted_games {
+        let examples = games.iter().map(|game| game.examples.len()).sum();
+        let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+        progress(TrainingProgress::SelfPlayResumed {
+            evaluator: self_play_evaluator,
+            games: games.len(),
+            examples,
+            restarted_games,
+        });
+        return Ok(games);
+    }
+
+    let planned_restarts = planned_restart_count(&config.self_play, restart_archive_prefixes);
+    progress(TrainingProgress::SelfPlayStarted {
+        evaluator: self_play_evaluator,
+        games: config.self_play.games_per_generation,
+        workers: config.self_play.workers,
+        simulations: config.self_play.simulations,
+        search_batch_size: config.self_play.search_batch_size,
+        repetition_contempt: config.self_play.repetition_contempt,
+        starter_draw_value: config.self_play.starter_draw_value,
+        restart_simulations: config
+            .self_play
+            .restart_simulations
+            .unwrap_or(config.self_play.simulations),
+        restart_archive: restart_archive_prefixes,
+        planned_restarts,
+    });
+    let base_seed = config
+        .seed
+        .wrapping_add(u64::from(candidate_generation) << 32);
+    // Materialize only the prefixes that will actually seed a restart; the
+    // complete visited-state archive is far too large to build eagerly.
+    let restart_archive = buffer.sample_restarts(planned_restarts, base_seed)?;
+    let report_progress = |completed, total| {
+        if progress_checkpoint(completed, total) {
+            progress(TrainingProgress::SelfPlayAdvanced { completed, total });
+        }
+    };
+    let (games, inference) = match self_play_evaluator {
+        SelfPlayEvaluator::Neural => {
+            let (source_for_self_play, _) =
+                load_generation::<B>(models_root, pending.source_generation, device)?;
+            let self_play_service = InferenceService::start_with_batching(
+                NetworkEvaluator::new(source_for_self_play, device.clone()),
+                config
+                    .self_play
+                    .workers
+                    .saturating_mul(config.self_play.search_batch_size)
+                    .min(config.self_play.inference_batch_size),
+                config.self_play.inference_batch_size,
+                Duration::from_millis(config.self_play.inference_wait_ms),
+            )?;
+            let games = generate_self_play_with_restarts_and_progress(
+                &self_play_service.client(),
+                &config.self_play,
+                pending.source_generation,
+                base_seed,
+                &restart_archive,
+                &report_progress,
+            )?;
+            let inference = self_play_service.stats();
+            drop(self_play_service);
+            (games, inference)
+        }
+        SelfPlayEvaluator::RandomRollout { .. } => (
+            generate_self_play_with_restarts_and_progress(
+                &RolloutOnly,
+                &config.self_play,
+                pending.source_generation,
+                base_seed,
+                &restart_archive,
+                &report_progress,
+            )?,
+            InferenceStats::default(),
+        ),
+    };
+    let outcomes = outcome_stats(&games);
+    let examples = games.iter().map(|game| game.examples.len()).sum();
+    let restarted_games = games.iter().filter(|game| game.restart_ply > 0).count();
+    progress(TrainingProgress::SelfPlayFinished {
+        evaluator: self_play_evaluator,
+        games: games.len(),
+        restarted_games,
+        examples,
+        outcomes,
+        inference,
+    });
+    save_self_play_generation(&config.paths.self_play, candidate_generation, &games)?;
+    save_self_play_replays(&config.paths.self_play, candidate_generation, &games)?;
+    Ok(games)
+}
+
+/// Samples and their report fields travel together through optimization.
+struct PreparedDataset {
+    training_examples: Vec<TrainingExample>,
+    validation_examples: Vec<TrainingExample>,
+    buffer_diagnostics: DatasetDiagnostics,
+    terminal_window_plies: Option<usize>,
+    terminal_extra_examples: usize,
+    terminal_oversampling: bool,
+}
+
+/// Add this attempt once, persist the buffer, then split and select examples.
+fn prepare_dataset<F: Fn(TrainingProgress) + Sync>(
+    config: &TrainingConfig,
+    buffer: &mut ReplayBuffer,
+    games: &[SelfPlayGame],
+    candidate_generation: u32,
+    progress: &F,
+) -> Result<PreparedDataset, PipelineError> {
+    for game in games {
         if !buffer.contains(game.source_generation, game.seed) {
             buffer.push(game.clone());
         }
@@ -542,7 +625,7 @@ where
         Path::new(&config.paths.self_play).join("buffer.json"),
         buffer,
     )?;
-    let buffer_dataset_diagnostics = buffer.diagnostics();
+    let buffer_diagnostics = buffer.diagnostics();
 
     let split = buffer.split(config.optimization.validation_fraction, config.seed)?;
     let terminal_window_plies = config
@@ -550,28 +633,17 @@ where
         .terminal_window_for_generation(candidate_generation);
     let terminal_oversampling =
         config.optimization.terminal_window_schedule.is_some() && terminal_window_plies.is_some();
-    let (training_games, validation_games, mut training_examples, validation_examples) =
-        if terminal_oversampling {
-            let (training_games, validation_games) = split.selected_game_counts(None);
-            (
-                training_games,
-                validation_games,
-                split.training_examples(config.optimization.mirror_augmentation),
-                split.validation_examples(),
-            )
-        } else {
-            let (training_games, validation_games) =
-                split.selected_game_counts(terminal_window_plies);
-            (
-                training_games,
-                validation_games,
-                split.training_examples_with_window(
-                    config.optimization.mirror_augmentation,
-                    terminal_window_plies,
-                ),
-                split.validation_examples_with_window(terminal_window_plies),
-            )
-        };
+    // Scheduled oversampling keeps the full base set, then adds decisive tails.
+    // A fixed window instead filters both training and validation examples.
+    let selection_window = if terminal_oversampling {
+        None
+    } else {
+        terminal_window_plies
+    };
+    let (training_games, validation_games) = split.selected_game_counts(selection_window);
+    let mut training_examples = split
+        .training_examples_with_window(config.optimization.mirror_augmentation, selection_window);
+    let validation_examples = split.validation_examples_with_window(selection_window);
     let terminal_extra_examples = match (
         config.optimization.terminal_window_schedule,
         terminal_window_plies,
@@ -598,12 +670,38 @@ where
         terminal_extra_examples,
         terminal_oversampling,
     });
+    Ok(PreparedDataset {
+        training_examples,
+        validation_examples,
+        buffer_diagnostics,
+        terminal_window_plies,
+        terminal_extra_examples,
+        terminal_oversampling,
+    })
+}
+
+/// Reuse a saved candidate, or optimize the source and save metrics before weights.
+fn load_or_train_candidate<B, F>(
+    config: &TrainingConfig,
+    pending: &mut PendingGeneration,
+    source_metadata: &ModelMetadata,
+    dataset: &PreparedDataset,
+    device: &B::Device,
+    progress: &F,
+) -> Result<(AlphaZeroNetwork<B::InnerBackend>, TrainingReport), PipelineError>
+where
+    B: AutodiffBackend<FloatElem = f32>,
+    B::InnerBackend: Backend<FloatElem = f32>,
+    F: Fn(TrainingProgress) + Sync,
+{
+    let models_root = Path::new(&config.paths.models);
+    let candidate_generation = pending.candidate_generation;
     let mut effective_optimization = config.optimization.clone();
     effective_optimization.learning_rate = config
         .optimization
         .learning_rate_for_source_generation(source_metadata.generation);
     let candidate_directory = models_root.join(format!("generation-{candidate_generation:06}"));
-    let (candidate, training) = if candidate_directory.exists() {
+    if candidate_directory.exists() {
         let training = pending
             .training
             .clone()
@@ -615,61 +713,77 @@ where
         progress(TrainingProgress::CandidateResumed {
             generation: candidate_generation,
         });
-        (candidate, training)
+        return Ok((candidate, training));
+    }
+
+    let (training_state, optimizer_resumed) = if let Some((state, _)) = load_training_generation::<B>(
+        models_root,
+        source_metadata.generation,
+        &effective_optimization,
+        device,
+    )? {
+        (state, true)
     } else {
-        let (training_state, optimizer_resumed) = if let Some((state, _)) =
-            load_training_generation::<B>(
-                models_root,
-                source_metadata.generation,
-                &effective_optimization,
-                device,
-            )? {
-            (state, true)
-        } else {
-            let (source_for_training, _) =
-                load_generation::<B>(models_root, source_metadata.generation, device)?;
-            (
-                AlphaZeroTrainingState::new(source_for_training, &effective_optimization),
-                false,
-            )
-        };
-        progress(TrainingProgress::TrainingStarted {
-            steps: config.optimization.steps_per_generation,
-            batch_size: config.optimization.batch_size,
-            learning_rate: effective_optimization.learning_rate,
-            validation_interval_steps: config.optimization.validation_interval_steps,
-            optimizer_resumed,
-        });
-        let (training_state, training) = train_state_with_progress(
-            training_state,
-            &training_examples,
-            &validation_examples,
-            &effective_optimization,
-            config.seed.wrapping_add(u64::from(candidate_generation)),
-            device,
-            &|report| {
-                progress(TrainingProgress::TrainingAdvanced {
-                    total_steps: config.optimization.steps_per_generation,
-                    report,
-                });
-            },
-        );
-        progress(TrainingProgress::TrainingFinished {
-            completed_steps: training.steps_completed,
-        });
-        let candidate_metadata =
-            ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
-        // Persist metrics before the checkpoint appears so resume never has to
-        // invent an optimization report or overwrite a saved generation.
-        pending.training = Some(training.clone());
-        atomic_json_write::<_, PipelineError>(&pending_path(config), &pending)?;
-        save_training_generation(models_root, &candidate_metadata, &training_state)?;
-        let candidate = training_state.model.valid();
-        progress(TrainingProgress::CandidateSaved {
-            generation: candidate_generation,
-        });
-        (candidate, training)
+        let (source_for_training, _) =
+            load_generation::<B>(models_root, source_metadata.generation, device)?;
+        (
+            AlphaZeroTrainingState::new(source_for_training, &effective_optimization),
+            false,
+        )
     };
+    progress(TrainingProgress::TrainingStarted {
+        steps: config.optimization.steps_per_generation,
+        batch_size: config.optimization.batch_size,
+        learning_rate: effective_optimization.learning_rate,
+        validation_interval_steps: config.optimization.validation_interval_steps,
+        optimizer_resumed,
+    });
+    let (training_state, training) = train_state_with_progress(
+        training_state,
+        &dataset.training_examples,
+        &dataset.validation_examples,
+        &effective_optimization,
+        config.seed.wrapping_add(u64::from(candidate_generation)),
+        device,
+        &|report| {
+            progress(TrainingProgress::TrainingAdvanced {
+                total_steps: config.optimization.steps_per_generation,
+                report,
+            });
+        },
+    );
+    progress(TrainingProgress::TrainingFinished {
+        completed_steps: training.steps_completed,
+    });
+    let candidate_metadata =
+        ModelMetadata::new(candidate_generation, source_metadata.architecture.clone());
+    // Persist metrics before the checkpoint appears so resume never has to
+    // invent an optimization report or overwrite a saved generation.
+    pending.training = Some(training.clone());
+    atomic_json_write::<_, PipelineError>(&pending_path(config), pending)?;
+    save_training_generation(models_root, &candidate_metadata, &training_state)?;
+    let candidate = training_state.model.valid();
+    progress(TrainingProgress::CandidateSaved {
+        generation: candidate_generation,
+    });
+    Ok((candidate, training))
+}
+
+/// Both promotion checks use the same candidate; inference workers end here.
+fn evaluate_candidate<B, F>(
+    config: &TrainingConfig,
+    pending: &PendingGeneration,
+    candidate: AlphaZeroNetwork<B>,
+    device: &B::Device,
+    progress: &F,
+) -> Result<(ArenaResult, GameOutcomeStats), PipelineError>
+where
+    B: Backend<FloatElem = f32> + 'static,
+    NetworkEvaluator<B>: Send,
+    F: Fn(TrainingProgress) + Sync,
+{
+    let models_root = Path::new(&config.paths.models);
+    let candidate_generation = pending.candidate_generation;
     progress(TrainingProgress::ArenaStarted {
         games: config.arena.games,
         workers: config.arena.workers,
@@ -678,7 +792,7 @@ where
         opening_plies: config.arena.opening_plies,
     });
     let (source_for_arena, _) =
-        load_generation::<B::InnerBackend>(models_root, source_metadata.generation, device)?;
+        load_generation::<B>(models_root, pending.source_generation, device)?;
     let arena_minimum_batch = config
         .arena
         .workers
@@ -718,35 +832,7 @@ where
     drop(candidate_service);
     drop(reference_service);
 
-    let promotion = promotion_decision(&arena, exploratory, config);
-
-    let report = GenerationReport {
-        source_generation: source_metadata.generation,
-        self_play_evaluator,
-        candidate_generation,
-        generated_games: games.len(),
-        restarted_games,
-        restart_archive_prefixes,
-        restart_ply_min,
-        restart_ply_max,
-        mean_restart_ply,
-        buffer_games: buffer.len(),
-        buffer_examples: buffer.example_count(),
-        terminal_window_plies,
-        terminal_extra_examples,
-        terminal_oversampling,
-        self_play_outcomes,
-        initial_self_play_outcomes,
-        restarted_self_play_outcomes,
-        generated_dataset_diagnostics,
-        buffer_dataset_diagnostics,
-        training,
-        arena,
-        candidate_self_play: exploratory,
-        promotion,
-    };
-    complete_generation(config, &report, progress)?;
-    Ok(report)
+    Ok((arena, exploratory))
 }
 
 /// Journal identity and optimization metrics before making a candidate visible.

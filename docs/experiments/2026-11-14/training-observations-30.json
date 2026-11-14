@@ -1,0 +1,2196 @@
+{
+  "sources": "generation reports, stored replays and `yokai train` logs of the run",
+  "timestamp_resolution": "whole seconds from CLI elapsed timestamps",
+  "total_seconds": 13009,
+  "generations": [
+    {
+      "generation": 1,
+      "source_champion": 0,
+      "self_play_evaluator": "random_rollout",
+      "promoted": true,
+      "seconds": {
+        "total": 121,
+        "self_play": 15,
+        "optimization": 6,
+        "arena": 53,
+        "probe": 47
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 0,
+        "outcomes": {
+          "draw:move_limit": 2,
+          "win:koropokkuru_captured": 253,
+          "win:opponent_has_no_legal_action": 1
+        },
+        "draws": 2,
+        "starter_wins": 129,
+        "non_starter_wins": 125,
+        "plies_mean": 37.8,
+        "plies_p50": 33,
+        "plies_p90": 63,
+        "positions": 9671,
+        "positions_from_draws": 512
+      },
+      "buffer": {
+        "games": 256,
+        "examples": 9671
+      },
+      "training_step_400": {
+        "total_loss": 3.504,
+        "policy_loss": 3.2802,
+        "value_loss": 0.1716,
+        "scalar_value_loss": 0.2091,
+        "policy_entropy": 3.5119,
+        "value_calibration_error": 0.2113,
+        "illegal_policy_mass": 0.3862,
+        "policy_top1_accuracy": 0.3243,
+        "wdl_top1_accuracy": 0.9142,
+        "draw_probability_error": 0.0068,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 6.5683,
+        "policy_loss": 4.0842,
+        "value_loss": 2.0898,
+        "scalar_value_loss": 1.5771,
+        "policy_entropy": 3.715,
+        "value_calibration_error": 0.9684,
+        "illegal_policy_mass": 0.4009,
+        "policy_top1_accuracy": 0.0661,
+        "wdl_top1_accuracy": 0.5092,
+        "draw_probability_error": 0.0167,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 188,
+        "reference_wins": 12,
+        "draws": 0,
+        "score": 0.94,
+        "improvement_p_value": 7.350921459211476e-26,
+        "distinct_openings": 73
+      },
+      "probe": {
+        "games": 64,
+        "draws": 4
+      }
+    },
+    {
+      "generation": 2,
+      "source_champion": 1,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 410,
+        "self_play": 241,
+        "optimization": 5,
+        "arena": 112,
+        "probe": 52
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 12,
+          "draw:threefold_repetition": 1,
+          "win:koropokkuru_captured": 236,
+          "win:opponent_has_no_legal_action": 7
+        },
+        "draws": 13,
+        "starter_wins": 124,
+        "non_starter_wins": 119,
+        "plies_mean": 63.0,
+        "plies_p50": 50,
+        "plies_p90": 125,
+        "positions": 14303,
+        "positions_from_draws": 3197
+      },
+      "buffer": {
+        "games": 512,
+        "examples": 23974
+      },
+      "training_step_400": {
+        "total_loss": 3.4583,
+        "policy_loss": 3.1629,
+        "value_loss": 0.2376,
+        "scalar_value_loss": 0.2313,
+        "policy_entropy": 3.3636,
+        "value_calibration_error": 0.2429,
+        "illegal_policy_mass": 0.3027,
+        "policy_top1_accuracy": 0.286,
+        "wdl_top1_accuracy": 0.8973,
+        "draw_probability_error": 0.0334,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 5.4519,
+        "policy_loss": 3.5846,
+        "value_loss": 1.5172,
+        "scalar_value_loss": 1.4,
+        "policy_entropy": 3.3897,
+        "value_calibration_error": 0.8987,
+        "illegal_policy_mass": 0.2672,
+        "policy_top1_accuracy": 0.123,
+        "wdl_top1_accuracy": 0.5527,
+        "draw_probability_error": 0.0106,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 152,
+        "reference_wins": 26,
+        "draws": 22,
+        "score": 0.815,
+        "improvement_p_value": 1.042843141857853e-18,
+        "distinct_openings": 81
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 3,
+      "source_champion": 2,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 471,
+        "self_play": 304,
+        "optimization": 5,
+        "arena": 111,
+        "probe": 50
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 22,
+          "draw:threefold_repetition": 5,
+          "win:koropokkuru_captured": 218,
+          "win:opponent_has_no_legal_action": 11
+        },
+        "draws": 27,
+        "starter_wins": 128,
+        "non_starter_wins": 101,
+        "plies_mean": 79.9,
+        "plies_p50": 56,
+        "plies_p90": 204,
+        "positions": 17455,
+        "positions_from_draws": 4997
+      },
+      "buffer": {
+        "games": 768,
+        "examples": 41429
+      },
+      "training_step_400": {
+        "total_loss": 3.4697,
+        "policy_loss": 3.1145,
+        "value_loss": 0.2926,
+        "scalar_value_loss": 0.2503,
+        "policy_entropy": 3.3097,
+        "value_calibration_error": 0.2681,
+        "illegal_policy_mass": 0.2696,
+        "policy_top1_accuracy": 0.2771,
+        "wdl_top1_accuracy": 0.8785,
+        "draw_probability_error": 0.058,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.6377,
+        "policy_loss": 3.267,
+        "value_loss": 1.1306,
+        "scalar_value_loss": 0.9606,
+        "policy_entropy": 3.3035,
+        "value_calibration_error": 0.7393,
+        "illegal_policy_mass": 0.2585,
+        "policy_top1_accuracy": 0.2178,
+        "wdl_top1_accuracy": 0.5893,
+        "draw_probability_error": 0.1334,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 130,
+        "reference_wins": 46,
+        "draws": 24,
+        "score": 0.71,
+        "improvement_p_value": 5.531026672230639e-10,
+        "distinct_openings": 70
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 4,
+      "source_champion": 3,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 411,
+        "self_play": 235,
+        "optimization": 6,
+        "arena": 119,
+        "probe": 51
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 27,
+          "draw:threefold_repetition": 11,
+          "win:koropokkuru_captured": 208,
+          "win:opponent_has_no_legal_action": 10
+        },
+        "draws": 38,
+        "starter_wins": 112,
+        "non_starter_wins": 106,
+        "plies_mean": 82.9,
+        "plies_p50": 54,
+        "plies_p90": 256,
+        "positions": 17060,
+        "positions_from_draws": 6687
+      },
+      "buffer": {
+        "games": 1024,
+        "examples": 58489
+      },
+      "training_step_400": {
+        "total_loss": 3.4584,
+        "policy_loss": 3.0691,
+        "value_loss": 0.3251,
+        "scalar_value_loss": 0.2573,
+        "policy_entropy": 3.2476,
+        "value_calibration_error": 0.2837,
+        "illegal_policy_mass": 0.2449,
+        "policy_top1_accuracy": 0.2777,
+        "wdl_top1_accuracy": 0.8621,
+        "draw_probability_error": 0.0786,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.7007,
+        "policy_loss": 3.1872,
+        "value_loss": 1.2626,
+        "scalar_value_loss": 1.0037,
+        "policy_entropy": 3.1124,
+        "value_calibration_error": 0.7425,
+        "illegal_policy_mass": 0.2192,
+        "policy_top1_accuracy": 0.23,
+        "wdl_top1_accuracy": 0.57,
+        "draw_probability_error": 0.1291,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 121,
+        "reference_wins": 37,
+        "draws": 42,
+        "score": 0.71,
+        "improvement_p_value": 2.6197626914868773e-11,
+        "distinct_openings": 85
+      },
+      "probe": {
+        "games": 64,
+        "draws": 5
+      }
+    },
+    {
+      "generation": 5,
+      "source_champion": 4,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 472,
+        "self_play": 294,
+        "optimization": 6,
+        "arena": 109,
+        "probe": 62
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 30,
+          "draw:threefold_repetition": 7,
+          "win:koropokkuru_captured": 206,
+          "win:opponent_has_no_legal_action": 13
+        },
+        "draws": 37,
+        "starter_wins": 120,
+        "non_starter_wins": 99,
+        "plies_mean": 86.6,
+        "plies_p50": 55,
+        "plies_p90": 256,
+        "positions": 18456,
+        "positions_from_draws": 7277
+      },
+      "buffer": {
+        "games": 1280,
+        "examples": 76945
+      },
+      "training_step_400": {
+        "total_loss": 3.4738,
+        "policy_loss": 3.0241,
+        "value_loss": 0.3761,
+        "scalar_value_loss": 0.2944,
+        "policy_entropy": 3.2053,
+        "value_calibration_error": 0.3206,
+        "illegal_policy_mass": 0.2252,
+        "policy_top1_accuracy": 0.2893,
+        "wdl_top1_accuracy": 0.8405,
+        "draw_probability_error": 0.0932,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.7834,
+        "policy_loss": 3.0847,
+        "value_loss": 1.472,
+        "scalar_value_loss": 0.9068,
+        "policy_entropy": 3.0912,
+        "value_calibration_error": 0.7171,
+        "illegal_policy_mass": 0.2195,
+        "policy_top1_accuracy": 0.2855,
+        "wdl_top1_accuracy": 0.5231,
+        "draw_probability_error": 0.2398,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 93,
+        "reference_wins": 81,
+        "draws": 26,
+        "score": 0.53,
+        "improvement_p_value": 0.22559886390068243,
+        "distinct_openings": 81
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 6,
+      "source_champion": 4,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 438,
+        "self_play": 254,
+        "optimization": 8,
+        "arena": 124,
+        "probe": 52
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 30,
+          "draw:threefold_repetition": 5,
+          "win:koropokkuru_captured": 213,
+          "win:opponent_has_no_legal_action": 8
+        },
+        "draws": 35,
+        "starter_wins": 116,
+        "non_starter_wins": 105,
+        "plies_mean": 85.4,
+        "plies_p50": 59,
+        "plies_p90": 256,
+        "positions": 16950,
+        "positions_from_draws": 5895
+      },
+      "buffer": {
+        "games": 1536,
+        "examples": 93895
+      },
+      "training_step_400": {
+        "total_loss": 3.5308,
+        "policy_loss": 2.997,
+        "value_loss": 0.4482,
+        "scalar_value_loss": 0.3425,
+        "policy_entropy": 3.1738,
+        "value_calibration_error": 0.3745,
+        "illegal_policy_mass": 0.2218,
+        "policy_top1_accuracy": 0.2944,
+        "wdl_top1_accuracy": 0.8067,
+        "draw_probability_error": 0.1168,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.3508,
+        "policy_loss": 3.043,
+        "value_loss": 1.1164,
+        "scalar_value_loss": 0.7656,
+        "policy_entropy": 3.1474,
+        "value_calibration_error": 0.6782,
+        "illegal_policy_mass": 0.2233,
+        "policy_top1_accuracy": 0.2926,
+        "wdl_top1_accuracy": 0.5569,
+        "draw_probability_error": 0.2318,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 141,
+        "reference_wins": 31,
+        "draws": 28,
+        "score": 0.775,
+        "improvement_p_value": 3.7015564364623066e-14,
+        "distinct_openings": 81
+      },
+      "probe": {
+        "games": 64,
+        "draws": 5
+      }
+    },
+    {
+      "generation": 7,
+      "source_champion": 6,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 467,
+        "self_play": 268,
+        "optimization": 9,
+        "arena": 135,
+        "probe": 55
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 22,
+          "draw:threefold_repetition": 16,
+          "win:koropokkuru_captured": 213,
+          "win:opponent_has_no_legal_action": 5
+        },
+        "draws": 38,
+        "starter_wins": 120,
+        "non_starter_wins": 98,
+        "plies_mean": 87.2,
+        "plies_p50": 58,
+        "plies_p90": 237,
+        "positions": 17873,
+        "positions_from_draws": 5952
+      },
+      "buffer": {
+        "games": 1792,
+        "examples": 111768
+      },
+      "training_step_400": {
+        "total_loss": 3.5399,
+        "policy_loss": 2.9935,
+        "value_loss": 0.4599,
+        "scalar_value_loss": 0.346,
+        "policy_entropy": 3.1661,
+        "value_calibration_error": 0.3811,
+        "illegal_policy_mass": 0.212,
+        "policy_top1_accuracy": 0.3029,
+        "wdl_top1_accuracy": 0.8015,
+        "draw_probability_error": 0.1236,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.7201,
+        "policy_loss": 3.0311,
+        "value_loss": 1.4548,
+        "scalar_value_loss": 0.9366,
+        "policy_entropy": 3.2882,
+        "value_calibration_error": 0.725,
+        "illegal_policy_mass": 0.2216,
+        "policy_top1_accuracy": 0.2964,
+        "wdl_top1_accuracy": 0.5223,
+        "draw_probability_error": 0.2373,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 112,
+        "reference_wins": 41,
+        "draws": 47,
+        "score": 0.6775,
+        "improvement_p_value": 2.10181238974316e-09,
+        "distinct_openings": 78
+      },
+      "probe": {
+        "games": 64,
+        "draws": 7
+      }
+    },
+    {
+      "generation": 8,
+      "source_champion": 7,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 427,
+        "self_play": 242,
+        "optimization": 9,
+        "arena": 115,
+        "probe": 61
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 12,
+          "draw:threefold_repetition": 13,
+          "win:koropokkuru_captured": 224,
+          "win:opponent_has_no_legal_action": 7
+        },
+        "draws": 25,
+        "starter_wins": 124,
+        "non_starter_wins": 107,
+        "plies_mean": 76.2,
+        "plies_p50": 58,
+        "plies_p90": 189,
+        "positions": 14817,
+        "positions_from_draws": 3490
+      },
+      "buffer": {
+        "games": 2048,
+        "examples": 126585
+      },
+      "training_step_400": {
+        "total_loss": 3.5285,
+        "policy_loss": 2.986,
+        "value_loss": 0.4546,
+        "scalar_value_loss": 0.3516,
+        "policy_entropy": 3.1608,
+        "value_calibration_error": 0.3821,
+        "illegal_policy_mass": 0.2013,
+        "policy_top1_accuracy": 0.3036,
+        "wdl_top1_accuracy": 0.8054,
+        "draw_probability_error": 0.1143,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.5557,
+        "policy_loss": 3.0324,
+        "value_loss": 1.3161,
+        "scalar_value_loss": 0.8289,
+        "policy_entropy": 3.0956,
+        "value_calibration_error": 0.7026,
+        "illegal_policy_mass": 0.2022,
+        "policy_top1_accuracy": 0.3005,
+        "wdl_top1_accuracy": 0.5263,
+        "draw_probability_error": 0.2526,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 59,
+        "reference_wins": 120,
+        "draws": 21,
+        "score": 0.3475,
+        "improvement_p_value": 0.999980083910231,
+        "distinct_openings": 72
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 9,
+      "source_champion": 7,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 407,
+        "self_play": 224,
+        "optimization": 10,
+        "arena": 118,
+        "probe": 55
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 9,
+          "draw:threefold_repetition": 13,
+          "win:koropokkuru_captured": 223,
+          "win:opponent_has_no_legal_action": 11
+        },
+        "draws": 22,
+        "starter_wins": 108,
+        "non_starter_wins": 126,
+        "plies_mean": 70.5,
+        "plies_p50": 53,
+        "plies_p90": 143,
+        "positions": 14274,
+        "positions_from_draws": 2717
+      },
+      "buffer": {
+        "games": 2304,
+        "examples": 140859
+      },
+      "training_step_400": {
+        "total_loss": 3.5934,
+        "policy_loss": 3.0037,
+        "value_loss": 0.4926,
+        "scalar_value_loss": 0.3885,
+        "policy_entropy": 3.1871,
+        "value_calibration_error": 0.4206,
+        "illegal_policy_mass": 0.2043,
+        "policy_top1_accuracy": 0.3068,
+        "wdl_top1_accuracy": 0.786,
+        "draw_probability_error": 0.1225,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.3634,
+        "policy_loss": 3.038,
+        "value_loss": 1.1346,
+        "scalar_value_loss": 0.7632,
+        "policy_entropy": 3.1691,
+        "value_calibration_error": 0.6793,
+        "illegal_policy_mass": 0.2066,
+        "policy_top1_accuracy": 0.3035,
+        "wdl_top1_accuracy": 0.5514,
+        "draw_probability_error": 0.2366,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 102,
+        "reference_wins": 80,
+        "draws": 18,
+        "score": 0.555,
+        "improvement_p_value": 0.03774015834355282,
+        "distinct_openings": 82
+      },
+      "probe": {
+        "games": 64,
+        "draws": 6
+      }
+    },
+    {
+      "generation": 10,
+      "source_champion": 9,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 439,
+        "self_play": 259,
+        "optimization": 10,
+        "arena": 117,
+        "probe": 53
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 14,
+          "draw:threefold_repetition": 15,
+          "win:koropokkuru_captured": 205,
+          "win:opponent_has_no_legal_action": 22
+        },
+        "draws": 29,
+        "starter_wins": 109,
+        "non_starter_wins": 118,
+        "plies_mean": 86.4,
+        "plies_p50": 64,
+        "plies_p90": 201,
+        "positions": 17462,
+        "positions_from_draws": 4074
+      },
+      "buffer": {
+        "games": 2560,
+        "examples": 158321
+      },
+      "training_step_400": {
+        "total_loss": 3.5588,
+        "policy_loss": 2.9798,
+        "value_loss": 0.4843,
+        "scalar_value_loss": 0.379,
+        "policy_entropy": 3.1584,
+        "value_calibration_error": 0.4128,
+        "illegal_policy_mass": 0.1949,
+        "policy_top1_accuracy": 0.308,
+        "wdl_top1_accuracy": 0.7913,
+        "draw_probability_error": 0.1219,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.3603,
+        "policy_loss": 3.0149,
+        "value_loss": 1.1574,
+        "scalar_value_loss": 0.7522,
+        "policy_entropy": 3.1071,
+        "value_calibration_error": 0.6637,
+        "illegal_policy_mass": 0.193,
+        "policy_top1_accuracy": 0.3119,
+        "wdl_top1_accuracy": 0.5659,
+        "draw_probability_error": 0.2352,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 135,
+        "reference_wins": 38,
+        "draws": 27,
+        "score": 0.7425,
+        "improvement_p_value": 2.0308674260647664e-12,
+        "distinct_openings": 76
+      },
+      "probe": {
+        "games": 64,
+        "draws": 9
+      }
+    },
+    {
+      "generation": 11,
+      "source_champion": 10,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 454,
+        "self_play": 275,
+        "optimization": 10,
+        "arena": 124,
+        "probe": 45
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 6,
+          "draw:threefold_repetition": 16,
+          "win:koropokkuru_captured": 224,
+          "win:opponent_has_no_legal_action": 10
+        },
+        "draws": 22,
+        "starter_wins": 131,
+        "non_starter_wins": 103,
+        "plies_mean": 77.9,
+        "plies_p50": 59,
+        "plies_p90": 169,
+        "positions": 16398,
+        "positions_from_draws": 2927
+      },
+      "buffer": {
+        "games": 2816,
+        "examples": 174719
+      },
+      "training_step_400": {
+        "total_loss": 3.5455,
+        "policy_loss": 2.9474,
+        "value_loss": 0.4996,
+        "scalar_value_loss": 0.394,
+        "policy_entropy": 3.1354,
+        "value_calibration_error": 0.4262,
+        "illegal_policy_mass": 0.1887,
+        "policy_top1_accuracy": 0.3169,
+        "wdl_top1_accuracy": 0.7846,
+        "draw_probability_error": 0.1238,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.2841,
+        "policy_loss": 2.9771,
+        "value_loss": 1.1165,
+        "scalar_value_loss": 0.7618,
+        "policy_entropy": 3.1737,
+        "value_calibration_error": 0.6706,
+        "illegal_policy_mass": 0.1919,
+        "policy_top1_accuracy": 0.316,
+        "wdl_top1_accuracy": 0.569,
+        "draw_probability_error": 0.2129,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 90,
+        "reference_wins": 86,
+        "draws": 24,
+        "score": 0.51,
+        "improvement_p_value": 0.40552273338049516,
+        "distinct_openings": 81
+      },
+      "probe": {
+        "games": 64,
+        "draws": 3
+      }
+    },
+    {
+      "generation": 12,
+      "source_champion": 10,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 444,
+        "self_play": 252,
+        "optimization": 10,
+        "arena": 122,
+        "probe": 60
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 17,
+          "draw:threefold_repetition": 22,
+          "win:koropokkuru_captured": 204,
+          "win:opponent_has_no_legal_action": 13
+        },
+        "draws": 39,
+        "starter_wins": 114,
+        "non_starter_wins": 103,
+        "plies_mean": 88.5,
+        "plies_p50": 61,
+        "plies_p90": 224,
+        "positions": 17159,
+        "positions_from_draws": 4651
+      },
+      "buffer": {
+        "games": 3072,
+        "examples": 191878
+      },
+      "training_step_400": {
+        "total_loss": 3.5823,
+        "policy_loss": 2.9589,
+        "value_loss": 0.5212,
+        "scalar_value_loss": 0.4086,
+        "policy_entropy": 3.1381,
+        "value_calibration_error": 0.4436,
+        "illegal_policy_mass": 0.1885,
+        "policy_top1_accuracy": 0.3145,
+        "wdl_top1_accuracy": 0.7712,
+        "draw_probability_error": 0.1318,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.3598,
+        "policy_loss": 2.9764,
+        "value_loss": 1.1759,
+        "scalar_value_loss": 0.8301,
+        "policy_entropy": 3.0484,
+        "value_calibration_error": 0.7145,
+        "illegal_policy_mass": 0.1833,
+        "policy_top1_accuracy": 0.3155,
+        "wdl_top1_accuracy": 0.5313,
+        "draw_probability_error": 0.2334,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 107,
+        "reference_wins": 66,
+        "draws": 27,
+        "score": 0.6025,
+        "improvement_p_value": 0.0022087056658759187,
+        "distinct_openings": 79
+      },
+      "probe": {
+        "games": 64,
+        "draws": 16
+      }
+    },
+    {
+      "generation": 13,
+      "source_champion": 10,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 458,
+        "self_play": 263,
+        "optimization": 10,
+        "arena": 127,
+        "probe": 58
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 15,
+          "draw:threefold_repetition": 26,
+          "win:koropokkuru_captured": 202,
+          "win:opponent_has_no_legal_action": 13
+        },
+        "draws": 41,
+        "starter_wins": 120,
+        "non_starter_wins": 95,
+        "plies_mean": 82.4,
+        "plies_p50": 58,
+        "plies_p90": 201,
+        "positions": 16731,
+        "positions_from_draws": 5940
+      },
+      "buffer": {
+        "games": 3328,
+        "examples": 208609
+      },
+      "training_step_400": {
+        "total_loss": 3.6244,
+        "policy_loss": 2.9524,
+        "value_loss": 0.5647,
+        "scalar_value_loss": 0.4291,
+        "policy_entropy": 3.1327,
+        "value_calibration_error": 0.465,
+        "illegal_policy_mass": 0.1887,
+        "policy_top1_accuracy": 0.3132,
+        "wdl_top1_accuracy": 0.7566,
+        "draw_probability_error": 0.1498,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.165,
+        "policy_loss": 2.9588,
+        "value_loss": 1.0341,
+        "scalar_value_loss": 0.6884,
+        "policy_entropy": 3.1221,
+        "value_calibration_error": 0.6602,
+        "illegal_policy_mass": 0.188,
+        "policy_top1_accuracy": 0.32,
+        "wdl_top1_accuracy": 0.5658,
+        "draw_probability_error": 0.2416,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 114,
+        "reference_wins": 62,
+        "draws": 24,
+        "score": 0.63,
+        "improvement_p_value": 1.0858119653844867e-05,
+        "distinct_openings": 77
+      },
+      "probe": {
+        "games": 64,
+        "draws": 11
+      }
+    },
+    {
+      "generation": 14,
+      "source_champion": 13,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 435,
+        "self_play": 240,
+        "optimization": 11,
+        "arena": 123,
+        "probe": 61
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 16,
+          "draw:threefold_repetition": 17,
+          "win:koropokkuru_captured": 215,
+          "win:opponent_has_no_legal_action": 8
+        },
+        "draws": 33,
+        "starter_wins": 117,
+        "non_starter_wins": 106,
+        "plies_mean": 83.6,
+        "plies_p50": 62,
+        "plies_p90": 209,
+        "positions": 16591,
+        "positions_from_draws": 3945
+      },
+      "buffer": {
+        "games": 3584,
+        "examples": 225200
+      },
+      "training_step_400": {
+        "total_loss": 3.6023,
+        "policy_loss": 2.9401,
+        "value_loss": 0.5548,
+        "scalar_value_loss": 0.4299,
+        "policy_entropy": 3.119,
+        "value_calibration_error": 0.4658,
+        "illegal_policy_mass": 0.1814,
+        "policy_top1_accuracy": 0.3264,
+        "wdl_top1_accuracy": 0.7604,
+        "draw_probability_error": 0.1436,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.1937,
+        "policy_loss": 2.9503,
+        "value_loss": 1.0707,
+        "scalar_value_loss": 0.6909,
+        "policy_entropy": 3.0209,
+        "value_calibration_error": 0.6451,
+        "illegal_policy_mass": 0.1747,
+        "policy_top1_accuracy": 0.3205,
+        "wdl_top1_accuracy": 0.575,
+        "draw_probability_error": 0.241,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 82,
+        "reference_wins": 96,
+        "draws": 22,
+        "score": 0.465,
+        "improvement_p_value": 0.8587365749364061,
+        "distinct_openings": 74
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 15,
+      "source_champion": 13,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 438,
+        "self_play": 246,
+        "optimization": 12,
+        "arena": 120,
+        "probe": 60
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 8,
+          "draw:threefold_repetition": 26,
+          "win:koropokkuru_captured": 212,
+          "win:opponent_has_no_legal_action": 10
+        },
+        "draws": 34,
+        "starter_wins": 135,
+        "non_starter_wins": 87,
+        "plies_mean": 85.6,
+        "plies_p50": 61,
+        "plies_p90": 203,
+        "positions": 17791,
+        "positions_from_draws": 4530
+      },
+      "buffer": {
+        "games": 3840,
+        "examples": 242991
+      },
+      "training_step_400": {
+        "total_loss": 3.6355,
+        "policy_loss": 2.9329,
+        "value_loss": 0.5912,
+        "scalar_value_loss": 0.4457,
+        "policy_entropy": 3.1131,
+        "value_calibration_error": 0.4842,
+        "illegal_policy_mass": 0.1818,
+        "policy_top1_accuracy": 0.325,
+        "wdl_top1_accuracy": 0.7441,
+        "draw_probability_error": 0.1602,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.135,
+        "policy_loss": 2.9343,
+        "value_loss": 1.0222,
+        "scalar_value_loss": 0.7142,
+        "policy_entropy": 3.1523,
+        "value_calibration_error": 0.6808,
+        "illegal_policy_mass": 0.1878,
+        "policy_top1_accuracy": 0.3295,
+        "wdl_top1_accuracy": 0.5468,
+        "draw_probability_error": 0.2586,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 79,
+        "reference_wins": 105,
+        "draws": 16,
+        "score": 0.435,
+        "improvement_p_value": 0.9931925306755147,
+        "distinct_openings": 76
+      },
+      "probe": {
+        "games": 64,
+        "draws": 7
+      }
+    },
+    {
+      "generation": 16,
+      "source_champion": 13,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 449,
+        "self_play": 251,
+        "optimization": 12,
+        "arena": 134,
+        "probe": 51
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 12,
+          "draw:threefold_repetition": 20,
+          "win:koropokkuru_captured": 206,
+          "win:opponent_has_no_legal_action": 18
+        },
+        "draws": 32,
+        "starter_wins": 126,
+        "non_starter_wins": 98,
+        "plies_mean": 80.2,
+        "plies_p50": 61,
+        "plies_p90": 187,
+        "positions": 15920,
+        "positions_from_draws": 3809
+      },
+      "buffer": {
+        "games": 4096,
+        "examples": 258911
+      },
+      "training_step_400": {
+        "total_loss": 3.6641,
+        "policy_loss": 2.9318,
+        "value_loss": 0.6161,
+        "scalar_value_loss": 0.4649,
+        "policy_entropy": 3.1112,
+        "value_calibration_error": 0.5052,
+        "illegal_policy_mass": 0.1798,
+        "policy_top1_accuracy": 0.3273,
+        "wdl_top1_accuracy": 0.7301,
+        "draw_probability_error": 0.1682,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.1377,
+        "policy_loss": 2.9312,
+        "value_loss": 1.0279,
+        "scalar_value_loss": 0.7146,
+        "policy_entropy": 3.0786,
+        "value_calibration_error": 0.6743,
+        "illegal_policy_mass": 0.1854,
+        "policy_top1_accuracy": 0.3363,
+        "wdl_top1_accuracy": 0.5547,
+        "draw_probability_error": 0.2518,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 113,
+        "reference_wins": 55,
+        "draws": 32,
+        "score": 0.645,
+        "improvement_p_value": 2.990917891132483e-07,
+        "distinct_openings": 79
+      },
+      "probe": {
+        "games": 64,
+        "draws": 11
+      }
+    },
+    {
+      "generation": 17,
+      "source_champion": 16,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 478,
+        "self_play": 291,
+        "optimization": 13,
+        "arena": 126,
+        "probe": 48
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 13,
+          "draw:threefold_repetition": 41,
+          "win:koropokkuru_captured": 186,
+          "win:opponent_has_no_legal_action": 16
+        },
+        "draws": 54,
+        "starter_wins": 118,
+        "non_starter_wins": 84,
+        "plies_mean": 90.1,
+        "plies_p50": 67,
+        "plies_p90": 195,
+        "positions": 18093,
+        "positions_from_draws": 6340
+      },
+      "buffer": {
+        "games": 4352,
+        "examples": 277004
+      },
+      "training_step_400": {
+        "total_loss": 3.6346,
+        "policy_loss": 2.9098,
+        "value_loss": 0.6113,
+        "scalar_value_loss": 0.4542,
+        "policy_entropy": 3.0889,
+        "value_calibration_error": 0.4953,
+        "illegal_policy_mass": 0.174,
+        "policy_top1_accuracy": 0.3323,
+        "wdl_top1_accuracy": 0.7316,
+        "draw_probability_error": 0.1727,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.1197,
+        "policy_loss": 2.9083,
+        "value_loss": 1.0345,
+        "scalar_value_loss": 0.7076,
+        "policy_entropy": 3.1053,
+        "value_calibration_error": 0.6818,
+        "illegal_policy_mass": 0.1784,
+        "policy_top1_accuracy": 0.3353,
+        "wdl_top1_accuracy": 0.5446,
+        "draw_probability_error": 0.2654,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 97,
+        "reference_wins": 65,
+        "draws": 38,
+        "score": 0.58,
+        "improvement_p_value": 0.0077453841522598646,
+        "distinct_openings": 81
+      },
+      "probe": {
+        "games": 64,
+        "draws": 5
+      }
+    },
+    {
+      "generation": 18,
+      "source_champion": 17,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 456,
+        "self_play": 259,
+        "optimization": 13,
+        "arena": 131,
+        "probe": 53
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 8,
+          "draw:threefold_repetition": 27,
+          "win:koropokkuru_captured": 209,
+          "win:opponent_has_no_legal_action": 12
+        },
+        "draws": 35,
+        "starter_wins": 116,
+        "non_starter_wins": 105,
+        "plies_mean": 76.6,
+        "plies_p50": 60,
+        "plies_p90": 159,
+        "positions": 16056,
+        "positions_from_draws": 4705
+      },
+      "buffer": {
+        "games": 4608,
+        "examples": 293060
+      },
+      "training_step_400": {
+        "total_loss": 3.6208,
+        "policy_loss": 2.9052,
+        "value_loss": 0.6032,
+        "scalar_value_loss": 0.4496,
+        "policy_entropy": 3.0787,
+        "value_calibration_error": 0.4902,
+        "illegal_policy_mass": 0.1697,
+        "policy_top1_accuracy": 0.3359,
+        "wdl_top1_accuracy": 0.7326,
+        "draw_probability_error": 0.169,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.145,
+        "policy_loss": 2.8877,
+        "value_loss": 1.0817,
+        "scalar_value_loss": 0.7025,
+        "policy_entropy": 3.0061,
+        "value_calibration_error": 0.6641,
+        "illegal_policy_mass": 0.1688,
+        "policy_top1_accuracy": 0.3447,
+        "wdl_top1_accuracy": 0.5576,
+        "draw_probability_error": 0.2637,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 97,
+        "reference_wins": 61,
+        "draws": 42,
+        "score": 0.59,
+        "improvement_p_value": 0.0008393959937933442,
+        "distinct_openings": 72
+      },
+      "probe": {
+        "games": 64,
+        "draws": 13
+      }
+    },
+    {
+      "generation": 19,
+      "source_champion": 17,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 486,
+        "self_play": 290,
+        "optimization": 14,
+        "arena": 129,
+        "probe": 53
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 15,
+          "draw:threefold_repetition": 24,
+          "win:koropokkuru_captured": 204,
+          "win:opponent_has_no_legal_action": 13
+        },
+        "draws": 39,
+        "starter_wins": 117,
+        "non_starter_wins": 100,
+        "plies_mean": 85.6,
+        "plies_p50": 61,
+        "plies_p90": 195,
+        "positions": 17141,
+        "positions_from_draws": 5425
+      },
+      "buffer": {
+        "games": 4864,
+        "examples": 310201
+      },
+      "training_step_400": {
+        "total_loss": 3.6373,
+        "policy_loss": 2.8976,
+        "value_loss": 0.6243,
+        "scalar_value_loss": 0.4614,
+        "policy_entropy": 3.076,
+        "value_calibration_error": 0.5034,
+        "illegal_policy_mass": 0.1693,
+        "policy_top1_accuracy": 0.3372,
+        "wdl_top1_accuracy": 0.7276,
+        "draw_probability_error": 0.1776,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.2391,
+        "policy_loss": 2.8863,
+        "value_loss": 1.1585,
+        "scalar_value_loss": 0.7772,
+        "policy_entropy": 3.019,
+        "value_calibration_error": 0.6879,
+        "illegal_policy_mass": 0.1744,
+        "policy_top1_accuracy": 0.3497,
+        "wdl_top1_accuracy": 0.5299,
+        "draw_probability_error": 0.2585,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 54,
+        "reference_wins": 98,
+        "draws": 48,
+        "score": 0.39,
+        "improvement_p_value": 0.9999670492504645,
+        "distinct_openings": 74
+      },
+      "probe": {
+        "games": 64,
+        "draws": 3
+      }
+    },
+    {
+      "generation": 20,
+      "source_champion": 17,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 452,
+        "self_play": 276,
+        "optimization": 14,
+        "arena": 117,
+        "probe": 44
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 13,
+          "draw:threefold_repetition": 18,
+          "win:koropokkuru_captured": 210,
+          "win:opponent_has_no_legal_action": 15
+        },
+        "draws": 31,
+        "starter_wins": 123,
+        "non_starter_wins": 102,
+        "plies_mean": 87.3,
+        "plies_p50": 65,
+        "plies_p90": 203,
+        "positions": 17785,
+        "positions_from_draws": 4212
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 327986
+      },
+      "training_step_400": {
+        "total_loss": 3.649,
+        "policy_loss": 2.9012,
+        "value_loss": 0.6312,
+        "scalar_value_loss": 0.4668,
+        "policy_entropy": 3.0808,
+        "value_calibration_error": 0.5094,
+        "illegal_policy_mass": 0.169,
+        "policy_top1_accuracy": 0.3368,
+        "wdl_top1_accuracy": 0.7234,
+        "draw_probability_error": 0.179,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.1143,
+        "policy_loss": 2.8837,
+        "value_loss": 1.0539,
+        "scalar_value_loss": 0.7065,
+        "policy_entropy": 2.9556,
+        "value_calibration_error": 0.6566,
+        "illegal_policy_mass": 0.1672,
+        "policy_top1_accuracy": 0.3438,
+        "wdl_top1_accuracy": 0.5615,
+        "draw_probability_error": 0.2522,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 107,
+        "reference_wins": 64,
+        "draws": 29,
+        "score": 0.6075,
+        "improvement_p_value": 0.00010419046144427568,
+        "distinct_openings": 75
+      },
+      "probe": {
+        "games": 64,
+        "draws": 5
+      }
+    },
+    {
+      "generation": 21,
+      "source_champion": 20,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 448,
+        "self_play": 268,
+        "optimization": 14,
+        "arena": 108,
+        "probe": 58
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 10,
+          "draw:threefold_repetition": 19,
+          "win:koropokkuru_captured": 205,
+          "win:opponent_has_no_legal_action": 22
+        },
+        "draws": 29,
+        "starter_wins": 122,
+        "non_starter_wins": 105,
+        "plies_mean": 78.8,
+        "plies_p50": 59,
+        "plies_p90": 181,
+        "positions": 15782,
+        "positions_from_draws": 3006
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 334097
+      },
+      "training_step_400": {
+        "total_loss": 3.592,
+        "policy_loss": 2.8515,
+        "value_loss": 0.6254,
+        "scalar_value_loss": 0.4604,
+        "policy_entropy": 3.0288,
+        "value_calibration_error": 0.5043,
+        "illegal_policy_mass": 0.1641,
+        "policy_top1_accuracy": 0.3575,
+        "wdl_top1_accuracy": 0.7271,
+        "draw_probability_error": 0.1789,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.0893,
+        "policy_loss": 2.8359,
+        "value_loss": 1.0789,
+        "scalar_value_loss": 0.698,
+        "policy_entropy": 3.0732,
+        "value_calibration_error": 0.6615,
+        "illegal_policy_mass": 0.1739,
+        "policy_top1_accuracy": 0.3604,
+        "wdl_top1_accuracy": 0.549,
+        "draw_probability_error": 0.2615,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 125,
+        "reference_wins": 49,
+        "draws": 26,
+        "score": 0.69,
+        "improvement_p_value": 1.15911071488971e-07,
+        "distinct_openings": 79
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 22,
+      "source_champion": 21,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 448,
+        "self_play": 257,
+        "optimization": 15,
+        "arena": 119,
+        "probe": 57
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 12,
+          "draw:threefold_repetition": 20,
+          "win:koropokkuru_captured": 216,
+          "win:opponent_has_no_legal_action": 8
+        },
+        "draws": 32,
+        "starter_wins": 109,
+        "non_starter_wins": 115,
+        "plies_mean": 83.3,
+        "plies_p50": 62,
+        "plies_p90": 199,
+        "positions": 17448,
+        "positions_from_draws": 4614
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 337242
+      },
+      "training_step_400": {
+        "total_loss": 3.586,
+        "policy_loss": 2.8332,
+        "value_loss": 0.6366,
+        "scalar_value_loss": 0.4645,
+        "policy_entropy": 3.0087,
+        "value_calibration_error": 0.5081,
+        "illegal_policy_mass": 0.1591,
+        "policy_top1_accuracy": 0.3636,
+        "wdl_top1_accuracy": 0.7211,
+        "draw_probability_error": 0.1844,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.0085,
+        "policy_loss": 2.8144,
+        "value_loss": 1.0296,
+        "scalar_value_loss": 0.6577,
+        "policy_entropy": 2.9527,
+        "value_calibration_error": 0.6554,
+        "illegal_policy_mass": 0.1601,
+        "policy_top1_accuracy": 0.3676,
+        "wdl_top1_accuracy": 0.5544,
+        "draw_probability_error": 0.2825,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 62,
+        "reference_wins": 118,
+        "draws": 20,
+        "score": 0.36,
+        "improvement_p_value": 0.999999207653028,
+        "distinct_openings": 81
+      },
+      "probe": {
+        "games": 64,
+        "draws": 4
+      }
+    },
+    {
+      "generation": 23,
+      "source_champion": 21,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 448,
+        "self_play": 278,
+        "optimization": 15,
+        "arena": 100,
+        "probe": 55
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 7,
+          "draw:threefold_repetition": 22,
+          "win:koropokkuru_captured": 212,
+          "win:opponent_has_no_legal_action": 15
+        },
+        "draws": 29,
+        "starter_wins": 121,
+        "non_starter_wins": 106,
+        "plies_mean": 78.6,
+        "plies_p50": 59,
+        "plies_p90": 176,
+        "positions": 16071,
+        "positions_from_draws": 3395
+      },
+      "buffer": {
+        "games": 5376,
+        "examples": 353313
+      },
+      "training_step_400": {
+        "total_loss": 3.5898,
+        "policy_loss": 2.8316,
+        "value_loss": 0.6413,
+        "scalar_value_loss": 0.4677,
+        "policy_entropy": 3.0061,
+        "value_calibration_error": 0.5123,
+        "illegal_policy_mass": 0.1599,
+        "policy_top1_accuracy": 0.3633,
+        "wdl_top1_accuracy": 0.7195,
+        "draw_probability_error": 0.1855,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.966,
+        "policy_loss": 2.8039,
+        "value_loss": 1.0,
+        "scalar_value_loss": 0.6485,
+        "policy_entropy": 2.965,
+        "value_calibration_error": 0.6416,
+        "illegal_policy_mass": 0.158,
+        "policy_top1_accuracy": 0.3671,
+        "wdl_top1_accuracy": 0.5694,
+        "draw_probability_error": 0.2777,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 119,
+        "reference_wins": 73,
+        "draws": 8,
+        "score": 0.615,
+        "improvement_p_value": 4.931032890453935e-05,
+        "distinct_openings": 74
+      },
+      "probe": {
+        "games": 64,
+        "draws": 5
+      }
+    },
+    {
+      "generation": 24,
+      "source_champion": 23,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 435,
+        "self_play": 251,
+        "optimization": 14,
+        "arena": 115,
+        "probe": 55
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 6,
+          "draw:threefold_repetition": 28,
+          "win:koropokkuru_captured": 201,
+          "win:opponent_has_no_legal_action": 21
+        },
+        "draws": 34,
+        "starter_wins": 119,
+        "non_starter_wins": 103,
+        "plies_mean": 78.6,
+        "plies_p50": 60,
+        "plies_p90": 158,
+        "positions": 15594,
+        "positions_from_draws": 3143
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 334392
+      },
+      "training_step_400": {
+        "total_loss": 3.5688,
+        "policy_loss": 2.8053,
+        "value_loss": 0.645,
+        "scalar_value_loss": 0.4739,
+        "policy_entropy": 2.9848,
+        "value_calibration_error": 0.5165,
+        "illegal_policy_mass": 0.1555,
+        "policy_top1_accuracy": 0.3732,
+        "wdl_top1_accuracy": 0.7184,
+        "draw_probability_error": 0.1846,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 4.0255,
+        "policy_loss": 2.7775,
+        "value_loss": 1.0818,
+        "scalar_value_loss": 0.665,
+        "policy_entropy": 2.9488,
+        "value_calibration_error": 0.6535,
+        "illegal_policy_mass": 0.1583,
+        "policy_top1_accuracy": 0.3781,
+        "wdl_top1_accuracy": 0.5542,
+        "draw_probability_error": 0.2742,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 56,
+        "reference_wins": 117,
+        "draws": 27,
+        "score": 0.3475,
+        "improvement_p_value": 0.9999986041968766,
+        "distinct_openings": 83
+      },
+      "probe": {
+        "games": 64,
+        "draws": 10
+      }
+    },
+    {
+      "generation": 25,
+      "source_champion": 23,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 427,
+        "self_play": 234,
+        "optimization": 15,
+        "arena": 127,
+        "probe": 50
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 4,
+          "draw:threefold_repetition": 24,
+          "win:koropokkuru_captured": 206,
+          "win:opponent_has_no_legal_action": 22
+        },
+        "draws": 28,
+        "starter_wins": 123,
+        "non_starter_wins": 105,
+        "plies_mean": 77.6,
+        "plies_p50": 62,
+        "plies_p90": 156,
+        "positions": 15681,
+        "positions_from_draws": 2631
+      },
+      "buffer": {
+        "games": 5376,
+        "examples": 350073
+      },
+      "training_step_400": {
+        "total_loss": 3.5949,
+        "policy_loss": 2.8065,
+        "value_loss": 0.6656,
+        "scalar_value_loss": 0.4912,
+        "policy_entropy": 2.9819,
+        "value_calibration_error": 0.5329,
+        "illegal_policy_mass": 0.1536,
+        "policy_top1_accuracy": 0.3783,
+        "wdl_top1_accuracy": 0.7082,
+        "draw_probability_error": 0.1892,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.9619,
+        "policy_loss": 2.7769,
+        "value_loss": 1.0219,
+        "scalar_value_loss": 0.6527,
+        "policy_entropy": 3.0133,
+        "value_calibration_error": 0.6433,
+        "illegal_policy_mass": 0.1596,
+        "policy_top1_accuracy": 0.3832,
+        "wdl_top1_accuracy": 0.5694,
+        "draw_probability_error": 0.2724,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 98,
+        "reference_wins": 83,
+        "draws": 19,
+        "score": 0.5375,
+        "improvement_p_value": 0.08628545766259776,
+        "distinct_openings": 71
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 26,
+      "source_champion": 23,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 411,
+        "self_play": 239,
+        "optimization": 16,
+        "arena": 113,
+        "probe": 43
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 13,
+          "draw:threefold_repetition": 21,
+          "win:koropokkuru_captured": 210,
+          "win:opponent_has_no_legal_action": 12
+        },
+        "draws": 34,
+        "starter_wins": 121,
+        "non_starter_wins": 101,
+        "plies_mean": 84.8,
+        "plies_p50": 64,
+        "plies_p90": 197,
+        "positions": 17335,
+        "positions_from_draws": 4129
+      },
+      "buffer": {
+        "games": 5632,
+        "examples": 367408
+      },
+      "training_step_400": {
+        "total_loss": 3.6084,
+        "policy_loss": 2.8047,
+        "value_loss": 0.6798,
+        "scalar_value_loss": 0.4957,
+        "policy_entropy": 2.9808,
+        "value_calibration_error": 0.541,
+        "illegal_policy_mass": 0.1541,
+        "policy_top1_accuracy": 0.3736,
+        "wdl_top1_accuracy": 0.6982,
+        "draw_probability_error": 0.1988,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.9426,
+        "policy_loss": 2.7796,
+        "value_loss": 1.002,
+        "scalar_value_loss": 0.6442,
+        "policy_entropy": 2.9241,
+        "value_calibration_error": 0.6477,
+        "illegal_policy_mass": 0.1553,
+        "policy_top1_accuracy": 0.384,
+        "wdl_top1_accuracy": 0.5697,
+        "draw_probability_error": 0.2648,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 105,
+        "reference_wins": 67,
+        "draws": 28,
+        "score": 0.595,
+        "improvement_p_value": 0.0008044268492777285,
+        "distinct_openings": 77
+      },
+      "probe": {
+        "games": 64,
+        "draws": 8
+      }
+    },
+    {
+      "generation": 27,
+      "source_champion": 26,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 448,
+        "self_play": 256,
+        "optimization": 15,
+        "arena": 119,
+        "probe": 58
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 13,
+          "draw:threefold_repetition": 24,
+          "win:koropokkuru_captured": 201,
+          "win:opponent_has_no_legal_action": 18
+        },
+        "draws": 37,
+        "starter_wins": 112,
+        "non_starter_wins": 107,
+        "plies_mean": 87.0,
+        "plies_p50": 63,
+        "plies_p90": 199,
+        "positions": 18093,
+        "positions_from_draws": 4791
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 332222
+      },
+      "training_step_400": {
+        "total_loss": 3.5727,
+        "policy_loss": 2.7706,
+        "value_loss": 0.6781,
+        "scalar_value_loss": 0.4959,
+        "policy_entropy": 2.9422,
+        "value_calibration_error": 0.5407,
+        "illegal_policy_mass": 0.149,
+        "policy_top1_accuracy": 0.3911,
+        "wdl_top1_accuracy": 0.7018,
+        "draw_probability_error": 0.1966,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.9365,
+        "policy_loss": 2.7561,
+        "value_loss": 1.016,
+        "scalar_value_loss": 0.6577,
+        "policy_entropy": 2.9264,
+        "value_calibration_error": 0.6479,
+        "illegal_policy_mass": 0.1506,
+        "policy_top1_accuracy": 0.3913,
+        "wdl_top1_accuracy": 0.5709,
+        "draw_probability_error": 0.2615,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 111,
+        "reference_wins": 70,
+        "draws": 19,
+        "score": 0.6025,
+        "improvement_p_value": 0.0005393862677465222,
+        "distinct_openings": 82
+      },
+      "probe": {
+        "games": 64,
+        "draws": 10
+      }
+    },
+    {
+      "generation": 28,
+      "source_champion": 27,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 448,
+        "self_play": 258,
+        "optimization": 15,
+        "arena": 126,
+        "probe": 49
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 12,
+          "draw:threefold_repetition": 24,
+          "win:koropokkuru_captured": 205,
+          "win:opponent_has_no_legal_action": 15
+        },
+        "draws": 36,
+        "starter_wins": 119,
+        "non_starter_wins": 101,
+        "plies_mean": 85.9,
+        "plies_p50": 66,
+        "plies_p90": 182,
+        "positions": 17933,
+        "positions_from_draws": 5004
+      },
+      "buffer": {
+        "games": 4864,
+        "examples": 321064
+      },
+      "training_step_400": {
+        "total_loss": 3.5428,
+        "policy_loss": 2.7448,
+        "value_loss": 0.6772,
+        "scalar_value_loss": 0.4837,
+        "policy_entropy": 2.9251,
+        "value_calibration_error": 0.5309,
+        "illegal_policy_mass": 0.1468,
+        "policy_top1_accuracy": 0.3979,
+        "wdl_top1_accuracy": 0.7024,
+        "draw_probability_error": 0.2039,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.898,
+        "policy_loss": 2.7109,
+        "value_loss": 1.0296,
+        "scalar_value_loss": 0.6301,
+        "policy_entropy": 2.8386,
+        "value_calibration_error": 0.6352,
+        "illegal_policy_mass": 0.1458,
+        "policy_top1_accuracy": 0.4021,
+        "wdl_top1_accuracy": 0.5738,
+        "draw_probability_error": 0.2914,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 108,
+        "reference_wins": 74,
+        "draws": 18,
+        "score": 0.585,
+        "improvement_p_value": 0.0004451123531907797,
+        "distinct_openings": 77
+      },
+      "probe": {
+        "games": 64,
+        "draws": 3
+      }
+    },
+    {
+      "generation": 29,
+      "source_champion": 28,
+      "self_play_evaluator": "neural",
+      "promoted": true,
+      "seconds": {
+        "total": 415,
+        "self_play": 242,
+        "optimization": 15,
+        "arena": 114,
+        "probe": 44
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 3,
+          "draw:threefold_repetition": 23,
+          "win:koropokkuru_captured": 215,
+          "win:opponent_has_no_legal_action": 15
+        },
+        "draws": 26,
+        "starter_wins": 128,
+        "non_starter_wins": 102,
+        "plies_mean": 80.7,
+        "plies_p50": 63,
+        "plies_p90": 173,
+        "positions": 16714,
+        "positions_from_draws": 3101
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 337778
+      },
+      "training_step_400": {
+        "total_loss": 3.5142,
+        "policy_loss": 2.7337,
+        "value_loss": 0.6605,
+        "scalar_value_loss": 0.48,
+        "policy_entropy": 2.9109,
+        "value_calibration_error": 0.5254,
+        "illegal_policy_mass": 0.1451,
+        "policy_top1_accuracy": 0.3979,
+        "wdl_top1_accuracy": 0.7092,
+        "draw_probability_error": 0.1925,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.9392,
+        "policy_loss": 2.7101,
+        "value_loss": 1.0606,
+        "scalar_value_loss": 0.6741,
+        "policy_entropy": 2.9981,
+        "value_calibration_error": 0.6488,
+        "illegal_policy_mass": 0.1526,
+        "policy_top1_accuracy": 0.4051,
+        "wdl_top1_accuracy": 0.5623,
+        "draw_probability_error": 0.2695,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 130,
+        "reference_wins": 57,
+        "draws": 13,
+        "score": 0.6825,
+        "improvement_p_value": 9.131477053514521e-07,
+        "distinct_openings": 73
+      },
+      "probe": {
+        "games": 64,
+        "draws": 6
+      }
+    },
+    {
+      "generation": 30,
+      "source_champion": 29,
+      "self_play_evaluator": "neural",
+      "promoted": false,
+      "seconds": {
+        "total": 468,
+        "self_play": 270,
+        "optimization": 15,
+        "arena": 119,
+        "probe": 64
+      },
+      "self_play": {
+        "games": 256,
+        "restarted_games": 64,
+        "outcomes": {
+          "draw:move_limit": 17,
+          "draw:threefold_repetition": 25,
+          "win:koropokkuru_captured": 204,
+          "win:opponent_has_no_legal_action": 10
+        },
+        "draws": 42,
+        "starter_wins": 109,
+        "non_starter_wins": 105,
+        "plies_mean": 84.8,
+        "plies_p50": 61,
+        "plies_p90": 194,
+        "positions": 17606,
+        "positions_from_draws": 5209
+      },
+      "buffer": {
+        "games": 5120,
+        "examples": 337922
+      },
+      "training_step_400": {
+        "total_loss": 3.4962,
+        "policy_loss": 2.708,
+        "value_loss": 0.6666,
+        "scalar_value_loss": 0.4862,
+        "policy_entropy": 2.8789,
+        "value_calibration_error": 0.5311,
+        "illegal_policy_mass": 0.1395,
+        "policy_top1_accuracy": 0.4114,
+        "wdl_top1_accuracy": 0.7064,
+        "draw_probability_error": 0.195,
+        "mean_policy_weight": 1.0
+      },
+      "validation_step_400": {
+        "total_loss": 3.8875,
+        "policy_loss": 2.7049,
+        "value_loss": 1.0212,
+        "scalar_value_loss": 0.6457,
+        "policy_entropy": 2.8971,
+        "value_calibration_error": 0.6434,
+        "illegal_policy_mass": 0.147,
+        "policy_top1_accuracy": 0.4051,
+        "wdl_top1_accuracy": 0.5741,
+        "draw_probability_error": 0.2642,
+        "mean_policy_weight": 1.0
+      },
+      "arena": {
+        "candidate_wins": 83,
+        "reference_wins": 84,
+        "draws": 33,
+        "score": 0.4975,
+        "improvement_p_value": 0.570075076086053,
+        "distinct_openings": 80
+      },
+      "probe": {
+        "games": 64,
+        "draws": 7
+      }
+    }
+  ]
+}

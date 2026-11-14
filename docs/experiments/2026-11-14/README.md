@@ -173,31 +173,124 @@ all share one outcome, and the buffer held 2,560 games after ten attempts.
 | 4. Self-play draws below 20%, mean length well under 256 plies | Met: at most 14.8% draws, mean length between 38 and 87 plies. |
 | 5. Latest champion beats the fixed reference and an earlier champion | Met: 99.5% against generation 0, 97.5% against generation 2, 90.0% against generation 4. |
 
-The run continues from generation 10 with the same configuration. Two
-measurements decide what follows: the promotion rate, and the WDL loss far
-from the end of the game on a fixed validation set. While that loss stays
-above 1.10, the value head's confidence cannot be trusted in the positions
-that make up most of a game.
+The run continued from generation 10 with the same configuration.
+
+## Observations: attempts 11 to 30
+
+Twenty more attempts took 2 h 29 min, 7 min 27 s each on average. Ten
+candidates were promoted; the accepted champion after the thirtieth attempt is
+**generation 29**. The whole run has used 3 h 36 min 49 s.
+
+| Attempt | Source | Arena W–L–D | Score | Paired p | Probe draws | Verdict | Mean plies | Move-limit draws | Repetition draws |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 11 | 10 | 90–86–24 | 51.00% | 0.41 | 3/64 | rejected | 77.9 | 6 | 16 |
+| 12 | 10 | 107–66–27 | 60.25% | 2.2 × 10⁻³ | 16/64 | rejected (draw gate) | 88.5 | 17 | 22 |
+| 13 | 10 | 114–62–24 | 63.00% | 1.1 × 10⁻⁵ | 11/64 | promoted | 82.4 | 15 | 26 |
+| 14 | 13 | 82–96–22 | 46.50% | 0.86 | 8/64 | rejected | 83.6 | 16 | 17 |
+| 15 | 13 | 79–105–16 | 43.50% | 0.99 | 7/64 | rejected | 85.6 | 8 | 26 |
+| 16 | 13 | 113–55–32 | 64.50% | 3.0 × 10⁻⁷ | 11/64 | promoted | 80.2 | 12 | 20 |
+| 17 | 16 | 97–65–38 | 58.00% | 7.7 × 10⁻³ | 5/64 | promoted | 90.1 | 13 | 41 |
+| 18 | 17 | 97–61–42 | 59.00% | 8.4 × 10⁻⁴ | 13/64 | rejected (draw gate) | 76.6 | 8 | 27 |
+| 19 | 17 | 54–98–48 | 39.00% | 1.0 | 3/64 | rejected | 85.6 | 15 | 24 |
+| 20 | 17 | 107–64–29 | 60.75% | 1.0 × 10⁻⁴ | 5/64 | promoted | 87.3 | 13 | 18 |
+| 21 | 20 | 125–49–26 | 69.00% | 1.2 × 10⁻⁷ | 8/64 | promoted | 78.8 | 10 | 19 |
+| 22 | 21 | 62–118–20 | 36.00% | 1.0 | 4/64 | rejected | 83.3 | 12 | 20 |
+| 23 | 21 | 119–73–8 | 61.50% | 4.9 × 10⁻⁵ | 5/64 | promoted | 78.6 | 7 | 22 |
+| 24 | 23 | 56–117–27 | 34.75% | 1.0 | 10/64 | rejected | 78.6 | 6 | 28 |
+| 25 | 23 | 98–83–19 | 53.75% | 0.086 | 8/64 | rejected | 77.6 | 4 | 24 |
+| 26 | 23 | 105–67–28 | 59.50% | 8.0 × 10⁻⁴ | 8/64 | promoted | 84.8 | 13 | 21 |
+| 27 | 26 | 111–70–19 | 60.25% | 5.4 × 10⁻⁴ | 10/64 | promoted | 87.0 | 13 | 24 |
+| 28 | 27 | 108–74–18 | 58.50% | 4.5 × 10⁻⁴ | 3/64 | promoted | 85.9 | 12 | 24 |
+| 29 | 28 | 130–57–13 | 68.25% | 9.1 × 10⁻⁷ | 6/64 | promoted | 80.7 | 3 | 23 |
+| 30 | 29 | 83–84–33 | 49.75% | 0.57 | 7/64 | rejected | 84.8 | 17 | 25 |
+
+Three things differ from the first ten attempts:
+
+- **Half of the candidates are promoted**, against eight in ten before, and
+  the accepted ones score between 58% and 69%.
+- **Some candidates are much weaker than their source.** Attempts 19, 22 and
+  24 scored between 35% and 39%. Each next attempt started again from the
+  accepted champion and two of the three following candidates were promoted.
+- **The draw gate rejected two candidates that had won their arena**
+  (attempts 12 and 18, with 25.0% and 20.3% of probe games drawn). Self-play
+  draws stayed between 22 and 42 games out of 256, except 54 games (21.1%) in
+  attempt 17. Repetition is now the usual cause; games that reach the 256-ply
+  limit number 3 to 17 per attempt. Mean game length stays between 77 and 90
+  plies.
+
+### Independent arenas of generation 29
+
+Three arenas of 200 games at 400 simulations per move, with seed `20261115`
+and references chosen before they ran.
+
+| Reference | W–L–D | Score | Paired p |
+| --- | --- | --- | --- |
+| Generation 0 (fixed reference) | 200–0–0 | 100.00% | 7.9 × 10⁻³¹ |
+| Generation 10 | 197–2–1 | 98.75% | 3.2 × 10⁻³⁰ |
+| Generation 20 | 185–5–10 | 95.00% | 2.5 × 10⁻²⁹ |
+
+Generation 20 itself is ten attempts and three promotions older than
+generation 29, so the run is still gaining strength at this point.
+
+### Validation on a fixed set of games
+
+After the thirtieth attempt the buffer holds the 5,120 games of the last
+twenty attempts. `yokai diagnose-endgames` evaluated the accepted generations
+on its 525 validation games (36,937 positions, 72 of the games drawn). These
+are not the games of the table for the first ten attempts, so the two tables
+cannot be compared line by line.
+
+| Checkpoint | Policy top-1 | Policy loss | WDL loss | WDL top-1 | WDL loss, 17 plies or more before the end | WDL top-1, last 16 plies |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0.002 | 6.35 | 1.10 | 0.363 | 1.10 | 0.422 |
+| 10 | 0.328 | 2.98 | 1.24 | 0.530 | 1.35 | 0.697 |
+| 13 | 0.344 | 2.91 | 1.10 | 0.538 | 1.21 | 0.726 |
+| 16 | 0.358 | 2.87 | 1.04 | 0.551 | 1.16 | 0.744 |
+| 17 | 0.363 | 2.84 | 1.06 | 0.537 | 1.16 | 0.723 |
+| 20 | 0.369 | 2.81 | 1.07 | 0.553 | 1.17 | 0.720 |
+| 21 | 0.384 | 2.78 | 1.06 | 0.551 | 1.19 | 0.748 |
+| 23 | 0.392 | 2.75 | 1.02 | 0.562 | 1.13 | 0.759 |
+| 26 | 0.399 | 2.74 | 1.01 | 0.569 | 1.14 | 0.771 |
+| 27 | 0.400 | 2.72 | 1.03 | 0.569 | 1.15 | 0.780 |
+| 28 | 0.406 | 2.71 | 1.04 | 0.570 | 1.14 | 0.750 |
+| 29 | 0.409 | 2.70 | 1.07 | 0.559 | 1.19 | 0.759 |
+
+The policy head still improves at every accepted generation. The value head's
+WDL loss over all positions has fallen below the 1.10 of an uninformed
+prediction, and it names the outcome of 76% of the positions in the last 16
+plies of a game. Far from the end, 78% of the positions, its loss is between
+1.13 and 1.19: it has stopped falling since generation 16 and remains above
+1.10. The loss on training positions rose from 0.48 to 0.66 over the same
+attempts, so the network memorizes less than it did. In a middle-game
+position of an unseen game, though, its probabilities are still less reliable
+than giving each outcome one chance in three.
+
+The run continues from generation 29 with the same configuration. If the
+value head stays where it is, the next change to try is the amount of
+self-play data per attempt rather than the network.
 
 ## Records
 
 | Files | Contents |
 | --- | --- |
 | [`protocol.json`](protocol.json) | Configuration and reference identifiers recorded before the run, and the criteria. |
-| [`training-observations.json`](training-observations.json) | Every attempt's source, phase durations, self-play outcomes and lengths, final training and validation metrics, arena and probe. |
+| [`training-observations.json`](training-observations.json), [`training-observations-30.json`](training-observations-30.json) | Every attempt's source, phase durations, self-play outcomes and lengths, final training and validation metrics, arena and probe: the first ten attempts, then all thirty. |
 | [`collect_observations.py`](collect_observations.py) | Builds the file above from the pipeline's reports, the stored replays and the training logs. |
-| `arena-10-vs-{0,2,4}.json` | The three independent arenas of generation 10. |
-| [`endgame-distance/`](endgame-distance/) | The fixed-set validation of generations 0 to 10, by number of plies before the end of the game. |
+| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json` | The independent arenas of generations 10 and 29. |
+| [`endgame-distance/`](endgame-distance/) | The fixed-set validation of generations 0 to 10 after the tenth attempt, by number of plies before the end of the game. |
+| [`endgame-distance-30/`](endgame-distance-30/) | The same validation of generations 0 to 30 after the thirtieth attempt. |
 
-Generation 10 is identified by the SHA-256 hashes of its files:
-`metadata.json` `195cd169f56815dbaabdf2d4c154268ad86b9ba3bef02226d1b31b1a8bfbb6b9`
-and `model.safetensors`
-`be44dbbb35050d239abb99fa5c9c308defabc26435daa99fc7ee412af96acb72`.
+The champions are identified by the SHA-256 hashes of their files.
 
-The independent arenas ran with `compare_saved_generations` at revision
-`720f393`, with an inference batch of at most 512 positions as in the
-pipeline's arena. That revision wrote a fixed `128` in the report's
-`inference_maximum_batch` field; the three reports keep the field as written.
+| Generation | `metadata.json` | `model.safetensors` |
+| --- | --- | --- |
+| 10 | `195cd169f56815dbaabdf2d4c154268ad86b9ba3bef02226d1b31b1a8bfbb6b9` | `be44dbbb35050d239abb99fa5c9c308defabc26435daa99fc7ee412af96acb72` |
+| 29 | `763cf4de87f3d246b218633e9c675ca77c6d72a5f3d1e5797fdde0ea7acf9ab4` | `f8d3b5d726f21feb8853db3ffaedcb207ec76baed78d98b96a1f88d13c51ea06` |
+
+The independent arenas ran with `compare_saved_generations`, with an inference
+batch of at most 512 positions as in the pipeline's arena. Revision `720f393`,
+used for generation 10, wrote a fixed `128` in the report's
+`inference_maximum_batch` field; those three reports keep the field as written.
 
 ```bash
 YOKAI_CANDIDATE_MODELS=models/expert-5x6 YOKAI_CANDIDATE_GENERATION=10 \

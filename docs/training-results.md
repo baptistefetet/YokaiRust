@@ -2,8 +2,9 @@
 
 > **Scope.** These results were measured on the classic 3×4 game, preserved at
 > the Git tag `classic-3x4` (encoder version 4, rules version 1). They validate
-> the learning pipeline. The 5×6 engine rejects these checkpoints; its first
-> champion has not been trained.
+> the learning pipeline. The 5×6 engine rejects these checkpoints; the
+> [first 5×6 training run](experiments/2026-11-14/README.md) has its own
+> report.
 
 The accepted champion is **generation 30**, trained from random initialization
 with seed `20261108`. In an independent 800-game arena against the fixed

@@ -213,8 +213,8 @@ With the default configuration the network has about 1.17 million parameters.
 The policy head's single dense layer holds 59% of them (1,204 inputs × 570
 outputs), the residual tower 25% and the fusion layer 11%. Each layer width is
 a checkpointed setting in `AlphaZeroNetworkConfig`. These defaults were sized
-for the 3×4 game; [Next steps](next-steps.md) covers the choice of a network
-for this board.
+for the 3×4 game; [Next steps](next-steps.md) names the layer to reconsider
+on this board.
 
 ### Canonical orientation
 

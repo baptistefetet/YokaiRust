@@ -1,53 +1,44 @@
 # Next steps
 
-The 5×6 rules, terminal interface, neural encoder and policy mapping are
-implemented and verified; [Rules of the 5×6 game](rules.md) states them. The
-learning pipeline has a validated baseline on the classic 3×4 game:
+The 5×6 rules, terminal and web interfaces, neural encoder and policy mapping
+are implemented and verified; [Rules of the 5×6 game](rules.md) states them.
+A 5×6 champion has been trained from random initialization: the
+[report of its training run](experiments/2026-11-14/README.md) holds the
+protocol, the fixed reference and the independent arenas. The learning
+pipeline itself was validated on the classic 3×4 game:
 [training results](training-results.md) describe that champion and
 [performance results](performance-results.md) its execution costs. The
 [reading guide](reading-guide.md) describes the implementation.
 
-No champion exists for the 5×6 board yet. Until one is accepted, the terminal
-offers two-player games and uniform-prior analysis, and the published web site
-remains the 3×4 release. The first three steps below lead to a 5×6 player; the
-following ones apply to any training run.
-
 The web interface remains dedicated to playing. Diagnostics belong in the TUI.
 
-## 1. Choose and profile a network for the 5×6 board
+## 1. Strengthen the 5×6 champion
 
-The default network was sized for 12 squares and 132 actions. On this board it
-has about 1.17 million parameters, 59% of them in the single dense layer that
-maps the 64-unit shared representation and 1,140 context values to 570 action
-logits. That layer ignores which square an action starts from, while most of
-its inputs are per-action values that concern one output each.
+Successive champions beat their predecessors in independent arenas and the
+policy head keeps improving. The value head is the weak part: on games it has
+never trained on, it reads the last plies of a game well but predicts the
+outcome of a middle-game position no better than giving each result one
+chance in three. The training report gives the measurements.
 
-Compare a small number of candidates before spending training time: a wider
-shared representation, and a policy head that keeps the board structure
-(per-square outputs for the eight directions, two promotion choices and three
-drops) with the repetition context applied per action. A change of layer
-structure needs a new model format version.
+Continue the run under its recorded protocol, and repeat the fixed-set
+validation by distance to the end of the game and the independent arenas at
+regular intervals. If the value head stops improving, change one thing at a
+time, in this order: the amount of self-play data per attempt, then loss
+weighting or decisive-endgame sampling.
 
-Measure the pipeline as well. Record the time of each phase, game lengths and
-draw rates over several generations, then set `simulations`,
-`exploration_plies`, the arena budget and the restart budget from those
-measurements.
+The network comes last. Its policy head ends in a single dense layer that
+holds 59% of the 1.17 million parameters and ignores which square an action
+starts from. A head that keeps the board structure (per-square outputs for
+the eight directions, two promotion choices and three drops) is the candidate
+to compare; a change of layer structure needs a new model format version and
+a fresh run.
 
-**Done when:** a frozen configuration and written protocol exist for the first
-5×6 run, with a measured time per generation.
+**Done when:** the report shows either a value head that beats an uninformed
+prediction far from the end of the game, or independent arenas in which
+further attempts no longer bring a credible gain, and names the next isolated
+change.
 
-## 2. Train the first 5×6 champion
-
-`config/training.toml` points to empty `models/expert-5x6` and
-`data/expert-5x6` directories, so the 3×4 lineage is never read or modified.
-Record the fixed reference checkpoint before the run, keep the paired arena
-and noisy productivity probe as promotion gates, and store the experiment
-report under `docs/experiments/`.
-
-**Done when:** an accepted champion beats the fixed reference in an independent
-arena and `yokai play human-vs-cpu` plays it.
-
-## 3. Publish the 5×6 web release
+## 2. Publish the 5×6 web release
 
 The site built from `main` plays the 5×6 game with one or two human players;
 the published release still carries the classic 3×4 site. Package the site
@@ -57,7 +48,7 @@ verification of the [web build guide](../web/README.md).
 **Done when:** a published release carries the 5×6 site and its champion, and
 the documentation no longer points to the 3×4 release for playing.
 
-## 4. Preserve the baseline while improving durability
+## 3. Preserve the baseline while improving durability
 
 Keep checkpoint history, replay ancestry, fixed reference and experiment
 reports available for regression comparisons. Future candidates must still pass
@@ -71,7 +62,7 @@ before the accepted `latest` pointer, and verify recovery at each boundary.
 **Done when:** interruption and power-loss guarantees are documented and tested
 without weakening promotion or rewriting checkpoint history.
 
-## 5. Profile the costs that matter for larger training runs
+## 4. Profile the costs that matter for larger training runs
 
 Game generation, promotion arenas and productivity probes occupy almost all
 measured pipeline time. Measure inference batch collection, partial
@@ -90,7 +81,7 @@ optimizing game cloning for the larger board.
 **Done when:** a measured bottleneck is reduced on the complete workload while
 behavior and artifact compatibility remain demonstrably stable.
 
-## 6. Add useful diagnostics for learning and play
+## 5. Add useful diagnostics for learning and play
 
 A tactical diagnostic set should cover verified captures, defence, promotion,
 drops and repetitions from both colors. Keep it outside training. A small
@@ -104,7 +95,7 @@ alone does not establish whether rules, search or the learned policy are wrong.
 **Done when:** a reproducible case explains a weakness and suggests a specific
 experiment instead of relying on loss curves or isolated game impressions.
 
-## 7. Keep future learning comparisons independent
+## 6. Keep future learning comparisons independent
 
 One successful fresh seed establishes trainability and a stronger player under
 the recorded protocol. Comparing learning efficiency requires multiple fresh

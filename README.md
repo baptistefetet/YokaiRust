@@ -20,6 +20,8 @@ and every public item documented.
   concept the code relies on, from the glossary to the promotion gates.
 - [Training results](docs/training-results.md) — the validated champion of
   the classic 3×4 game, its training baseline and independent evaluation.
+- [First 5×6 training run](docs/experiments/2026-11-14/README.md) — protocol,
+  observations and independent arenas of the 5×6 champion.
 - [Engine performance](docs/performance-results.md) — CPU and Metal costs
   measured on the classic 3×4 game, compatibility checks and benchmark
   protocol.
@@ -39,8 +41,10 @@ and every public item documented.
   replay analysis, plus the same engine compiled to WebAssembly for the
   browser.
 - The `latest` checkpoint pointer selects the accepted champion for play and
-  training. No 5×6 champion has been trained yet, so only two-player games and
-  uniform-prior analysis are available on this board.
+  training. A 5×6 champion trained from random initialization plays in the
+  terminal and in the browser; the
+  [report of its training run](docs/experiments/2026-11-14/README.md) holds
+  its protocol and independent arenas. No 5×6 checkpoint is published yet.
 - The classic 3×4 game is preserved at the Git tag `classic-3x4`, with its
   validated champion and web build published as release `web-v1.0.11`. Its
   [training results](docs/training-results.md) and

@@ -42,8 +42,7 @@ async function initialize({ simulations }) {
 
     const modelBytes = new Uint8Array(await modelResponse.arrayBuffer());
     const metadataJson = await metadataResponse.text();
-    const canUseWebGpu = 'gpu' in self.navigator;
-    const attempts = canUseWebGpu ? ['webgpu', 'flex'] : ['flex'];
+    const attempts = await webGpuAdapterAvailable() ? ['webgpu', 'flex'] : ['flex'];
     const failures = [];
 
     for (const candidate of attempts) {
@@ -62,6 +61,20 @@ async function initialize({ simulations }) {
     }
 
     throw new Error(`No browser inference backend could start. ${failures.join(' / ')}`);
+}
+
+// A browser can expose `navigator.gpu` and still have no usable adapter
+// (headless sessions, blocked drivers). The WebGPU module panics in that case
+// instead of failing a promise, so the adapter is requested here first.
+async function webGpuAdapterAvailable() {
+    if (!('gpu' in self.navigator)) {
+        return false;
+    }
+    try {
+        return await self.navigator.gpu.requestAdapter() !== null;
+    } catch (error) {
+        return false;
+    }
 }
 
 function requireGame() {

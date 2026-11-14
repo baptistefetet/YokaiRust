@@ -20,7 +20,10 @@
     "root": "models/expert-5x6",
     "generation": 0,
     "description": "Random initialization created by the pipeline when the run starts.",
-    "files_sha256": null
+    "files_sha256": {
+      "metadata.json": "879cc60094aa7226746d7464bd11570c34f7f7f1669722ff5db56cead0957109",
+      "model.safetensors": "ec317ae2f4e517a03fde9c506f983cc949b6c777a3c30c1d7265ae859d6c379a"
+    }
   },
   "promotion": {
     "arena_games": 200,

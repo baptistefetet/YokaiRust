@@ -11,8 +11,8 @@ use common::{position_with, square};
 use std::{collections::BTreeSet, str::FromStr};
 
 use yokai::{
-    Action, BOARD_SQUARES, DrawReason, Game, HandPiece, Outcome, Piece, PieceKind, Player,
-    Position, PositionError, Replay, ReplayError, Square, WinReason,
+    Action, BOARD_SQUARES, DrawReason, Game, HandPiece, MOVE_LIMIT_PLIES, Outcome, Piece,
+    PieceKind, Player, Position, PositionError, Replay, ReplayError, Square, WinReason,
 };
 
 const NO_HANDS: [[u8; 3]; 2] = [[0; 3]; 2];
@@ -756,6 +756,64 @@ fn third_occurrence_of_a_position_is_a_draw() {
         }
     );
     assert_eq!(game.current_repetition_count(), 3);
+}
+
+#[test]
+fn an_undecided_game_is_drawn_at_the_move_limit() {
+    // The two Koropokkuru walk closed paths of 8 and 9 distinct squares, far
+    // apart. The paths only realign every 72 turns, so no position occurs
+    // three times before the limit.
+    let first_path = [
+        (5, 0),
+        (5, 1),
+        (5, 2),
+        (4, 2),
+        (3, 2),
+        (3, 1),
+        (3, 0),
+        (4, 0),
+    ];
+    let second_path = [
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+        (1, 3),
+        (1, 2),
+        (1, 1),
+        (1, 0),
+    ];
+    let at = |path: &[(u8, u8)], turn: usize| {
+        let (row, column) = path[turn % path.len()];
+        square(row, column)
+    };
+    let mut game = Game::from_position(position_with(
+        &[
+            (5, 0, PieceKind::Koropokkuru, Player::First),
+            (0, 0, PieceKind::Koropokkuru, Player::Second),
+        ],
+        NO_HANDS,
+        Player::First,
+    ));
+
+    for ply in 0..MOVE_LIMIT_PLIES {
+        assert_eq!(game.outcome(), Outcome::Ongoing, "after {ply} plies");
+        let path: &[(u8, u8)] = if ply % 2 == 0 {
+            &first_path
+        } else {
+            &second_path
+        };
+        game.apply(step(at(path, ply / 2), at(path, ply / 2 + 1)))
+            .expect("each step of the walk is legal");
+    }
+
+    assert_eq!(
+        game.outcome(),
+        Outcome::Draw {
+            reason: DrawReason::MoveLimit,
+        }
+    );
 }
 
 #[test]

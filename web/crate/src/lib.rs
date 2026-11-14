@@ -52,9 +52,10 @@ const fn outcome_text(outcome: Outcome) -> Option<&'static str> {
             WinReason::KoropokkuruCaptured => "The Koropokkuru was captured.",
             WinReason::OpponentHasNoLegalAction => "The opponent has no legal action left.",
         }),
-        Outcome::Draw {
-            reason: DrawReason::ThreefoldRepetition,
-        } => Some("The position was repeated three times."),
+        Outcome::Draw { reason } => Some(match reason {
+            DrawReason::ThreefoldRepetition => "The position was repeated three times.",
+            DrawReason::MoveLimit => "The move limit was reached without a winner.",
+        }),
     }
 }
 

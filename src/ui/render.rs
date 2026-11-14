@@ -558,6 +558,7 @@ pub(super) const fn win_reason_text(reason: WinReason) -> &'static str {
 pub(super) const fn draw_reason_text(reason: DrawReason) -> &'static str {
     match reason {
         DrawReason::ThreefoldRepetition => "threefold repetition",
+        DrawReason::MoveLimit => "move limit reached",
     }
 }
 

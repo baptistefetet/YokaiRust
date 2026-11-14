@@ -94,6 +94,9 @@ it can promote on a later move. Three restrictions apply to Kodama drops:
 - **Repetition.** The game is drawn when the same position occurs for the
   third time. Two positions are the same when the board, both hands and the
   player to move are identical.
+- **Move limit.** The game is drawn when 256 plies (128 turns of each player)
+  have been played without a winner. A capture or a third repetition on the
+  last ply takes precedence.
 
 ## Interpretation choices
 
@@ -107,6 +110,7 @@ text leaves room.
 | End by checkmate | The example ends with “So Player 1 wins” as soon as the checkmate stands. | Checkmate does not end the game by itself. A checkmated player who still has a legal action must play one, and the opponent wins by then capturing the Koropokkuru. The engine does not force that capture: a player who declines it has not won yet. A checkmated player with no legal action loses at once. |
 | Kodama drop checkmate | Forbidden when the Koropokkuru “cannot move without getting captured and cannot capture the parachuted kodama without being captured himself”. | Uses the shogi definition, which is wider: the drop is forbidden only when *no* opposing board move answers it. Besides a Koropokkuru move, another piece capturing the Kodama, or a capture of the dropping player's own Koropokkuru, also makes the drop legal. |
 | Repetition | “If the players move their yōkaï back and forth three times in succession, the game ends in a draw.” | Draw at the third occurrence of the same position, wherever the earlier occurrences are in the game. Japanese Goro Goro shōgi uses four occurrences and penalizes perpetual check; the engine follows the rulebook's count and has no perpetual-check rule. |
+| Move limit | None. | Draw after 256 plies. Two weak players can wander on this board without ever repeating a position, and self-play training and arenas need every game to end. The limit is several times the length of a typical game, so it only ends games that are going nowhere. |
 | No legal action | Passing is forbidden; the case is not described. | The player to move loses. |
 | Same-column Kodama | “Two kodama belonging to the same player can never be positioned in the same column.” | Enforced on drops. A move cannot break the rule, because an unpromoted Kodama never changes column. |
 

@@ -28,9 +28,9 @@ pub mod training;
 // ---------------------------------------------------------------------------
 
 pub use game::{
-    Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, HandPiece, MoveError,
-    Outcome, PHYSICAL_PIECES, PROMOTION_ZONE_ROWS, Piece, PieceKind, Player, Position,
-    PositionError, RULES_VERSION, Square, Transition, WinReason,
+    Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, HandPiece,
+    MOVE_LIMIT_PLIES, MoveError, Outcome, PHYSICAL_PIECES, PROMOTION_ZONE_ROWS, Piece, PieceKind,
+    Player, Position, PositionError, RULES_VERSION, Square, Transition, WinReason,
 };
 pub use neural::{
     ENCODER_VERSION, EncodedPosition, GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES,

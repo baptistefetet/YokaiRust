@@ -30,8 +30,8 @@ and every public item documented.
 ## Current state
 
 - Complete 5×6 rules — capture, optional and mandatory promotion, drops with
-  their Kodama restrictions, victory by capture and threefold repetition —
-  with typed positions, actions and versioned replays.
+  their Kodama restrictions, victory by capture, threefold repetition and a
+  move limit — with typed positions, actions and versioned replays.
 - Deterministic PUCT/MCTS with batched inference, and an AlphaZero pipeline
   (parallel self-play, replay buffer, paired arena, guarded promotion) built
   on Burn with WGPU/Metal acceleration on Apple Silicon.

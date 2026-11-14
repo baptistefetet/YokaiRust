@@ -30,8 +30,13 @@ pub const BOARD_SQUARES: usize = (BOARD_WIDTH as usize) * (BOARD_HEIGHT as usize
 pub const PROMOTION_ZONE_ROWS: u8 = 2;
 /// Number of physical pieces in the complete set, kings included.
 pub const PHYSICAL_PIECES: usize = 16;
+/// Number of plies after which a game without a winner is drawn.
+///
+/// The rulebook sets no limit. Weak players can wander on this board without
+/// ever repeating a position, and self-play needs every game to end.
+pub const MOVE_LIMIT_PLIES: usize = 256;
 /// Version written into persisted artifacts that depend on these rules.
-pub const RULES_VERSION: u16 = 2;
+pub const RULES_VERSION: u16 = 3;
 
 /// The two absolute sides of the game board.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -363,12 +368,14 @@ pub enum WinReason {
     OpponentHasNoLegalAction,
 }
 
-/// Non-decisive terminal conditions from the official rules.
+/// Non-decisive terminal conditions.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawReason {
     /// The same full position, including side to move and hands, occurred thrice.
     ThreefoldRepetition,
+    /// [`MOVE_LIMIT_PLIES`] plies were played without a winner.
+    MoveLimit,
 }
 
 /// Current official status of a game.
@@ -1098,13 +1105,18 @@ impl Game {
         self.actions.push(action);
         self.positions.push(position);
 
-        // Decisive wins take precedence over history-dependent repetition.
+        // Decisive wins take precedence over the history-dependent draws,
+        // and a repetition completed on the last ply keeps its own reason.
         if transition.outcome == Outcome::Ongoing {
             let occurrence = self.repetitions.entry(position).or_insert(0);
             *occurrence += 1;
             if *occurrence >= 3 {
                 transition.outcome = Outcome::Draw {
                     reason: DrawReason::ThreefoldRepetition,
+                };
+            } else if self.actions.len() >= MOVE_LIMIT_PLIES {
+                transition.outcome = Outcome::Draw {
+                    reason: DrawReason::MoveLimit,
                 };
             }
         }

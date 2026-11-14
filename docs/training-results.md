@@ -1,31 +1,31 @@
-# Training baseline — 8 November 2026
+# Training baseline — 14 November 2026
 
-> **Scope.** These results were measured on the classic 3×4 game, preserved at
-> the Git tag `classic-3x4` (encoder version 4, rules version 1). They validate
-> the learning pipeline. The 5×6 engine rejects these checkpoints; the
-> [first 5×6 training run](experiments/2026-11-14/README.md) has its own
-> report.
+The published champion is **generation 35**, trained from random
+initialization with seed `20261108`. In an independent 200-game arena it
+scored **134 wins, 45 losses and 21 draws against generation 29: 72.25% of
+points**, with a one-sided paired p-value of **6.8 × 10⁻¹⁰**. Generation 29 had
+won all 200 games of its own independent arena against the fixed reference,
+the random initialization of the run.
 
-The accepted champion is **generation 30**, trained from random initialization
-with seed `20261108`. In an independent 800-game arena against the fixed
-reference, it scored **313 wins, 162 losses and 325 draws: 59.4375% of points**.
-The one-sided paired p-value is **3.54 × 10⁻¹⁵**. Both color assignments favor
-the champion.
-
-At the `classic-3x4` tag, `config/training.toml` selects this checkpoint for
-play, training and browser export. The [AlphaZero guide](alphazero-guide.md) explains the learning method;
-the [experiment records](experiments/2026-11-08/README.md) contain the frozen
-configuration, full measurements and reproduction tools.
+[Release v2.0.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.0.0)
+carries this checkpoint and the web site that plays it. Training continues in
+the same lineage: `latest`, under the model path of `config/training.toml`,
+selects the newest accepted generation for play, training and browser export.
+The [AlphaZero guide](alphazero-guide.md) explains the learning method; the
+[experiment records](experiments/2026-11-14/README.md) contain the protocol,
+full measurements and reproduction commands.
 
 ## Training configuration
 
-Training starts with empty model/data directories, random weights and no
-imported optimizer state or replay. The measured training/search revision is
-`f3ce72638d8e72bd645f525baa132413315969e5`; the configuration is frozen in
-[`config/retrain-20261108.toml`](../config/retrain-20261108.toml).
+Training starts with empty model and data directories, random weights and no
+imported optimizer state or replay. The configuration is
+[`config/training.toml`](../config/training.toml); the
+[protocol](experiments/2026-11-14/protocol.json) records its hash and the
+source revision.
 
 The network has 64 channels, four residual blocks and 64-unit shared/value
-layers. It uses model format 5, encoder version 4 and rules version 1.
+layers, about 1.17 million parameters. It uses model format 5, encoder
+version 5 and rules version 3.
 
 | Phase per attempt | Budget |
 | --- | --- |
@@ -40,103 +40,119 @@ Promotion requires at least 55% of points, a one-sided paired p-value at most
 win rate. Rejected candidates never supply subsequent weights, Adam state or
 self-play. Their attempt's games still enrich the replay buffer.
 
-The learning rate is 0.001 until the accepted source reaches generation 7,
-then 0.00025. Decisive-tail oversampling applies to the first ten attempts.
-Mirrored positions augment training examples; restarts inherit their root
-trajectory's train/validation family.
+The learning rate stays at 0.001. Decisive-tail oversampling applies to the
+first ten attempts. Mirrored positions augment training examples; restarts
+inherit their root trajectory's train/validation family. A draw is worth zero
+to both players in search, and both players' moves are imitated in drawn
+games.
 
 ## Observed training results
 
-The campaign completed **30 attempts**, including **14 promotions**, and
-produced **7,680 self-play games** and **12,000 optimizer updates**. Generation
-30 passed its promotion arena against source generation 26 with 63 wins,
-40 losses and 97 draws: **55.75%**, p = 0.0002098. Its productivity probe drew
-**7/64 games**, within the 20% limit.
+Up to the published generation, the run made **35 attempts**, including
+**21 promotions**, and produced **8,960 self-play games** and **14,000
+optimizer updates**. Generation 35 passed its promotion arena against source
+generation 34 with 123 wins, 60 losses and 17 draws: **65.75%**,
+p = 7.2 × 10⁻⁶. Its productivity probe drew **7/64 games**, within the 20%
+limit.
 
-The [complete generation results](experiments/2026-11-08/training-observations.json)
-include every accepted and rejected candidate, outcomes and phase timings.
-The [data audit](experiments/2026-11-08/data-audit.json) confirms that all replay
-records exist, generation/seed identities are unique, and all 1,856 restarted
-games have their root ancestry in the retained trajectories.
+In the first thirty attempts, self-play games last 77 to 90 plies on average
+from the eleventh attempt on, far from the 256-ply limit. Their draws stay
+below 20% in every attempt but one (54 of 256 games in attempt 17).
+
+The [generation results](experiments/2026-11-14/training-observations-30.json)
+include every accepted and rejected candidate of those thirty attempts, with
+outcomes and phase timings. The experiment report gives the pipeline verdicts
+of attempts 31 to 35.
 
 ## Independent strength evaluation
 
-The fixed reference is generation 21 in the separate reference lineage,
-identified by its file hashes in the [protocol](experiments/2026-11-08/protocol.json).
-Generation numbers identify attempts within a lineage, not comparable strength
-levels. Reference weights and Adam state are retained independently of training.
+The fixed reference is generation 0 of the run, identified by its file hashes
+in the [protocol](experiments/2026-11-14/protocol.json). Each arena plays
+200 games at 400 simulations per move, with eight leaves per inference, no
+root noise and random legal openings of 0–4 plies. Each pair shares an opening
+and swaps colors. The seeds are not used by the training run, and the
+references were chosen before each arena ran.
 
-Each arena uses 800 games, 400 simulations per move, exact sequential PUCT
-(one leaf per request), 128 game workers, no root noise and random legal
-openings of 0–4 plies. Each pair shares an opening and swaps candidate colors.
-Inference services collect batches of 64–128 requests with a 1 ms wait.
+| Candidate | Reference | Wins / losses / draws | Score | Paired p |
+| --- | --- | --- | ---: | ---: |
+| Generation 10 | Generation 0 (fixed reference) | 198 / 0 / 2 | 99.50% | 7.9 × 10⁻³¹ |
+| Generation 10 | Generation 2 | 191 / 1 / 8 | 97.50% | 1.6 × 10⁻³⁰ |
+| Generation 10 | Generation 4 | 166 / 6 / 28 | 90.00% | 5.0 × 10⁻²⁹ |
+| Generation 29 | Generation 0 (fixed reference) | 200 / 0 / 0 | 100.00% | 7.9 × 10⁻³¹ |
+| Generation 29 | Generation 10 | 197 / 2 / 1 | 98.75% | 3.2 × 10⁻³⁰ |
+| Generation 29 | Generation 20 | 185 / 5 / 10 | 95.00% | 2.5 × 10⁻²⁹ |
+| **Generation 35** | **Generation 29** | **134 / 45 / 21** | **72.25%** | **6.8 × 10⁻¹⁰** |
 
-Confirmation requires at least 55% of points and p ≤ 0.05/3, accounting for
-up to three comparisons. Candidates are selected by internal promotion before
-their independent arena. The campaign contains two independent measurements:
+The base seeds are `20261114`, `20261115` and `20261116` for generations 10,
+29 and 35.
 
-| Candidate vs reference | Wins / losses / draws | Score | Paired p | Result |
-| --- | --- | ---: | ---: | --- |
-| Generation 26 | 232 / 386 / 182 | 40.375% | ≈ 1 | Failed |
-| **Generation 30** | **313 / 162 / 325** | **59.4375%** | **3.54 × 10⁻¹⁵** | **Confirmed** |
-
-Their base seeds are `2026110801` and `2026111801`. Pair i uses base seed + i,
-so the two 400-seed ranges are disjoint. The arenas contain 169 and 166 distinct
-openings and took 392.00 and 430.21 seconds respectively.
-
-| Champion's seat | Wins / losses / draws | Score |
+| Generation 35's seat | Wins / losses / draws | Score |
 | --- | --- | ---: |
-| First | 156 / 86 / 158 | 58.750% |
-| Second | 157 / 76 / 167 | 60.125% |
+| First | 63 / 27 / 10 | 68.0% |
+| Second | 71 / 18 / 11 | 76.5% |
 
-The champion's paired score counts for 0, 0.5, 1, 1.5 and 2 points are
-`[9, 34, 219, 73, 65]`. Full results, checkpoint identities and run plans are
-available for [generation 26](experiments/2026-11-08/confirmation-26.json) and
-[generation 30](experiments/2026-11-08/confirmation-30.json).
+## What the network predicts
+
+Both heads are measured on games the network never trained on, for the
+generations up to the thirtieth attempt. The policy head improves at every
+accepted generation: it names the move preferred by the search in 41% of the
+positions at generation 29, against 33% at generation 10.
+
+The value head is the weak part. In the last 16 plies of a game it names the
+outcome of 76% of the positions. Farther from the end, which is 78% of the
+positions, its loss stays between 1.13 and 1.19, above the 1.10 of a
+prediction that gives each outcome one chance in three. The champion's
+strength therefore rests on its policy and on search more than on its
+evaluation of middle-game positions.
 
 ## Execution time
 
-The pipeline took **2 h 25 min 47 s**, excluding compilation, pauses between
-commands, independent arenas and performance tests. Timings use whole-second
-CLI timestamps on an Apple M4 Max with Rust 1.97.1 and the default release profile.
+The first thirty attempts took **3 h 36 min 49 s** of pipeline time, 7 min
+14 s each on average, excluding compilation, pauses between commands and
+independent arenas. Timings use whole-second CLI timestamps on an Apple M4 Max
+with the default release profile.
 
 | Phase | Total |
 | --- | ---: |
-| Self-play, including restarts | 55 min 56 s |
-| Optimization and validation | 2 min 29 s |
-| Promotion arenas | 1 h 16 min 12 s |
-| Noisy productivity probes | 10 min 39 s |
-| Other transitions | 31 s |
-| **Total** | **2 h 25 min 47 s** |
+| Self-play, including restarts | 2 h 05 min 32 s |
+| Optimization and validation | 5 min 42 s |
+| Promotion arenas | 58 min 46 s |
+| Noisy productivity probes | 26 min 44 s |
+| Other transitions | 5 s |
+| **Total** | **3 h 36 min 49 s** |
 
-Some training phases overlapped compilation and code checks. These durations
-are observations of this run; the separate
-[performance measurements](performance-results.md) use interleaved runs without
-concurrent training.
+Attempts 31 to 35 took 37 min 10 s more. Some phases overlapped compilation,
+code checks and independent arenas, so these durations are observations of
+this run, not a benchmark.
 
 ## Verification and artifacts
 
-The required checks passed: 86 tests, Clippy with warnings denied, formatting
-and documentation generation. Two Metal tests are normally ignored; the
-training-state round-trip diagnostic was also run and passed.
+The required checks passed at the published revision: 98 tests, Clippy with
+warnings denied, formatting and documentation generation.
 
-Browser verification completed three WebGPU games and two Flex games, including
-28 captures, 20 drops and resets. A human move with an AI reply was checked
-through the interface, and desktop/mobile layouts were inspected. Both release
-archives pass SHA-256 and byte-for-byte verification. See the
-[verification record](experiments/2026-11-08/verification.json).
+Browser verification ran in Chromium on the WebGPU and Flex modules: complete
+one-player and two-player games through pointer events, a move offered with
+and without promotion, the capture of a promoted piece, drops, resets, a
+reload and a mobile viewport, without console errors or failed requests. The
+published web archive is identical, file for file, to the site that was
+tested, and both archives pass SHA-256 verification after download.
 
-- `models/alpha-zero-from-scratch-20261108/`: the initial network and all 30
-  candidates, with Adam states for trained candidates; `latest` selects 30.
-- `data/alpha-zero-from-scratch-20261108/`: self-play, replay buffer, reports,
-  process logs, independent arenas and performance fixtures.
-- `models/references/pre-cleanup-20261108/`: fixed reference and optimizer state.
-- [Release v1.0.11](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v1.0.11):
-  deployable website and minimal accepted checkpoint as separate archives.
+- `models/expert-5x6/`: the initial network and every candidate, with Adam
+  states for trained candidates; `latest` selects the accepted generation.
+- `data/expert-5x6/`: self-play games, replay buffer and generation reports.
+- [Release v2.0.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.0.0):
+  deployable website and minimal checkpoint of generation 35 as separate
+  archives.
 
 ## Limits of the measurements
 
-This establishes playing strength against the fixed opponent at the stated
-search budget. One training seed does not establish learning efficiency across
-seeds or equal-compute runs. Execution costs and their measurement limits are
-reported in [performance results](performance-results.md).
+Every opponent is an earlier generation of the same run: the arenas establish
+progress at the stated search budget, not strength against people or another
+program. Generation 35 was measured against generation 29 only, in one arena
+that ran while training was using the same machine.
+
+The three base seeds are consecutive and pair i uses base seed + i, so the
+seed ranges of the three comparisons overlap instead of being disjoint.
+
+One training seed does not establish learning efficiency across seeds or
+equal-compute runs. No fixed-workload cost measurement exists for this board.

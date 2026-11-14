@@ -306,7 +306,7 @@ fn compare_saved_generations_from_environment() {
                 "configuration": config,
                 "max_game_plies": 512,
                 "inference_minimum_batch": minimum_batch,
-                "inference_maximum_batch": 128,
+                "inference_maximum_batch": maximum_batch,
                 "inference_wait_ms": 1,
                 "elapsed_seconds": started.elapsed().as_secs_f64(),
                 "arena": result,

@@ -242,19 +242,22 @@ fn compare_saved_generations_from_environment() {
     )
     .expect("reference checkpoint");
     let workers = games.min(128);
-    // Match the pipeline: each network serves roughly half the concurrent games.
-    let minimum_batch = workers.div_ceil(2);
+    // Match the pipeline's promotion arena: each network serves roughly half
+    // the concurrent games, and every search evaluates eight leaves at once.
+    let search_batch_size = 8;
+    let maximum_batch = 512;
+    let minimum_batch = (workers.div_ceil(2) * search_batch_size).min(maximum_batch);
     let candidate = InferenceService::start_with_batching(
         NetworkEvaluator::new(candidate_model, device.clone()),
         minimum_batch,
-        128,
+        maximum_batch,
         Duration::from_millis(1),
     )
     .expect("candidate inference service");
     let reference = InferenceService::start_with_batching(
         NetworkEvaluator::new(reference_model, device),
         minimum_batch,
-        128,
+        maximum_batch,
         Duration::from_millis(1),
     )
     .expect("reference inference service");
@@ -262,7 +265,7 @@ fn compare_saved_generations_from_environment() {
         games,
         workers,
         simulations: 400,
-        search_batch_size: 1,
+        search_batch_size,
         opening_plies: 4,
         score_threshold: 0.55,
         candidate_self_play_games: 64,

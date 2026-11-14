@@ -21,9 +21,8 @@ the legal actions and the sides played by a person. When a move exists both
 with and without promotion, Rust lists two legal actions that differ only by
 their `promote` flag, and the page asks which one to play.
 
-> **Scope.** The published release `web-v1.0.11` plays the classic 3×4 game,
-> preserved at the Git tag `classic-3x4`; build that site from the tag. The
-> site built from `main` plays the 5×6 game only.
+> **Scope.** The site plays the 5×6 game only. The classic 3×4 site is
+> release `web-v1.0.11`, built from the Git tag `classic-3x4`.
 
 ## Build
 
@@ -36,9 +35,10 @@ cargo install wasm-bindgen-cli --version 0.2.127 --locked
 
 The build also needs the accepted champion checkpoint on disk: the script
 exports the generation referenced by `latest` under the model path configured
-in `config/training.toml` (ignored by Git). Train one first. The checkpoint
-archive of release `web-v1.0.11` holds the classic 3×4 champion, which this
-engine rejects.
+in `config/training.toml` (ignored by Git). Train one first, or download the
+checkpoint archive from the
+[latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+and extract it at the repository root.
 
 Then build the accepted champion and both browser backends:
 

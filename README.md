@@ -44,7 +44,9 @@ and every public item documented.
   training. A 5×6 champion trained from random initialization plays in the
   terminal and in the browser; the
   [report of its training run](docs/experiments/2026-11-14/README.md) holds
-  its protocol and independent arenas. No 5×6 checkpoint is published yet.
+  its protocol and independent arenas. The
+  [latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+  publishes the web site and that champion's checkpoint.
 - The classic 3×4 game is preserved at the Git tag `classic-3x4`, with its
   validated champion and web build published as release `web-v1.0.11`. Its
   [training results](docs/training-results.md) and
@@ -71,9 +73,12 @@ A move is written `b3-b4`, a promoting move `c4-c5+` and a drop `kodama@a4`.
 
 Playing against or analyzing with the champion (`play human-vs-cpu`, `analyze`,
 the web build) needs a trained model under the path configured in
-`config/training.toml` (`models/…`, ignored by Git). A checkpoint trained on
-another board is rejected when it is loaded: the published release archives
-contain the classic 3×4 champion and only work with the `classic-3x4` tag.
+`config/training.toml` (`models/…`, ignored by Git). Train one, or extract the
+checkpoint archive of the
+[latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
+at the repository root. A checkpoint trained on another board is rejected when
+it is loaded: the archives of release `web-v1.0.11` and earlier contain the
+classic 3×4 champion and only work with the `classic-3x4` tag.
 
 ```bash
 # Play a local two-human match in the Ratatui interface.
@@ -128,8 +133,7 @@ champion or two people on the same screen. Rust owns the complete `Game`, legal
 actions, encoder, MCTS and Burn network inside a Web Worker; JavaScript only
 renders snapshots, so no rules or search logic is duplicated. The output under
 `web/dist/` is fully static (WebGPU with an automatic CPU fallback) — see the
-[web build guide](web/README.md). The published site still plays the classic
-3×4 game: its prebuilt archive in the
+[web build guide](web/README.md). The prebuilt archive in the
 [latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
 can be extracted into any HTTPS document root.
 

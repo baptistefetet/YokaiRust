@@ -269,6 +269,29 @@ The run continues from generation 29 with the same configuration. If the
 value head stays where it is, the next change to try is the amount of
 self-play data per attempt rather than the network.
 
+## The published champion: generation 35
+
+The run continued from generation 29 with the same configuration. Its next
+five attempts promoted generations 32, 34 and 35; release `web-v2.0.0`
+publishes **generation 35**.
+
+| Attempt | Source | Arena W–L–D | Score | Paired p | Probe draws | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 31 | 29 | 74–81–45 | 48.25% | 0.74 | 7.8% | rejected |
+| 32 | 29 | 94–60–46 | 58.5% | 2.9 × 10⁻³ | 12.5% | promoted |
+| 33 | 32 | 81–86–33 | 48.75% | 0.66 | 6.2% | rejected |
+| 34 | 32 | 124–50–26 | 68.5% | 5.0 × 10⁻⁸ | 7.8% | promoted |
+| 35 | 34 | 123–60–17 | 65.75% | 7.2 × 10⁻⁶ | 10.9% | promoted |
+
+These figures come from the training log; the detailed observations of the
+attempts after the thirtieth are not collected yet.
+
+In an independent arena of 200 games at 400 simulations with seed `20261116`,
+generation 35 scored **134 wins, 45 losses and 21 draws against generation
+29: 72.25% of points**, with a one-sided paired p-value of 6.8 × 10⁻¹⁰. Both
+color assignments favor it: 63–27–10 as First and 71–18–11 as Second. The
+arena ran while the training run was using the same machine.
+
 ## Records
 
 | Files | Contents |
@@ -276,7 +299,7 @@ self-play data per attempt rather than the network.
 | [`protocol.json`](protocol.json) | Configuration and reference identifiers recorded before the run, and the criteria. |
 | [`training-observations.json`](training-observations.json), [`training-observations-30.json`](training-observations-30.json) | Every attempt's source, phase durations, self-play outcomes and lengths, final training and validation metrics, arena and probe: the first ten attempts, then all thirty. |
 | [`collect_observations.py`](collect_observations.py) | Builds the file above from the pipeline's reports, the stored replays and the training logs. |
-| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json` | The independent arenas of generations 10 and 29. |
+| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json`, [`arena-35-vs-29.json`](arena-35-vs-29.json) | The independent arenas of generations 10, 29 and 35. |
 | [`endgame-distance/`](endgame-distance/) | The fixed-set validation of generations 0 to 10 after the tenth attempt, by number of plies before the end of the game. |
 | [`endgame-distance-30/`](endgame-distance-30/) | The same validation of generations 0 to 30 after the thirtieth attempt. |
 
@@ -286,6 +309,7 @@ The champions are identified by the SHA-256 hashes of their files.
 | --- | --- | --- |
 | 10 | `195cd169f56815dbaabdf2d4c154268ad86b9ba3bef02226d1b31b1a8bfbb6b9` | `be44dbbb35050d239abb99fa5c9c308defabc26435daa99fc7ee412af96acb72` |
 | 29 | `763cf4de87f3d246b218633e9c675ca77c6d72a5f3d1e5797fdde0ea7acf9ab4` | `f8d3b5d726f21feb8853db3ffaedcb207ec76baed78d98b96a1f88d13c51ea06` |
+| 35 | `b3b40b147a59213fdc4d06ddc444af95c432ae2e7a780392649b0dcdb8d6f4c4` | `4c8a03a996c426041a7ab8bc3b01ebf8ace6d907aab742eb5a7511d33d70769f` |
 
 The independent arenas ran with `compare_saved_generations`, with an inference
 batch of at most 512 positions as in the pipeline's arena. Revision `720f393`,

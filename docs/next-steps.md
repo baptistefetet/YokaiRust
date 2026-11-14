@@ -2,7 +2,8 @@
 
 The 5×6 rules, terminal and web interfaces, neural encoder and policy mapping
 are implemented and verified; [Rules of the 5×6 game](rules.md) states them.
-A 5×6 champion has been trained from random initialization: the
+A 5×6 champion has been trained from random initialization and is published
+with the web site: the
 [report of its training run](experiments/2026-11-14/README.md) holds the
 protocol, the fixed reference and the independent arenas. The learning
 pipeline itself was validated on the classic 3×4 game:
@@ -38,17 +39,7 @@ prediction far from the end of the game, or independent arenas in which
 further attempts no longer bring a credible gain, and names the next isolated
 change.
 
-## 2. Publish the 5×6 web release
-
-The site built from `main` plays the 5×6 game with one or two human players;
-the published release still carries the classic 3×4 site. Package the site
-and the accepted checkpoint with `./web/scripts/package-release.sh`, after the
-verification of the [web build guide](../web/README.md).
-
-**Done when:** a published release carries the 5×6 site and its champion, and
-the documentation no longer points to the 3×4 release for playing.
-
-## 3. Preserve the baseline while improving durability
+## 2. Preserve the baseline while improving durability
 
 Keep checkpoint history, replay ancestry, fixed reference and experiment
 reports available for regression comparisons. Future candidates must still pass
@@ -62,7 +53,7 @@ before the accepted `latest` pointer, and verify recovery at each boundary.
 **Done when:** interruption and power-loss guarantees are documented and tested
 without weakening promotion or rewriting checkpoint history.
 
-## 4. Profile the costs that matter for larger training runs
+## 3. Profile the costs that matter for larger training runs
 
 Game generation, promotion arenas and productivity probes occupy almost all
 measured pipeline time. Measure inference batch collection, partial
@@ -81,7 +72,7 @@ optimizing game cloning for the larger board.
 **Done when:** a measured bottleneck is reduced on the complete workload while
 behavior and artifact compatibility remain demonstrably stable.
 
-## 5. Add useful diagnostics for learning and play
+## 4. Add useful diagnostics for learning and play
 
 A tactical diagnostic set should cover verified captures, defence, promotion,
 drops and repetitions from both colors. Keep it outside training. A small
@@ -95,7 +86,7 @@ alone does not establish whether rules, search or the learned policy are wrong.
 **Done when:** a reproducible case explains a weakness and suggests a specific
 experiment instead of relying on loss curves or isolated game impressions.
 
-## 6. Keep future learning comparisons independent
+## 5. Keep future learning comparisons independent
 
 One successful fresh seed establishes trainability and a stronger player under
 the recorded protocol. Comparing learning efficiency requires multiple fresh

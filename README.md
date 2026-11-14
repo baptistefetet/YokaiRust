@@ -119,15 +119,15 @@ empty.
 
 ### Static web interface
 
-The browser mode is a one-player game against the accepted champion. Rust owns
-the complete `Game`, legal actions, encoder, MCTS and Burn network inside a Web
-Worker; JavaScript only renders snapshots, so no rules or search logic is
-duplicated. The output under `web/dist/` is fully static (WebGPU with an
-automatic CPU fallback) — see the [web build guide](web/README.md). The
-published site plays the classic 3×4 game: its prebuilt archive in the
+The browser mode plays the 5×6 game with one person against the accepted
+champion or two people on the same screen. Rust owns the complete `Game`, legal
+actions, encoder, MCTS and Burn network inside a Web Worker; JavaScript only
+renders snapshots, so no rules or search logic is duplicated. The output under
+`web/dist/` is fully static (WebGPU with an automatic CPU fallback) — see the
+[web build guide](web/README.md). The published site still plays the classic
+3×4 game: its prebuilt archive in the
 [latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
-can be extracted into any HTTPS document root. The browser presentation of the
-5×6 board is not written yet.
+can be extracted into any HTTPS document root.
 
 ## Rules source
 

@@ -12,7 +12,7 @@ self.addEventListener('message', async (event) => {
             result = parseJson(rustGame.snapshotJson());
         } else if (command === 'reset') {
             requireGame();
-            result = parseJson(rustGame.reset());
+            result = parseJson(rustGame.reset(payload.humanPlayers));
         } else if (command === 'human') {
             requireGame();
             result = parseJson(rustGame.playHuman(JSON.stringify(payload.action)));
@@ -28,7 +28,7 @@ self.addEventListener('message', async (event) => {
     }
 });
 
-async function initialize({ simulations }) {
+async function initialize({ simulations, humanPlayers }) {
     const [modelResponse, metadataResponse] = await Promise.all([
         fetch('./model/champion.bin'),
         fetch('./model/metadata.json')
@@ -49,7 +49,12 @@ async function initialize({ simulations }) {
         try {
             const module = await import(`./pkg-${candidate}/yokai_web.js`);
             await module.default();
-            rustGame = await module.createGame(modelBytes, metadataJson, simulations);
+            rustGame = await module.createGame(
+                modelBytes,
+                metadataJson,
+                simulations,
+                humanPlayers
+            );
             backend = module.backendName();
             return {
                 backend,

@@ -7,8 +7,9 @@ use burn::{
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use yokai::{
-    Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, Mcts, ModelMetadata,
-    NetworkEvaluator, Outcome, Piece, Player, SearchConfig, SearchError, Transition, WinReason,
+    Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, HandPiece, Mcts,
+    ModelMetadata, NetworkEvaluator, Outcome, Piece, PieceKind, Player, SearchConfig, SearchError,
+    Transition, WinReason,
 };
 
 #[cfg(all(feature = "flex", feature = "webgpu"))]
@@ -34,6 +35,12 @@ struct Snapshot<'a> {
     rows: u8,
     board: &'a [Option<Piece>; BOARD_SQUARES],
     hands: &'a [[u8; 3]; 2],
+    /// Piece counted by each column of `hands`, so JavaScript does not repeat
+    /// the engine's hand order.
+    hand_kinds: [HandPiece; 3],
+    /// The promoted face of every kind that has one, for drawing the choice
+    /// between a plain and a promoting move.
+    promotions: Vec<Promotion>,
     side_to_move: Player,
     outcome: Outcome,
     /// Human-readable end-of-game sentence; `null` while the game is ongoing.
@@ -42,7 +49,33 @@ struct Snapshot<'a> {
     outcome_text: Option<&'static str>,
     legal_actions: Vec<Action>,
     ply: usize,
-    human: Player,
+    /// Sides played by a person. The champion plays every other side.
+    humans: &'static [Player],
+}
+
+#[derive(Serialize)]
+struct Promotion {
+    kind: PieceKind,
+    promoted: PieceKind,
+}
+
+fn promotions() -> Vec<Promotion> {
+    HandPiece::ALL
+        .into_iter()
+        .filter_map(|piece| {
+            let kind = piece.piece_kind();
+            kind.promoted().map(|promoted| Promotion { kind, promoted })
+        })
+        .collect()
+}
+
+/// Sides played by people: First alone against the champion, or both sides.
+fn human_sides(human_players: u8) -> Result<&'static [Player], JsValue> {
+    match human_players {
+        1 => Ok(&[Player::First]),
+        2 => Ok(&[Player::First, Player::Second]),
+        _ => Err(js_error("the number of human players must be 1 or 2")),
+    }
 }
 
 const fn outcome_text(outcome: Outcome) -> Option<&'static str> {
@@ -67,13 +100,14 @@ struct AppliedAction<'a> {
     state: Snapshot<'a>,
 }
 
-/// Complete one-player browser game. JavaScript only renders snapshots and
-/// submits actions; legality, history, search and inference remain in Rust.
+/// Complete browser game for one person against the champion, or for two
+/// people sharing the screen. JavaScript only renders snapshots and submits
+/// actions; legality, history, search and inference remain in Rust.
 #[wasm_bindgen]
 pub struct WebGame {
     game: Game,
     search: Mcts<NetworkEvaluator<WebBackend>>,
-    human: Player,
+    humans: &'static [Player],
     generation: u32,
 }
 
@@ -96,13 +130,16 @@ impl WebGame {
         self.generation
     }
 
-    /// Starts a fresh one-player game with the human moving first.
+    /// Starts a fresh game for one or two human players. First moves first;
+    /// with one human player, the champion plays Second.
     ///
     /// # Errors
     ///
-    /// Returns a JavaScript error if the initial snapshot cannot be serialized.
-    pub fn reset(&mut self) -> Result<String, JsValue> {
-        self.game = Game::new(self.human);
+    /// Returns a JavaScript error if `human_players` is neither 1 nor 2, or if
+    /// the initial snapshot cannot be serialized.
+    pub fn reset(&mut self, human_players: u8) -> Result<String, JsValue> {
+        self.humans = human_sides(human_players)?;
+        self.game = Game::new(Player::First);
         self.search.reset();
         self.snapshot_json()
     }
@@ -115,8 +152,8 @@ impl WebGame {
     /// the resulting snapshot cannot be serialized.
     #[wasm_bindgen(js_name = playHuman)]
     pub fn play_human(&mut self, action_json: &str) -> Result<String, JsValue> {
-        if self.game.position().side_to_move() != self.human {
-            return Err(js_error("it is not the human player's turn"));
+        if !self.human_to_move() {
+            return Err(js_error("it is not a human player's turn"));
         }
         let action = serde_json::from_str::<Action>(action_json)
             .map_err(|error| js_error(format!("invalid action: {error}")))?;
@@ -131,7 +168,7 @@ impl WebGame {
     /// the resulting snapshot cannot be serialized.
     #[wasm_bindgen(js_name = playAi)]
     pub async fn play_ai(&mut self) -> Result<String, JsValue> {
-        if self.game.position().side_to_move() == self.human {
+        if self.human_to_move() {
             return Err(js_error("it is not the AI player's turn"));
         }
         let result = self
@@ -144,18 +181,24 @@ impl WebGame {
 }
 
 impl WebGame {
+    fn human_to_move(&self) -> bool {
+        self.humans.contains(&self.game.position().side_to_move())
+    }
+
     fn snapshot(&self) -> Snapshot<'_> {
         Snapshot {
             columns: BOARD_WIDTH,
             rows: BOARD_HEIGHT,
             board: self.game.position().board(),
             hands: self.game.position().hands(),
+            hand_kinds: HandPiece::ALL,
+            promotions: promotions(),
             side_to_move: self.game.position().side_to_move(),
             outcome: self.game.outcome(),
             outcome_text: outcome_text(self.game.outcome()),
             legal_actions: self.game.legal_actions(),
             ply: self.game.actions().len(),
-            human: self.human,
+            humans: self.humans,
         }
     }
 
@@ -177,22 +220,26 @@ impl WebGame {
     }
 }
 
-/// Loads one exported champion and creates a new browser game.
+/// Loads one exported champion and creates a new browser game for one or two
+/// human players.
 ///
 /// # Errors
 ///
-/// Returns a JavaScript error when metadata is incompatible, weights cannot be
-/// decoded, backend initialization fails, or search configuration is invalid.
+/// Returns a JavaScript error when `human_players` is neither 1 nor 2,
+/// metadata is incompatible, weights cannot be decoded, backend initialization
+/// fails, or search configuration is invalid.
 #[wasm_bindgen(js_name = createGame)]
 pub async fn create_game(
     model_bytes: Vec<u8>,
     metadata_json: String,
     simulations: u32,
+    human_players: u8,
 ) -> Result<WebGame, JsValue> {
     console_error_panic_hook::set_once();
     if simulations == 0 {
         return Err(js_error("simulations must be greater than zero"));
     }
+    let humans = human_sides(human_players)?;
     let metadata: ModelMetadata = serde_json::from_str(&metadata_json)
         .map_err(|error| js_error(format!("invalid model metadata: {error}")))?;
     metadata
@@ -217,11 +264,10 @@ pub async fn create_game(
     };
     let search =
         Mcts::new(evaluator, config, DEFAULT_SEED).map_err(|error| search_error(&error))?;
-    let human = Player::First;
     Ok(WebGame {
-        game: Game::new(human),
+        game: Game::new(Player::First),
         search,
-        human,
+        humans,
         generation: metadata.generation,
     })
 }

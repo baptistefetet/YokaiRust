@@ -47,18 +47,16 @@ report under `docs/experiments/`.
 **Done when:** an accepted champion beats the fixed reference in an independent
 arena and `yokai play human-vs-cpu` plays it.
 
-## 3. Port the web interface to the 5×6 board
+## 3. Offer the classic game in the web interface
 
-The browser adapter already receives board dimensions from Rust snapshots. The
-presentation needs the 5×6 board and piece sprites, the choice between a plain
-and a promoting move, and a mode selection: one or two human players, and the
-classic or expert game. The classic mode can load the frozen WebAssembly bundle
-and model of release `web-v1.0.11` instead of keeping two rule sets in the
-current engine.
+The site plays the 5×6 game with one or two human players. The classic 3×4
+game should be a second choice in the same options panel, for one or two
+players as well, without keeping two rule sets in the current engine: its
+rules, encoder and champion are frozen at the Git tag `classic-3x4` and in
+release `web-v1.0.11`.
 
-**Done when:** `./web/scripts/build.sh` produces a deployable site that plays
-the expert game against the 5×6 champion, and both modes pass the smoke test of
-the [web build guide](../web/README.md).
+**Done when:** `./web/scripts/build.sh` produces a deployable site in which
+both games pass the verification of the [web build guide](../web/README.md).
 
 ## 4. Preserve the baseline while improving durability
 

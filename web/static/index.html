@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
-    <meta name="description" content="Play Yokai No Mori against the Rust AlphaZero engine, directly in your browser.">
+    <meta name="description" content="Play the 5×6 game of Yokai No Mori against the Rust AlphaZero engine or a friend, directly in your browser.">
     <link rel="apple-touch-icon" href="./favicon.png" sizes="any" type="image/png">
     <link rel="icon" href="./favicon.png" sizes="any" type="image/png">
     <link rel="stylesheet" href="./app.css">
@@ -17,6 +17,26 @@
             <img src="./assets/images/logo.png" alt="" width="64" height="64">
             <p id="loading-title">Loading the Rust engine…</p>
             <p id="loading-detail">The champion is loaded and runs locally in your browser.</p>
+        </section>
+        <section id="menu" aria-labelledby="menu-title" hidden>
+            <form id="menu-form">
+                <h1 id="menu-title">New game</h1>
+                <fieldset>
+                    <legend>Players</legend>
+                    <label>
+                        <input type="radio" name="players" value="1" checked>
+                        <span>One player <small>You play the bottom side against the champion.</small></span>
+                    </label>
+                    <label>
+                        <input type="radio" name="players" value="2">
+                        <span>Two players <small>Both players share this screen, face to face.</small></span>
+                    </label>
+                </fieldset>
+                <div class="menu-actions">
+                    <button type="button" id="menu-cancel">Back to the game</button>
+                    <button type="submit">Start</button>
+                </div>
+            </form>
         </section>
         <section id="fatal-error" role="alert" hidden>
             <h1>The engine could not start</h1>

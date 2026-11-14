@@ -10,12 +10,21 @@ clients; its asynchronous search awaits tensor readback.
 The generated site has no API and no server-side runtime. It tries WebGPU first
 and automatically loads the Burn Flex CPU build when WebGPU is unavailable.
 
-> **Scope.** The presentation under `web/static/` and the published release
-> play the classic 3×4 game, preserved at the Git tag `classic-3x4`. The Rust
-> engine on `main` implements the 5×6 game: the browser adapter compiles for
-> both backends, but the site cannot be built from `main` until a 5×6 champion
-> exists and the presentation is ported (see [next steps](../docs/next-steps.md)).
-> Build and release the 3×4 site from the tag.
+The site plays the 5×6 game. Its options panel, opened on the first visit and
+then from the logo, chooses the number of human players: one against the
+accepted champion, who plays Second at the top, or two on the same screen. The
+choice is kept in the browser's local storage.
+
+Snapshots carry everything the presentation needs to stay free of rules: board
+dimensions, the piece kinds a hand can hold, the promoted form of each kind,
+the legal actions and the sides played by a person. When a move exists both
+with and without promotion, Rust lists two legal actions that differ only by
+their `promote` flag, and the page asks which one to play.
+
+> **Scope.** The published release `web-v1.0.11` plays the classic 3×4 game,
+> preserved at the Git tag `classic-3x4`; build and release that site from the
+> tag. The site built from `main` does not offer the classic game yet (see
+> [next steps](../docs/next-steps.md)).
 
 ## Build
 
@@ -28,10 +37,9 @@ cargo install wasm-bindgen-cli --version 0.2.127 --locked
 
 The build also needs the accepted champion checkpoint on disk: the script
 exports the generation referenced by `latest` under the model path configured
-in `config/training.toml` (ignored by Git). Train one first, or download the
-checkpoint archive from the
-[latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
-and extract it at that path.
+in `config/training.toml` (ignored by Git). Train one first. The checkpoint
+archive of release `web-v1.0.11` holds the classic 3×4 champion, which this
+engine rejects.
 
 Then build the accepted champion and both browser backends:
 
@@ -82,8 +90,15 @@ editing generated `yokai_web.js` bindings will not change their Rust source.
 
 Before release, compile both WASM backends (the CI does this separately), run
 `./web/scripts/build.sh`, then serve `web/dist/` locally. Verify initial loading,
-a human move and AI reply, captures/drops, game completion and reset. Inspect a
-mobile viewport as well as desktop. Exercise the Flex module explicitly even
-when WebGPU is available; successful fallback alone does not validate WebGPU.
-Check the browser console and failed requests, and ensure the release contains
-both WASM modules, model bytes, metadata and static assets.
+a human move and AI reply, captures and drops, a move offered with and without
+promotion, a hand holding two pieces of one kind, game completion and reset.
+Play both a one-player and a two-player game, and check that the chosen option
+survives a reload. Inspect a mobile viewport as well as desktop. Exercise the
+Flex module explicitly even when WebGPU is available; successful fallback alone
+does not validate WebGPU. Check the browser console and failed requests, and
+ensure the release contains both WASM modules, model bytes, metadata and static
+assets.
+
+An automated browser often has no graphics adapter and then only exercises the
+Flex module. Check which `pkg-…` directory the page requested before concluding
+that WebGPU works.

@@ -1,30 +1,55 @@
+// Pixel measurements of the 600×900 board image. The grid of squares is
+// divided by the board dimensions that Rust reports in each snapshot.
 const LAYOUT = {
     gameWidth: 600,
     gameHeight: 900,
-    boardX: 61,
-    boardY: 130,
-    boardWidth: 476,
-    boardHeight: 638,
-    squareWidth: 159,
-    squareHeight: 159,
+    boardX: 26,
+    boardY: 104,
+    boardWidth: 547,
+    boardHeight: 689,
     characterSize: 128,
-    characterScale: 1,
-    handScale: 0.7,
+    characterScale: 0.7,
+    handScale: 0.5,
     handOffset: 18,
     tweenMs: 420
 };
 
 const PIECE_FRAME = {
     koropokkuru: 0,
-    tanuki: 1,
-    kitsune: 2,
-    kodama: 3,
-    kodama_samurai: 4
+    kirin: 1,
+    oni: 2,
+    super_oni: 3,
+    kodama: 4,
+    kodama_samurai: 5
 };
 
-const HAND_KINDS = ['tanuki', 'kitsune', 'kodama'];
 const DEFAULT_SIMULATIONS = 200;
 const MINIMUM_THINK_MS = 260;
+const SETTINGS_KEY = 'yokai-no-mori.settings';
+const TEXT_FONT = 'system-ui, sans-serif';
+
+// The only stored choice is the number of human players. Storage can be
+// unavailable (private browsing, embedded pages); the game then starts with
+// the default every time.
+function loadSettings() {
+    try {
+        const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY));
+        if (stored && (stored.players === 1 || stored.players === 2)) {
+            return { players: stored.players, isFirstVisit: false };
+        }
+    } catch (error) {
+        // Fall through to the default.
+    }
+    return { players: 1, isFirstVisit: true };
+}
+
+function saveSettings(settings) {
+    try {
+        window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({ players: settings.players }));
+    } catch (error) {
+        // The choice still applies to the current page.
+    }
+}
 
 class EngineClient {
     constructor() {
@@ -52,12 +77,12 @@ class EngineClient {
         });
     }
 
-    initialize(simulations) {
-        return this.request('init', { simulations });
+    initialize(simulations, humanPlayers) {
+        return this.request('init', { simulations, humanPlayers });
     }
 
-    reset() {
-        return this.request('reset');
+    reset(humanPlayers) {
+        return this.request('reset', { humanPlayers });
     }
 
     playHuman(action) {
@@ -84,8 +109,8 @@ class GameScene extends Phaser.Scene {
     }
 
     preload() {
-        this.load.image('board', './assets/images/3x4/board.jpg');
-        this.load.spritesheet('characters', './assets/images/3x4/characters.png', {
+        this.load.image('board', './assets/images/5x6/board.jpg');
+        this.load.spritesheet('characters', './assets/images/5x6/characters.png', {
             frameWidth: LAYOUT.characterSize,
             frameHeight: LAYOUT.characterSize
         });
@@ -95,9 +120,10 @@ class GameScene extends Phaser.Scene {
     async create() {
         this.margin = 0;
         this.state = null;
-        this.human = 'first';
+        this.settings = loadSettings();
         this.busy = true;
         this.selected = null;
+        this.promotionChoice = null;
         this.isModalOpen = false;
         this.pieces = new Map();
         this.handSprites = { first: [], second: [] };
@@ -119,32 +145,46 @@ class GameScene extends Phaser.Scene {
         this.cameras.main.setBackgroundColor('#ffffff');
         this.createLogo();
         this.createGameOverModal();
+        this.bindMenu();
         this.input.on('pointerdown', (pointer) => {
             this.handleBoardPointer(pointer);
         });
 
         this.engine = new EngineClient();
         try {
-            const initialized = await this.engine.initialize(DEFAULT_SIMULATIONS);
+            const initialized = await this.engine.initialize(
+                DEFAULT_SIMULATIONS,
+                this.settings.players
+            );
             this.state = initialized.state;
-            this.human = initialized.state.human;
-            this.busy = false;
             this.drawAll();
             this.finishLoading();
+            await this.continueGame();
+            if (this.settings.isFirstVisit) {
+                this.openMenu();
+            }
         } catch (error) {
             this.showFatalError(error);
         }
     }
 
+    squareWidth() {
+        return LAYOUT.boardWidth * this.scaleX / this.state.columns;
+    }
+
+    squareHeight() {
+        return LAYOUT.boardHeight * this.scaleY / this.state.rows;
+    }
+
     toPixel(column, row) {
         return {
-            x: this.margin + LAYOUT.boardX * this.scaleX
-                + column * LAYOUT.squareWidth * this.scaleX
-                + LAYOUT.squareWidth * this.scaleX / 2,
-            y: this.margin + LAYOUT.boardY * this.scaleY
-                + row * LAYOUT.squareHeight * this.scaleY
-                + LAYOUT.squareHeight * this.scaleY / 2
+            x: this.margin + LAYOUT.boardX * this.scaleX + (column + 0.5) * this.squareWidth(),
+            y: this.margin + LAYOUT.boardY * this.scaleY + (row + 0.5) * this.squareHeight()
         };
+    }
+
+    squareCenter(index) {
+        return this.toPixel(index % this.state.columns, Math.floor(index / this.state.columns));
     }
 
     fromPixel(x, y) {
@@ -158,12 +198,19 @@ class GameScene extends Phaser.Scene {
         ) {
             return null;
         }
-        const column = Math.floor(localX / (LAYOUT.squareWidth * this.scaleX));
-        const row = Math.floor(localY / (LAYOUT.squareHeight * this.scaleY));
+        const column = Math.floor(localX / this.squareWidth());
+        const row = Math.floor(localY / this.squareHeight());
         if (column >= this.state.columns || row >= this.state.rows) {
             return null;
         }
         return { column, row, index: row * this.state.columns + column };
+    }
+
+    // A hand shows one piece per kind, with a count when the player holds
+    // several. Each kind keeps its own slot; the Kodama, captured most often,
+    // has the slot nearest to the corner.
+    handSlot(kindIndex) {
+        return this.state.hand_kinds.length - 1 - kindIndex;
     }
 
     handCenter(player, index) {
@@ -198,7 +245,7 @@ class GameScene extends Phaser.Scene {
                 event.stopPropagation();
             }
             if (!this.busy) {
-                this.restartGame();
+                this.openMenu();
             }
         });
         this.logoSpin = this.tweens.add({
@@ -211,28 +258,36 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    startThinking() {
+    // Input stays locked while an action is animated and while the champion
+    // searches; the logo only spins during the search.
+    lockInput() {
         this.busy = true;
         this.stopPulseAnimations();
+        this.closePromotionChoice();
         this.clearHighlights();
         this.selected = null;
-        if (this.logoSpin.isPaused()) {
-            this.logoSpin.resume();
-        }
         this.logo.disableInteractive();
     }
 
-    stopThinking() {
+    unlockInput() {
         this.busy = false;
         this.logoSpin.pause();
         this.logo.setAngle(0);
         this.logo.setInteractive({ useHandCursor: true });
     }
 
+    spinLogo() {
+        if (this.logoSpin.isPaused()) {
+            this.logoSpin.resume();
+        }
+    }
+
+    isHumanSide(player) {
+        return this.state.humans.includes(player);
+    }
+
     makeBoardPiece(index, piece) {
-        const row = Math.floor(index / this.state.columns);
-        const column = index % this.state.columns;
-        const position = this.toPixel(column, row);
+        const position = this.squareCenter(index);
         const sprite = this.add.sprite(
             position.x,
             position.y,
@@ -269,6 +324,31 @@ class GameScene extends Phaser.Scene {
         return sprite;
     }
 
+    makeHandCount(player, index, count) {
+        const center = this.handCenter(player, index);
+        const reach = LAYOUT.handScale * LAYOUT.characterSize / 2 - 6;
+        // The count sits on the corner nearest to the piece's owner.
+        const direction = player === 'second' ? -1 : 1;
+        const label = this.add.text(
+            center.x + direction * reach * this.scaleX,
+            center.y + direction * reach * this.scaleY,
+            `×${count}`,
+            {
+                fontFamily: TEXT_FONT,
+                fontSize: '17px',
+                fontStyle: 'bold',
+                color: '#ffffff',
+                stroke: '#27231f',
+                strokeThickness: 4
+            }
+        ).setOrigin(0.5).setDepth(6);
+        // A second person reads their hand from the other side of the screen.
+        if (player === 'second' && this.isHumanSide('second')) {
+            label.setAngle(180);
+        }
+        return label;
+    }
+
     drawAll() {
         this.stopPulseAnimations();
         for (const sprite of this.pieces.values()) {
@@ -278,17 +358,21 @@ class GameScene extends Phaser.Scene {
         for (const player of ['first', 'second']) {
             for (const entry of this.handSprites[player]) {
                 entry.sprite.destroy();
+                if (entry.label) {
+                    entry.label.destroy();
+                }
             }
             this.handSprites[player] = [];
         }
 
+        const mover = this.state.side_to_move;
         this.state.board.forEach((piece, index) => {
             if (!piece) {
                 return;
             }
             const sprite = this.makeBoardPiece(index, piece);
             const canSelect = this.isHumanTurn()
-                && piece.owner === this.human
+                && piece.owner === mover
                 && this.moveActionsFrom(index).length > 0;
             if (canSelect) {
                 sprite.setInteractive({ useHandCursor: true });
@@ -297,11 +381,16 @@ class GameScene extends Phaser.Scene {
         });
 
         for (const player of ['first', 'second']) {
-            const entries = this.handEntries(this.state, player);
-            entries.forEach((kind, index) => {
-                const sprite = this.makeHandPiece(player, index, kind);
+            this.handCounts(this.state, player).forEach((count, index) => {
+                if (count === 0) {
+                    return;
+                }
+                const kind = this.state.hand_kinds[index];
+                const slot = this.handSlot(index);
+                const sprite = this.makeHandPiece(player, slot, kind);
+                const label = count > 1 ? this.makeHandCount(player, slot, count) : null;
                 const canDrop = this.isHumanTurn()
-                    && player === this.human
+                    && player === mover
                     && this.dropActionsFor(kind).length > 0;
                 if (canDrop) {
                     sprite.setInteractive({ useHandCursor: true });
@@ -312,22 +401,14 @@ class GameScene extends Phaser.Scene {
                         this.selectHandPiece(kind);
                     });
                 }
-                this.handSprites[player].push({ kind, sprite });
+                this.handSprites[player].push({ kind, slot, count, sprite, label });
             });
         }
         this.startPulseAnimations();
     }
 
-    handEntries(state, player) {
-        const playerIndex = player === 'first' ? 0 : 1;
-        const entries = [];
-        HAND_KINDS.forEach((kind, kindIndex) => {
-            const count = state.hands[playerIndex][kindIndex];
-            for (let index = 0; index < count; index += 1) {
-                entries.push(kind);
-            }
-        });
-        return entries;
+    handCounts(state, player) {
+        return state.hands[player === 'first' ? 0 : 1];
     }
 
     isHumanTurn() {
@@ -336,7 +417,7 @@ class GameScene extends Phaser.Scene {
             && !this.busy
             && !this.isModalOpen
             && this.state.outcome.status === 'ongoing'
-            && this.state.side_to_move === this.human
+            && this.isHumanSide(this.state.side_to_move)
         );
     }
 
@@ -356,6 +437,11 @@ class GameScene extends Phaser.Scene {
         if (!this.isHumanTurn()) {
             return;
         }
+        if (this.promotionChoice) {
+            // A press outside the two proposed pieces cancels the move.
+            this.clearSelection();
+            return;
+        }
         const square = this.fromPixel(pointer.worldX, pointer.worldY);
         if (!square) {
             this.clearSelection();
@@ -363,17 +449,22 @@ class GameScene extends Phaser.Scene {
         }
 
         if (this.selected) {
-            const action = this.selected.actions.find((candidate) => {
+            const actions = this.selected.actions.filter((candidate) => {
                 return candidate.to === square.index;
             });
-            if (action) {
-                this.playHumanAction(action);
+            if (actions.length === 1) {
+                this.playHumanAction(actions[0]);
+                return;
+            }
+            if (actions.length > 1) {
+                // The same move exists with and without promotion.
+                this.openPromotionChoice(actions);
                 return;
             }
         }
 
         const piece = this.state.board[square.index];
-        if (piece && piece.owner === this.human) {
+        if (piece && piece.owner === this.state.side_to_move) {
             const actions = this.moveActionsFrom(square.index);
             if (actions.length > 0) {
                 this.selectBoardPiece(square.index, actions);
@@ -399,6 +490,7 @@ class GameScene extends Phaser.Scene {
         if (!this.isHumanTurn()) {
             return;
         }
+        this.closePromotionChoice();
         if (this.selected && this.selected.type === 'drop' && this.selected.kind === kind) {
             this.clearSelection();
             return;
@@ -412,7 +504,7 @@ class GameScene extends Phaser.Scene {
         this.clearBoardTints();
         this.clearHandTints();
         this.selected = { type: 'drop', kind, actions };
-        for (const entry of this.handSprites[this.human]) {
+        for (const entry of this.handSprites[this.state.side_to_move]) {
             if (entry.kind === kind) {
                 entry.sprite.setTint(0xffe066);
             }
@@ -421,15 +513,14 @@ class GameScene extends Phaser.Scene {
     }
 
     showActionTargets(actions, color) {
-        for (const action of actions) {
-            const row = Math.floor(action.to / this.state.columns);
-            const column = action.to % this.state.columns;
-            const center = this.toPixel(column, row);
+        const targets = new Set(actions.map((action) => action.to));
+        for (const target of targets) {
+            const center = this.squareCenter(target);
             const highlight = this.add.rectangle(
                 center.x,
                 center.y,
-                LAYOUT.squareWidth * this.scaleX * 0.9,
-                LAYOUT.squareHeight * this.scaleY * 0.9,
+                this.squareWidth() * 0.9,
+                this.squareHeight() * 0.9,
                 color,
                 0.25
             ).setStrokeStyle(2, color, 0.9);
@@ -437,8 +528,82 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    // Shows the moving piece's two faces over the target square. Rust lists
+    // the plain and the promoting move as two legal actions; the face that
+    // the player presses selects one of them.
+    openPromotionChoice(actions) {
+        const mover = this.state.side_to_move;
+        const kind = this.state.board[actions[0].from].kind;
+        const promotion = this.state.promotions.find((entry) => entry.kind === kind);
+        const choices = [
+            { action: actions.find((action) => action.promote), kind: promotion.promoted },
+            { action: actions.find((action) => !action.promote), kind }
+        ];
+        if (mover === 'second') {
+            // Second sees the screen from the other side.
+            choices.reverse();
+        }
+
+        const size = LAYOUT.characterSize * LAYOUT.characterScale * this.scaleX;
+        const gap = 10;
+        const padding = 10;
+        const width = 2 * size + gap + 2 * padding;
+        const height = size + 2 * padding;
+        const target = this.squareCenter(actions[0].to);
+        const centerX = Phaser.Math.Clamp(
+            target.x,
+            this.margin + width / 2 + 4,
+            this.margin + this.imageWidth - width / 2 - 4
+        );
+        const centerY = target.y;
+
+        const shade = this.add.rectangle(
+            this.margin,
+            this.margin,
+            this.imageWidth,
+            this.imageHeight,
+            0x000000,
+            0.3
+        ).setOrigin(0);
+        const panel = this.add.graphics();
+        panel.fillStyle(0xffffff, 1);
+        panel.lineStyle(3, 0x222222, 1);
+        panel.fillRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 14);
+        panel.strokeRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 14);
+
+        const container = this.add.container(0, 0, [shade, panel]).setDepth(150);
+        choices.forEach((choice, index) => {
+            const x = centerX + (index === 0 ? -1 : 1) * (size + gap) / 2;
+            const sprite = this.add.sprite(x, centerY, 'characters', PIECE_FRAME[choice.kind]);
+            sprite.setScale(
+                LAYOUT.characterScale * this.scaleX,
+                LAYOUT.characterScale * this.scaleY
+            );
+            if (mover === 'second') {
+                sprite.setAngle(180);
+            }
+            sprite.setInteractive({ useHandCursor: true });
+            sprite.on('pointerdown', (pointer, localX, localY, event) => {
+                if (event && event.stopPropagation) {
+                    event.stopPropagation();
+                }
+                this.playHumanAction(choice.action);
+            });
+            container.add(sprite);
+        });
+        this.promotionChoice = container;
+    }
+
+    closePromotionChoice() {
+        if (this.promotionChoice) {
+            this.promotionChoice.destroy();
+            this.promotionChoice = null;
+        }
+    }
+
     clearSelection() {
         this.selected = null;
+        this.closePromotionChoice();
         this.clearHighlights();
         this.clearBoardTints();
         this.clearHandTints();
@@ -470,15 +635,16 @@ class GameScene extends Phaser.Scene {
         if (!this.isHumanTurn() || this.selected) {
             return;
         }
+        const mover = this.state.side_to_move;
         this.state.board.forEach((piece, index) => {
-            if (piece && piece.owner === this.human && this.moveActionsFrom(index).length > 0) {
+            if (piece && piece.owner === mover && this.moveActionsFrom(index).length > 0) {
                 const sprite = this.pieces.get(index);
                 if (sprite) {
                     this.addPulseAnimation(sprite);
                 }
             }
         });
-        for (const entry of this.handSprites[this.human]) {
+        for (const entry of this.handSprites[mover]) {
             if (this.dropActionsFor(entry.kind).length > 0) {
                 this.addPulseAnimation(entry.sprite);
             }
@@ -515,27 +681,38 @@ class GameScene extends Phaser.Scene {
             return;
         }
         const previousState = this.state;
-        this.startThinking();
+        this.lockInput();
         try {
             const response = await this.engine.playHuman(action);
             await this.animateAppliedAction(previousState, response);
             this.state = response.state;
             this.drawAll();
-            if (this.showOutcomeIfFinished()) {
-                this.stopThinking();
-                return;
-            }
-            await this.playAiTurn();
+            await this.continueGame();
         } catch (error) {
-            this.stopThinking();
+            this.unlockInput();
             this.showFatalError(error);
         }
     }
 
-    async playAiTurn() {
+    // Lets the champion play until a person has to move or the game ends,
+    // then hands the board back.
+    async continueGame() {
+        this.lockInput();
+        while (
+            this.state.outcome.status === 'ongoing'
+            && !this.isHumanSide(this.state.side_to_move)
+        ) {
+            await this.playAiMove();
+        }
+        this.unlockInput();
+        this.drawAll();
+        this.showOutcomeIfFinished();
+    }
+
+    async playAiMove() {
         const previousState = this.state;
         const started = performance.now();
-        this.startThinking();
+        this.spinLogo();
         const response = await this.engine.playAi();
         const elapsed = performance.now() - started;
         if (elapsed < MINIMUM_THINK_MS) {
@@ -543,45 +720,30 @@ class GameScene extends Phaser.Scene {
         }
         await this.animateAppliedAction(previousState, response);
         this.state = response.state;
-        this.stopThinking();
         this.drawAll();
-        this.showOutcomeIfFinished();
     }
 
     async animateAppliedAction(previousState, response) {
         this.stopPulseAnimations();
         const action = response.action;
         const player = previousState.side_to_move;
-        const destinationRow = Math.floor(action.to / this.state.columns);
-        const destinationColumn = action.to % this.state.columns;
-        const destination = this.toPixel(destinationColumn, destinationRow);
+        const destination = this.squareCenter(action.to);
         const capturedSprite = this.pieces.get(action.to) || null;
         let movingSprite;
-        let movingKind;
 
         if (action.type === 'move') {
             movingSprite = this.pieces.get(action.from);
-            movingKind = previousState.board[action.from].kind;
         } else {
             const handEntry = this.handSprites[player].find((entry) => {
                 return entry.kind === action.piece;
             });
-            movingSprite = handEntry ? handEntry.sprite : null;
-            movingKind = action.piece;
-        }
-
-        if (!movingSprite) {
-            const source = action.type === 'move'
-                ? this.toPixel(action.from % this.state.columns, Math.floor(action.from / this.state.columns))
-                : this.handCenter(player, 0);
-            movingSprite = this.add.sprite(
-                source.x,
-                source.y,
-                'characters',
-                PIECE_FRAME[movingKind]
-            );
-            if (player === 'second') {
-                movingSprite.setAngle(180);
+            if (handEntry.count > 1) {
+                // One piece leaves the stack; the others stay in the hand.
+                movingSprite = this.makeHandPiece(player, handEntry.slot, action.piece);
+                const remaining = handEntry.count - 1;
+                handEntry.label.setText(`×${remaining}`).setVisible(remaining > 1);
+            } else {
+                movingSprite = handEntry.sprite;
             }
         }
         movingSprite.setDepth(60);
@@ -597,14 +759,16 @@ class GameScene extends Phaser.Scene {
         });
 
         if (response.captured && capturedSprite) {
-            const capturedKind = response.captured === 'kodama_samurai'
-                ? 'kodama'
-                : response.captured;
-            const destinationEntries = this.handEntries(response.state, player);
-            const handIndex = destinationEntries.lastIndexOf(capturedKind);
+            // The hand column that grew tells where the captured piece goes
+            // and which face it shows there: a promoted piece is captured as
+            // its plain kind. Capturing the Koropokkuru fills no column.
+            const before = this.handCounts(previousState, player);
+            const after = this.handCounts(response.state, player);
+            const handIndex = after.findIndex((count, index) => count > before[index]);
             capturedSprite.setDepth(55);
             if (handIndex >= 0) {
-                const handDestination = this.handCenter(player, handIndex);
+                capturedSprite.setFrame(PIECE_FRAME[response.state.hand_kinds[handIndex]]);
+                const handDestination = this.handCenter(player, this.handSlot(handIndex));
                 await this.tweenPromise({
                     targets: capturedSprite,
                     x: handDestination.x,
@@ -628,7 +792,7 @@ class GameScene extends Phaser.Scene {
         }
 
         if (response.promoted) {
-            movingSprite.setFrame(PIECE_FRAME.kodama_samurai);
+            movingSprite.setFrame(PIECE_FRAME[response.state.board[action.to].kind]);
             movingSprite.setTint(0xffffaa);
             const baseScaleX = LAYOUT.characterScale * this.scaleX;
             const baseScaleY = LAYOUT.characterScale * this.scaleY;
@@ -660,7 +824,10 @@ class GameScene extends Phaser.Scene {
         const reason = this.state.outcome_text || 'The game is over.';
         if (outcome.status === 'draw') {
             this.showGameOver('Draw', reason);
-        } else if (outcome.player === this.human) {
+        } else if (this.state.humans.length > 1) {
+            const winner = outcome.player === 'first' ? 'Bottom' : 'Top';
+            this.showGameOver(`${winner} player wins!`, reason);
+        } else if (this.isHumanSide(outcome.player)) {
             this.showGameOver('Victory!', reason);
         } else {
             this.showGameOver('Defeat', reason);
@@ -700,40 +867,39 @@ class GameScene extends Phaser.Scene {
             18
         );
         this.modalTitle = this.add.text(centerX, centerY - 50, 'Victory!', {
-            fontFamily: 'system-ui, sans-serif',
+            fontFamily: TEXT_FONT,
             fontSize: '36px',
             color: '#111111',
             fontStyle: 'bold'
         }).setOrigin(0.5);
         this.modalSubtitle = this.add.text(centerX, centerY - 8, '', {
-            fontFamily: 'system-ui, sans-serif',
+            fontFamily: TEXT_FONT,
             fontSize: '16px',
             color: '#444444',
             align: 'center',
             wordWrap: { width: panelWidth - 42 }
         }).setOrigin(0.5);
-        const buttonWidth = 180;
-        const buttonHeight = 48;
-        const buttonY = centerY + 65;
-        const button = this.add.graphics();
-        button.fillStyle(0x222222, 1);
-        button.fillRoundedRect(
-            centerX - buttonWidth / 2,
-            buttonY - buttonHeight / 2,
-            buttonWidth,
-            buttonHeight,
-            12
-        );
-        const hitArea = this.add.rectangle(
-            centerX,
-            buttonY,
-            buttonWidth,
-            buttonHeight,
-            0x000000,
-            0
-        ).setInteractive({ useHandCursor: true });
-        const label = this.add.text(centerX, buttonY, 'New game', {
-            fontFamily: 'system-ui, sans-serif',
+        const buttons = [
+            this.createModalButton(centerX - 96, centerY + 65, 'New game', 0x222222, () => {
+                this.restartGame();
+            }),
+            this.createModalButton(centerX + 96, centerY + 65, 'Options', 0x6b635a, () => {
+                this.openMenu();
+            })
+        ];
+        this.modal.add([blocker, panel, this.modalTitle, this.modalSubtitle, ...buttons.flat()]);
+    }
+
+    createModalButton(centerX, centerY, text, color, onPress) {
+        const width = 172;
+        const height = 48;
+        const background = this.add.graphics();
+        background.fillStyle(color, 1);
+        background.fillRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 12);
+        const hitArea = this.add.rectangle(centerX, centerY, width, height, 0x000000, 0)
+            .setInteractive({ useHandCursor: true });
+        const label = this.add.text(centerX, centerY, text, {
+            fontFamily: TEXT_FONT,
             fontSize: '18px',
             color: '#ffffff'
         }).setOrigin(0.5);
@@ -747,17 +913,9 @@ class GameScene extends Phaser.Scene {
             if (event && event.stopPropagation) {
                 event.stopPropagation();
             }
-            this.restartGame();
+            onPress();
         });
-        this.modal.add([
-            blocker,
-            panel,
-            this.modalTitle,
-            this.modalSubtitle,
-            button,
-            hitArea,
-            label
-        ]);
+        return [background, hitArea, label];
     }
 
     showGameOver(title, subtitle) {
@@ -774,15 +932,40 @@ class GameScene extends Phaser.Scene {
         }
         this.isModalOpen = false;
         this.modal.setVisible(false);
-        this.startThinking();
+        this.lockInput();
         try {
-            this.state = await this.engine.reset();
-            this.stopThinking();
+            this.state = await this.engine.reset(this.settings.players);
             this.drawAll();
+            await this.continueGame();
         } catch (error) {
-            this.stopThinking();
+            this.unlockInput();
             this.showFatalError(error);
         }
+    }
+
+    // The options are a plain HTML form above the canvas: it stays readable
+    // at any canvas scale and works with a keyboard.
+    bindMenu() {
+        this.menu = document.getElementById('menu');
+        const form = document.getElementById('menu-form');
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const players = Number(new FormData(form).get('players'));
+            this.settings = { players: players === 2 ? 2 : 1, isFirstVisit: false };
+            saveSettings(this.settings);
+            this.menu.hidden = true;
+            this.restartGame();
+        });
+        document.getElementById('menu-cancel').addEventListener('click', () => {
+            this.menu.hidden = true;
+        });
+    }
+
+    openMenu() {
+        const form = document.getElementById('menu-form');
+        form.elements.players.value = String(this.settings.players);
+        this.menu.hidden = false;
+        form.querySelector('input:checked').focus();
     }
 
     finishLoading() {

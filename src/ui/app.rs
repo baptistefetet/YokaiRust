@@ -93,6 +93,10 @@ impl App {
     }
 
     pub(super) fn handle_match_key(&mut self, code: KeyCode) {
+        if let Some(Selection::Promotion { from, to }) = self.selection {
+            self.handle_promotion_key(code, from, to);
+            return;
+        }
         match code {
             KeyCode::Char('n' | 'N') => self.reset_match(),
             KeyCode::Esc => self.cancel_selection(),
@@ -110,6 +114,21 @@ impl App {
             KeyCode::Right | KeyCode::Char('d' | 'D' | 'l' | 'L') => self.move_selection(0, 1),
             _ => {}
         }
+    }
+
+    /// Answers the promotion question. The prompt is modal: every other key
+    /// is ignored so that `N` cannot start a new game by accident.
+    pub(super) fn handle_promotion_key(&mut self, code: KeyCode, from: Square, to: Square) {
+        let promote = match code {
+            KeyCode::Char('y' | 'Y' | '+') => true,
+            KeyCode::Char('n' | 'N' | '-') => false,
+            KeyCode::Esc => {
+                self.cancel_selection();
+                return;
+            }
+            _ => return,
+        };
+        self.apply_action(Action::Move { from, to, promote });
     }
 
     pub(super) fn handle_replay_key(&mut self, code: KeyCode) {
@@ -261,13 +280,27 @@ impl App {
     pub(super) fn activate_board(&mut self) {
         match self.selection {
             Some(Selection::MoveFrom(from)) => {
-                let action = Action::Move {
-                    from,
-                    to: self.cursor,
+                let to = self.cursor;
+                let legal = |promote| {
+                    self.game()
+                        .is_legal_action(Action::Move { from, to, promote })
                 };
-                if self.game().is_legal_action(action) {
-                    self.apply_action(action);
-                } else if self
+                match (legal(false), legal(true)) {
+                    (true, true) => {
+                        self.selection = Some(Selection::Promotion { from, to });
+                        self.notice =
+                            format!("Promote on {to}? Y promotes · N keeps the current face");
+                        return;
+                    }
+                    // Exactly one variant is legal: there is nothing to ask.
+                    (true, false) | (false, true) => {
+                        let promote = legal(true);
+                        self.apply_action(Action::Move { from, to, promote });
+                        return;
+                    }
+                    (false, false) => {}
+                }
+                if self
                     .game()
                     .position()
                     .piece_at(self.cursor)
@@ -290,6 +323,8 @@ impl App {
                     "This piece cannot be dropped here".clone_into(&mut self.notice);
                 }
             }
+            // The modal prompt consumes every key before reaching this point.
+            Some(Selection::Promotion { .. }) => {}
             None => {
                 let player = self.game().position().side_to_move();
                 match self.game().position().piece_at(self.cursor) {
@@ -349,19 +384,26 @@ impl App {
             return false;
         };
         match self.effective_selection() {
-            Some(Selection::MoveFrom(from)) => session
-                .game
-                .is_legal_action(Action::Move { from, to: square }),
+            Some(Selection::MoveFrom(from)) => [false, true].into_iter().any(|promote| {
+                session.game.is_legal_action(Action::Move {
+                    from,
+                    to: square,
+                    promote,
+                })
+            }),
             Some(Selection::Drop(piece)) => session
                 .game
                 .is_legal_action(Action::Drop { piece, to: square }),
+            Some(Selection::Promotion { to, .. }) => to == square,
             None => false,
         }
     }
 
     pub(super) fn selected_source(&self) -> Option<Square> {
         match self.effective_selection() {
-            Some(Selection::MoveFrom(square)) => Some(square),
+            Some(Selection::MoveFrom(square) | Selection::Promotion { from: square, .. }) => {
+                Some(square)
+            }
             Some(Selection::Drop(_)) | None => None,
         }
     }
@@ -420,8 +462,10 @@ impl App {
     }
 }
 
+/// Starts on First's Koropokkuru, in the middle of the bottom rank.
 pub(super) fn initial_cursor() -> Square {
-    Square::new(3, 1).expect("initial cursor is on the board")
+    Square::new(yokai::BOARD_HEIGHT - 1, yokai::BOARD_WIDTH / 2)
+        .expect("initial cursor is on the board")
 }
 
 pub(super) fn move_axis(value: u8, delta: i8, upper_bound: u8) -> u8 {

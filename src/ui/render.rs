@@ -15,8 +15,11 @@ use yokai::{
 };
 
 use super::app::App;
-use super::session::{AiState, Controller, SearchPurpose, Session};
-use super::{MINIMUM_HEIGHT, MINIMUM_WIDTH};
+use super::session::{AiState, Controller, SearchPurpose, Selection, Session};
+use super::{
+    BOARD_COLUMN_HEIGHT, BOARD_COLUMN_WIDTH, HAND_HEIGHT, MINIMUM_HEIGHT, MINIMUM_WIDTH,
+    SQUARE_HEIGHT,
+};
 
 pub(super) fn render(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
@@ -37,7 +40,7 @@ pub(super) fn render(frame: &mut Frame<'_>, app: &App) {
 
     let [header, main, footer] = Layout::vertical([
         Constraint::Length(3),
-        Constraint::Min(18),
+        Constraint::Min(BOARD_COLUMN_HEIGHT),
         Constraint::Length(3),
     ])
     .areas(area);
@@ -103,9 +106,9 @@ pub(super) fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect, now: I
 }
 
 pub(super) fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
-    if area.width >= 100 {
+    if area.width > BOARD_COLUMN_WIDTH + 24 + 42 {
         let [board, history, analysis] = Layout::horizontal([
-            Constraint::Length(34),
+            Constraint::Length(BOARD_COLUMN_WIDTH),
             Constraint::Length(24),
             Constraint::Min(42),
         ])
@@ -115,7 +118,8 @@ pub(super) fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect, now: Ins
         render_analysis(frame, app, analysis);
     } else {
         let [board, sidebar] =
-            Layout::horizontal([Constraint::Length(34), Constraint::Min(36)]).areas(area);
+            Layout::horizontal([Constraint::Length(BOARD_COLUMN_WIDTH), Constraint::Min(36)])
+                .areas(area);
         let [history, analysis] =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .areas(sidebar);
@@ -127,9 +131,9 @@ pub(super) fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect, now: Ins
 
 pub(super) fn render_board_column(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
     let [second_hand, board, first_hand] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Length(3 * u16::from(BOARD_HEIGHT)),
-        Constraint::Length(3),
+        Constraint::Length(HAND_HEIGHT),
+        Constraint::Length(SQUARE_HEIGHT * BOARD_HEIGHT as u16),
+        Constraint::Length(HAND_HEIGHT),
     ])
     .areas(area);
     render_hand(frame, app, Player::Second, second_hand);
@@ -178,7 +182,8 @@ pub(super) fn render_hand(frame: &mut Frame<'_>, app: &App, player: Player, area
 }
 
 pub(super) fn render_board(frame: &mut Frame<'_>, app: &App, area: Rect, now: Instant) {
-    let rows = Layout::vertical([Constraint::Length(3); BOARD_HEIGHT as usize]).split(area);
+    let rows =
+        Layout::vertical([Constraint::Length(SQUARE_HEIGHT); BOARD_HEIGHT as usize]).split(area);
     for (row, row_area) in rows.iter().enumerate() {
         let columns = Layout::horizontal(
             [Constraint::Ratio(1, u32::from(BOARD_WIDTH)); BOARD_WIDTH as usize],
@@ -452,6 +457,9 @@ pub(super) fn analysis_view(app: &App) -> AnalysisView<'_> {
 
 pub(super) fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let help = match app.session {
+        Session::Match(_) if matches!(app.selection, Some(Selection::Promotion { .. })) => {
+            "Y promote · N keep the current face · Esc cancel · Q quit"
+        }
         Session::Match(_) => "Q quit · N new · Arrows move · Enter play · Tab hand · Esc cancel",
         Session::Replay(_) => "Q quit · ←/→ moves · ↑/↓ analysis · Home/End or g/G bounds",
     };
@@ -509,8 +517,8 @@ pub(super) const fn owner_arrow(player: Player) -> &'static str {
 
 pub(super) const fn hand_piece_code(piece: HandPiece) -> &'static str {
     match piece {
-        HandPiece::Tanuki => "TA",
-        HandPiece::Kitsune => "KI",
+        HandPiece::Kirin => "KI",
+        HandPiece::Oni => "ON",
         HandPiece::Kodama => "KD",
     }
 }
@@ -518,8 +526,9 @@ pub(super) const fn hand_piece_code(piece: HandPiece) -> &'static str {
 pub(super) const fn piece_code(piece: Piece) -> &'static str {
     match piece.kind {
         PieceKind::Koropokkuru => "KO",
-        PieceKind::Tanuki => "TA",
-        PieceKind::Kitsune => "KI",
+        PieceKind::Kirin => "KI",
+        PieceKind::Oni => "ON",
+        PieceKind::SuperOni => "SO",
         PieceKind::Kodama => "KD",
         PieceKind::KodamaSamurai => "SA",
     }
@@ -542,7 +551,6 @@ pub(super) fn outcome_text(outcome: Outcome) -> String {
 pub(super) const fn win_reason_text(reason: WinReason) -> &'static str {
     match reason {
         WinReason::KoropokkuruCaptured => "Koropokkuru captured",
-        WinReason::KoropokkuruReachedGoal => "Koropokkuru reached the goal",
         WinReason::OpponentHasNoLegalAction => "opponent has no legal move",
     }
 }
@@ -563,7 +571,7 @@ pub(super) fn transition_message(transition: yokai::Transition) -> String {
         let _ = write!(message, " · captures {}", PieceKindLabel(captured));
     }
     if transition.promoted {
-        message.push_str(" · promotes to samurai");
+        message.push_str(" · promotes");
     }
     if transition.outcome.is_terminal() {
         let _ = write!(message, " · {}", outcome_text(transition.outcome));
@@ -577,10 +585,11 @@ impl fmt::Display for PieceKindLabel {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self.0 {
             PieceKind::Koropokkuru => "Koropokkuru",
-            PieceKind::Tanuki => "Tanuki",
-            PieceKind::Kitsune => "Kitsune",
+            PieceKind::Kirin => "Kirin",
+            PieceKind::Oni => "Oni",
+            PieceKind::SuperOni => "Super Oni",
             PieceKind::Kodama => "Kodama",
-            PieceKind::KodamaSamurai => "Kodama samurai",
+            PieceKind::KodamaSamurai => "Kodama Samurai",
         })
     }
 }

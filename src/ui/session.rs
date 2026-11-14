@@ -451,4 +451,9 @@ pub(super) enum Focus {
 pub(super) enum Selection {
     MoveFrom(Square),
     Drop(HandPiece),
+    /// The step is chosen and may promote: the player still has to decide.
+    Promotion {
+        from: Square,
+        to: Square,
+    },
 }

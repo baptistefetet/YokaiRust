@@ -4,13 +4,14 @@
 //! Rotating Second's actions here lets one set of weights learn both seats and
 //! prevents board-orientation details from leaking into MCTS or the UI.
 //!
-//! Layout of the 132-slot policy vector (canonical perspective):
+//! Layout of the 570-slot policy vector (canonical perspective):
 //!
 //! ```text
-//! slots  0..96   board moves — index = origin_square × 8 + direction
-//!                (12 origin squares × 8 king-move directions)
-//! slots 96..132  drops       — index = 96 + destination_square × 3 + piece
-//!                (12 destination squares × 3 droppable hand pieces)
+//! slots   0..480  board moves — index = (origin_square × 8 + direction) × 2
+//!                                       + promotion flag
+//!                 (30 origin squares × 8 king-move directions × 2)
+//! slots 480..570  drops       — index = 480 + destination_square × 3 + piece
+//!                 (30 destination squares × 3 droppable hand pieces)
 //!
 //! direction codes as (row delta, column delta):
 //!    0:(-1,-1)  1:(-1, 0)  2:(-1,+1)
@@ -18,29 +19,32 @@
 //!    5:(+1,-1)  6:(+1, 0)  7:(+1,+1)
 //! ```
 //!
-//! Most slots are geometrically valid but illegal in a given position; the
-//! search masks them with the position's actual legal actions.
+//! A step and its promoting variant are different decisions, so they occupy
+//! neighbouring slots. Most slots are geometrically valid but illegal in a
+//! given position; the search masks them with the position's actual legal
+//! actions.
 
 use serde::{Deserialize, Serialize};
 
 use crate::game::{Action, BOARD_SQUARES, Game, HandPiece, Player, Square};
 
-/// Width of the policy head: 12 origins × 8 directions + 12 squares × 3 drops.
-pub const POLICY_ACTIONS: usize = BOARD_SQUARES * (DIRECTIONS.len() + HandPiece::ALL.len());
-const MOVE_DIRECTIONS: u8 = DIRECTIONS.len() as u8;
-const DROP_KINDS: u8 = HandPiece::ALL.len() as u8;
-const BOARD_POLICY_ACTIONS: u8 = BOARD_SQUARES as u8 * MOVE_DIRECTIONS;
-// The compact index is part of the current 3×4 representation.
-const _: () = assert!(POLICY_ACTIONS <= u8::MAX as usize + 1);
+/// Width of the policy head: 30 origins × 8 directions × 2 promotion flags
+/// + 30 squares × 3 drops.
+pub const POLICY_ACTIONS: usize = BOARD_POLICY_ACTIONS as usize + DROP_POLICY_ACTIONS as usize;
+const MOVE_DIRECTIONS: u16 = DIRECTIONS.len() as u16;
+const PROMOTION_FLAGS: u16 = 2;
+const DROP_KINDS: u16 = HandPiece::ALL.len() as u16;
+const BOARD_POLICY_ACTIONS: u16 = BOARD_SQUARES as u16 * MOVE_DIRECTIONS * PROMOTION_FLAGS;
+const DROP_POLICY_ACTIONS: u16 = BOARD_SQUARES as u16 * DROP_KINDS;
 
 /// A validated index into the fixed `AlphaZero` policy vector.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
-pub struct PolicyIndex(u8);
+pub struct PolicyIndex(u16);
 
 impl<'de> Deserialize<'de> for PolicyIndex {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let index = u8::deserialize(deserializer)?;
+        let index = u16::deserialize(deserializer)?;
         Self::new(index).ok_or_else(|| {
             serde::de::Error::custom(format!("policy index must be in 0..{POLICY_ACTIONS}"))
         })
@@ -50,7 +54,7 @@ impl<'de> Deserialize<'de> for PolicyIndex {
 impl PolicyIndex {
     /// Validates and wraps a raw policy-vector index.
     #[must_use]
-    pub const fn new(index: u8) -> Option<Self> {
+    pub const fn new(index: u16) -> Option<Self> {
         if (index as usize) < POLICY_ACTIONS {
             Some(Self(index))
         } else {
@@ -60,7 +64,7 @@ impl PolicyIndex {
 
     /// Returns the compact raw index.
     #[must_use]
-    pub const fn get(self) -> u8 {
+    pub const fn get(self) -> u16 {
         self.0
     }
 
@@ -79,32 +83,33 @@ impl Action {
     /// ```
     /// use yokai::{Action, Player, Square};
     ///
-    /// let from = Square::new(2, 1).unwrap(); // square index 7
+    /// let from = Square::new(2, 1).unwrap(); // square index 11
     /// let to = Square::new(1, 1).unwrap(); // one row toward the top
-    /// let action = Action::Move { from, to };
+    /// let action = Action::Move { from, to, promote: true };
     ///
     /// let index = action.policy_index(Player::First).unwrap();
-    /// assert_eq!(index.as_usize(), 7 * 8 + 1); // origin × 8 + direction
+    /// // (origin × 8 + direction) × 2 + promotion flag
+    /// assert_eq!(index.as_usize(), (11 * 8 + 1) * 2 + 1);
     /// assert_eq!(Action::from_policy_index(index, Player::First), Some(action));
     /// ```
     #[must_use]
     pub fn policy_index(self, player: Player) -> Option<PolicyIndex> {
         match self {
-            Self::Move { from, to } => {
+            Self::Move { from, to, promote } => {
                 let canonical_from = canonical_square(from, player);
                 let canonical_to = canonical_square(to, player);
                 let row_delta = i16::from(canonical_to.row()) - i16::from(canonical_from.row());
                 let column_delta =
                     i16::from(canonical_to.column()) - i16::from(canonical_from.column());
                 let direction = direction_index(row_delta, column_delta)?;
-                let index =
-                    u8::try_from(canonical_from.index()).ok()? * MOVE_DIRECTIONS + direction;
-                PolicyIndex::new(index)
+                let step =
+                    u16::try_from(canonical_from.index()).ok()? * MOVE_DIRECTIONS + direction;
+                PolicyIndex::new(step * PROMOTION_FLAGS + u16::from(promote))
             }
             Self::Drop { piece, to } => {
                 let canonical_to = canonical_square(to, player);
-                let destination = u8::try_from(canonical_to.index()).ok()?;
-                let piece_index = u8::try_from(piece.index()).ok()?;
+                let destination = u16::try_from(canonical_to.index()).ok()?;
+                let piece_index = u16::try_from(piece.index()).ok()?;
                 PolicyIndex::new(BOARD_POLICY_ACTIONS + destination * DROP_KINDS + piece_index)
             }
         }
@@ -115,23 +120,20 @@ impl Action {
     pub fn from_policy_index(index: PolicyIndex, player: Player) -> Option<Self> {
         let raw = index.get();
         if raw < BOARD_POLICY_ACTIONS {
-            let from_index = raw / MOVE_DIRECTIONS;
-            let direction = raw % MOVE_DIRECTIONS;
-            let canonical_from = Square::from_index(from_index)?;
-            let (row_delta, column_delta) = direction_delta(direction)?;
+            let step = raw / PROMOTION_FLAGS;
+            let promote = raw % PROMOTION_FLAGS == 1;
+            let canonical_from = Square::from_index(u8::try_from(step / MOVE_DIRECTIONS).ok()?)?;
+            let (row_delta, column_delta) = direction_delta(step % MOVE_DIRECTIONS)?;
             let canonical_to = canonical_from.offset(row_delta, column_delta)?;
             Some(Self::Move {
                 from: decanonical_square(canonical_from, player),
                 to: decanonical_square(canonical_to, player),
+                promote,
             })
         } else {
             let drop_index = raw - BOARD_POLICY_ACTIONS;
-            let destination = drop_index / DROP_KINDS;
-            if usize::from(destination) >= BOARD_SQUARES {
-                return None;
-            }
             let piece = HandPiece::ALL[usize::from(drop_index % DROP_KINDS)];
-            let canonical_to = Square::from_index(destination)?;
+            let canonical_to = Square::from_index(u8::try_from(drop_index / DROP_KINDS).ok()?)?;
             Some(Self::Drop {
                 piece,
                 to: decanonical_square(canonical_to, player),
@@ -179,19 +181,19 @@ const DIRECTIONS: [(i8, i8); 8] = [
     ( 1, -1), ( 1, 0), ( 1, 1),
 ];
 
-const fn direction_index(row_delta: i16, column_delta: i16) -> Option<u8> {
+const fn direction_index(row_delta: i16, column_delta: i16) -> Option<u16> {
     let mut direction = 0;
     while direction < DIRECTIONS.len() {
         let (row, column) = DIRECTIONS[direction];
         if row as i16 == row_delta && column as i16 == column_delta {
-            return Some(direction as u8);
+            return Some(direction as u16);
         }
         direction += 1;
     }
     None
 }
 
-const fn direction_delta(direction: u8) -> Option<(i8, i8)> {
+const fn direction_delta(direction: u16) -> Option<(i8, i8)> {
     if (direction as usize) < DIRECTIONS.len() {
         Some(DIRECTIONS[direction as usize])
     } else {

@@ -9,7 +9,7 @@ use std::{env, error::Error, hint::black_box, time::Instant};
 use yokai::{EvaluationRequest, Game, Mcts, Player, SearchConfig, UniformEvaluator};
 
 const SAMPLES: usize = 5;
-const PERFT_DEPTH: u8 = 6;
+const PERFT_DEPTH: u8 = 4;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let filter = env::args()
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             prepare_request as fn(&Game),
         ),
         ("request_middle", 50_000, &middle, prepare_request),
-        ("perft_initial_depth6", 100, &initial, count_tree),
+        ("perft_initial_depth4", 20, &initial, count_tree),
         ("mcts_initial_200", 500, &initial, search),
         ("mcts_middle_200", 500, &middle, search),
     ];
@@ -128,32 +128,30 @@ fn perft(game: &Game, depth: u8) -> u64 {
 }
 
 fn middle_game() -> Game {
-    // A fixed legal trace with captures and drops, independent of RNG versions,
+    // A fixed legal trace with captures, drops and promotions, independent of RNG versions,
     // local training files and the accepted champion. Absolute board notation.
     let mut game = Game::new(Player::First);
     for action in [
-        "b1-c2",
-        "b4-a3",
-        "c2-b1",
-        "b3-b2",
-        "b1-c2",
-        "a3-b4",
-        "c2-b2",
-        "kodama@b1",
+        "c3-c4",
+        "b4-b3",
+        "c4-c5+",
+        "c6-c5",
+        "kodama@c3",
+        "kodama@e4",
+        "b1-b2",
+        "b3-b2+",
+        "a1-b2",
+        "kirin@b4",
+        "d3-d4",
+        "c5-d4",
+        "e1-e2",
+        "d6-d5",
         "kodama@b3",
-        "c4-b3",
-        "c1-c2",
-        "kodama@c4",
-        "c2-c3",
-        "c4-c3",
-        "b2-c1",
-        "tanuki@c2",
-        "c1-b1",
-        "b3-a2",
-        "b1-a2",
-        "c2-b2",
-        "a2-b2",
-        "b4-c4",
+        "b4-b3",
+        "b2-b3",
+        "kodama@c5",
+        "kirin@a3",
+        "a6-a5",
     ] {
         game.apply(action.parse().expect("valid fixture notation"))
             .expect("legal fixture action");

@@ -50,7 +50,6 @@ const fn outcome_text(outcome: Outcome) -> Option<&'static str> {
         Outcome::Ongoing => None,
         Outcome::Win { reason, .. } => Some(match reason {
             WinReason::KoropokkuruCaptured => "The Koropokkuru was captured.",
-            WinReason::KoropokkuruReachedGoal => "The Koropokkuru reached the opposite camp.",
             WinReason::OpponentHasNoLegalAction => "The opponent has no legal action left.",
         }),
         Outcome::Draw {

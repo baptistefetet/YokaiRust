@@ -1,4 +1,4 @@
-//! Yokai No Mori 3x4 engine and supporting formats.
+//! Yokai No Mori 5x6 engine and supporting formats.
 //!
 //! The engine stores the board in an absolute orientation: First starts at the
 //! bottom and moves toward row zero. Neural-network canonicalization belongs in
@@ -29,8 +29,8 @@ pub mod training;
 
 pub use game::{
     Action, BOARD_HEIGHT, BOARD_SQUARES, BOARD_WIDTH, DrawReason, Game, HandPiece, MoveError,
-    Outcome, Piece, PieceKind, Player, Position, PositionError, RULES_VERSION, Square, Transition,
-    WinReason,
+    Outcome, PHYSICAL_PIECES, PROMOTION_ZONE_ROWS, Piece, PieceKind, Player, Position,
+    PositionError, RULES_VERSION, Square, Transition, WinReason,
 };
 pub use neural::{
     ENCODER_VERSION, EncodedPosition, GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES,

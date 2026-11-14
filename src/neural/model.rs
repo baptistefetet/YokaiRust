@@ -1,4 +1,4 @@
-//! Small residual policy/value network for the 3×4 board.
+//! Small residual policy/value network for the 5×6 board.
 //!
 //! One convolutional trunk extracts shared board features. Two heads then ask
 //! different questions: the policy head returns one logit per encoded action,

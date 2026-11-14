@@ -82,9 +82,9 @@ impl Default for SearchConfig {
 /// `visits^(1/T)`: `T = 1` samples proportionally to visit counts, and as
 /// `T → 0` the distribution collapses onto the most visited action (argmax).
 /// Early plies keep `T = 1` so self-play games diverge and cover many
-/// openings; after `exploration_plies` (default 12, roughly the opening phase
-/// of this 3x4 game) play turns deterministic so middlegames and endgames are
-/// learned from strong moves rather than random ones.
+/// openings; after `exploration_plies` (default 12) play turns deterministic
+/// so middlegames and endgames are learned from strong moves rather than
+/// random ones.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TemperatureSchedule {
     /// Number of initial plies using `exploration_temperature`.
@@ -1020,7 +1020,7 @@ fn normalize_or_uniform(values: &mut [f32]) {
             *value /= sum;
         }
     } else if !values.is_empty() {
-        // Slices here are at most `POLICY_ACTIONS` (132) long, so the count
+        // Slices here are at most `POLICY_ACTIONS` (570) long, so the count
         // always converts losslessly to `f32` through `u16`.
         let value_count =
             u16::try_from(values.len()).expect("normalized slices stay far below the u16 range");

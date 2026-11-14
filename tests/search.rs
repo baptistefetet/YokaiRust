@@ -77,7 +77,7 @@ fn a_small_positive_temperature_preserves_a_dominant_winning_move() {
         &[
             (3, 0, PieceKind::Koropokkuru, Player::First),
             (1, 1, PieceKind::Koropokkuru, Player::Second),
-            (2, 1, PieceKind::Tanuki, Player::First),
+            (2, 1, PieceKind::Kirin, Player::First),
         ],
         [[0; 3]; 2],
         Player::First,
@@ -94,7 +94,7 @@ fn a_small_positive_temperature_preserves_a_dominant_winning_move() {
         )
         .unwrap();
         let result = search.search(&game, 0.01).unwrap();
-        assert_eq!(result.best_action.to_string(), "b2-b3");
+        assert_eq!(result.best_action.to_string(), "b4-b5");
         assert_eq!(result.selected_action, result.best_action);
         // Sampling temperature does not change the supervised visit target.
         assert!(result.policy.iter().filter(|&&p| p > 0.0).count() > 1);
@@ -134,7 +134,7 @@ fn mcts_finds_an_immediate_win_and_orients_its_value_for_the_root() {
         &[
             (3, 0, PieceKind::Koropokkuru, Player::First),
             (1, 1, PieceKind::Koropokkuru, Player::Second),
-            (2, 1, PieceKind::Tanuki, Player::First),
+            (2, 1, PieceKind::Kirin, Player::First),
         ],
         [[0; 3]; 2],
         Player::First,
@@ -143,6 +143,7 @@ fn mcts_finds_an_immediate_win_and_orients_its_value_for_the_root() {
     let winning_action = Action::Move {
         from: square(2, 1),
         to: square(1, 1),
+        promote: false,
     };
     let mut mcts = Mcts::new(
         UniformEvaluator,
@@ -183,18 +184,22 @@ fn repetition_contempt_penalizes_only_the_player_causing_the_draw() {
         Action::Move {
             from: square(3, 1),
             to: square(3, 0),
+            promote: false,
         },
         Action::Move {
             from: square(0, 1),
             to: square(0, 2),
+            promote: false,
         },
         Action::Move {
             from: square(3, 0),
             to: square(3, 1),
+            promote: false,
         },
         Action::Move {
             from: square(0, 2),
             to: square(0, 1),
+            promote: false,
         },
     ];
     for action in cycle.into_iter().chain(cycle.into_iter().take(3)) {
@@ -416,7 +421,7 @@ fn rollout_value_uses_the_leaf_perspective_and_safety_limit() {
         &[
             (3, 0, PieceKind::Koropokkuru, Player::First),
             (1, 1, PieceKind::Koropokkuru, Player::Second),
-            (2, 1, PieceKind::Tanuki, Player::First),
+            (2, 1, PieceKind::Kirin, Player::First),
         ],
         [[0; 3]; 2],
         Player::First,
@@ -425,6 +430,7 @@ fn rollout_value_uses_the_leaf_perspective_and_safety_limit() {
     let winning_action = Action::Move {
         from: square(2, 1),
         to: square(1, 1),
+        promote: false,
     };
     let winning_seed = (0..1_024)
         .find(|seed| {
@@ -526,7 +532,7 @@ fn a_different_position_resets_automatic_subtree_reuse() {
     let mut other = Game::from_position(
         Position::from_parts(board, *game.position().hands(), Player::First).unwrap(),
     );
-    other.apply("b2-b3".parse().unwrap()).unwrap();
+    other.apply("c3-c4".parse().unwrap()).unwrap();
 
     let actual = search.search(&other, 0.0).unwrap();
     let mut fresh = Mcts::new(UniformEvaluator, config, 42).unwrap();
@@ -537,7 +543,7 @@ fn a_different_position_resets_automatic_subtree_reuse() {
 fn subtree_reuse_checks_history_even_when_the_parent_board_matches() {
     let position = position_with(
         &[
-            (3, 1, PieceKind::Koropokkuru, Player::First),
+            (5, 1, PieceKind::Koropokkuru, Player::First),
             (0, 1, PieceKind::Koropokkuru, Player::Second),
         ],
         [[0; 3]; 2],
@@ -545,10 +551,10 @@ fn subtree_reuse_checks_history_even_when_the_parent_board_matches() {
     );
     let mut left = Game::from_position(position);
     let mut right = left.clone();
-    for action in ["b1-a1", "b4-c4", "a1-b1", "c4-b4"] {
+    for action in ["b1-a1", "b6-c6", "a1-b1", "c6-b6"] {
         left.apply(action.parse().unwrap()).unwrap();
     }
-    for action in ["b1-c1", "b4-a4", "c1-b1", "a4-b4"] {
+    for action in ["b1-c1", "b6-a6", "c1-b1", "a6-b6"] {
         right.apply(action.parse().unwrap()).unwrap();
     }
     assert_eq!(left.position(), right.position());

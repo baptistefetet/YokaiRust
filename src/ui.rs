@@ -29,8 +29,18 @@ const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) const AI_SOURCE_FOCUS_DURATION: Duration = Duration::from_millis(800);
 pub(crate) const AI_MOVE_DELAY: Duration = Duration::from_millis(1_500);
 pub(crate) const ACTIVE_TRAINING_CONFIG: &str = "config/training.toml";
-pub(crate) const MINIMUM_WIDTH: u16 = 70;
-pub(crate) const MINIMUM_HEIGHT: u16 = 24;
+/// Rows of one bordered board square or hand panel.
+pub(crate) const SQUARE_HEIGHT: u16 = 3;
+pub(crate) const HAND_HEIGHT: u16 = 3;
+/// Seven columns per square leave room for `▲ KO` inside its border.
+pub(crate) const BOARD_COLUMN_WIDTH: u16 = 7 * yokai::BOARD_WIDTH as u16;
+/// Both hands plus every board row.
+pub(crate) const BOARD_COLUMN_HEIGHT: u16 =
+    2 * HAND_HEIGHT + SQUARE_HEIGHT * yokai::BOARD_HEIGHT as u16;
+/// Board column next to the narrowest usable history/analysis sidebar.
+pub(crate) const MINIMUM_WIDTH: u16 = BOARD_COLUMN_WIDTH + 36;
+/// Header and footer (three rows each) around the board column.
+pub(crate) const MINIMUM_HEIGHT: u16 = BOARD_COLUMN_HEIGHT + 6;
 
 /// Match type accepted by the `play` command.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

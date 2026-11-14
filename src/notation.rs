@@ -1,15 +1,21 @@
 //! Human-readable coordinates and actions used by the CLI and the TUI.
 //!
-//! Notation is deliberately kept outside the rules engine: formatting `b2-b3`
+//! Notation is deliberately kept outside the rules engine: formatting `c3-c4`
 //! is a presentation concern, while [`Action`] remains the shared typed value.
+//!
+//! Files run from `a` to `e` and ranks from `1` (First's back rank) to `6`.
+//! A trailing `+` marks a move that promotes the piece, as in shogi notation.
 //!
 //! # Examples
 //!
 //! ```
 //! use yokai::Action;
 //!
-//! let push: Action = "b2-b3".parse().unwrap();
-//! assert_eq!(push.to_string(), "b2-b3");
+//! let push: Action = "c3-c4".parse().unwrap();
+//! assert_eq!(push.to_string(), "c3-c4");
+//!
+//! let promotion: Action = "c4-c5+".parse().unwrap();
+//! assert_eq!(promotion.to_string(), "c4-c5+");
 //!
 //! let drop: Action = "kodama@a4".parse().unwrap();
 //! assert_eq!(drop.to_string(), "kodama@a4");
@@ -24,10 +30,10 @@ use crate::game::{Action, BOARD_HEIGHT, BOARD_WIDTH, HandPiece, Square};
 /// Parsing failures for squares, hand pieces and complete actions.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum NotationError {
-    /// A coordinate is not a file `a`–`c` followed by rank `1`–`4`.
+    /// A coordinate is not a file `a`–`e` followed by rank `1`–`6`.
     #[error("invalid square notation: {0}")]
     InvalidSquare(String),
-    /// An action is neither `from-to` nor `piece@to`.
+    /// An action is neither `from-to`, `from-to+` nor `piece@to`.
     #[error("invalid action notation: {0}")]
     InvalidAction(String),
     /// A drop names a piece that cannot exist in hand.
@@ -69,8 +75,8 @@ impl FromStr for Square {
 impl fmt::Display for HandPiece {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
-            Self::Tanuki => "tanuki",
-            Self::Kitsune => "kitsune",
+            Self::Kirin => "kirin",
+            Self::Oni => "oni",
             Self::Kodama => "kodama",
         };
         formatter.write_str(name)
@@ -81,10 +87,10 @@ impl FromStr for HandPiece {
     type Err = NotationError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        if input.eq_ignore_ascii_case("tanuki") {
-            Ok(Self::Tanuki)
-        } else if input.eq_ignore_ascii_case("kitsune") {
-            Ok(Self::Kitsune)
+        if input.eq_ignore_ascii_case("kirin") {
+            Ok(Self::Kirin)
+        } else if input.eq_ignore_ascii_case("oni") {
+            Ok(Self::Oni)
         } else if input.eq_ignore_ascii_case("kodama") {
             Ok(Self::Kodama)
         } else {
@@ -96,7 +102,10 @@ impl FromStr for HandPiece {
 impl fmt::Display for Action {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Move { from, to } => write!(formatter, "{from}-{to}"),
+            Self::Move { from, to, promote } => {
+                let suffix = if *promote { "+" } else { "" };
+                write!(formatter, "{from}-{to}{suffix}")
+            }
             Self::Drop { piece, to } => write!(formatter, "{piece}@{to}"),
         }
     }
@@ -113,9 +122,14 @@ impl FromStr for Action {
             });
         }
         if let Some((from, to)) = input.split_once('-') {
+            let (to, promote) = match to.strip_suffix('+') {
+                Some(to) => (to, true),
+                None => (to, false),
+            };
             return Ok(Self::Move {
                 from: from.parse()?,
                 to: to.parse()?,
+                promote,
             });
         }
         Err(NotationError::InvalidAction(input.to_owned()))

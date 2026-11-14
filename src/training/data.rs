@@ -880,10 +880,10 @@ fn mirror_action_values<T: Copy + Default>(
 ) -> [T; POLICY_ACTIONS] {
     let mut mirrored = [T::default(); POLICY_ACTIONS];
     for (raw_index, &value) in values.iter().enumerate() {
-        let Ok(raw_index_u8) = u8::try_from(raw_index) else {
+        let Ok(raw_index) = u16::try_from(raw_index) else {
             continue;
         };
-        let Some(index) = PolicyIndex::new(raw_index_u8) else {
+        let Some(index) = PolicyIndex::new(raw_index) else {
             continue;
         };
         let Some(action) = Action::from_policy_index(index, player) else {

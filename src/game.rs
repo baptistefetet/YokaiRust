@@ -1,10 +1,15 @@
-//! Pure rules engine for the official 3×4 game.
+//! Pure rules engine for the 5×6 expert game.
 //!
 //! [`Position`] is the small, copyable board value used heavily by search.
 //! [`Game`] wraps it with the path history required for threefold repetition.
 //! Keeping those responsibilities separate makes both the rules and MCTS easier
 //! to reason about: most move generation needs a board, while repetition needs
 //! the exact path that led to it.
+//!
+//! Every piece moves a single step, so no piece can be pinned and no attack
+//! can be blocked. That keeps the king-safety and drop-checkmate tests short.
+//! `docs/rules.md` lists the rules and the few points where this engine
+//! interprets the printed rulebook.
 
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
@@ -16,13 +21,17 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Number of files (columns) on the official board.
-pub const BOARD_WIDTH: u8 = 3;
+pub const BOARD_WIDTH: u8 = 5;
 /// Number of ranks (rows) on the official board.
-pub const BOARD_HEIGHT: u8 = 4;
+pub const BOARD_HEIGHT: u8 = 6;
 /// Total number of addressable board squares.
 pub const BOARD_SQUARES: usize = (BOARD_WIDTH as usize) * (BOARD_HEIGHT as usize);
+/// Number of far ranks in which a player's Kodama and Oni may promote.
+pub const PROMOTION_ZONE_ROWS: u8 = 2;
+/// Number of physical pieces in the complete set, kings included.
+pub const PHYSICAL_PIECES: usize = 16;
 /// Version written into persisted artifacts that depend on these rules.
-pub const RULES_VERSION: u16 = 1;
+pub const RULES_VERSION: u16 = 2;
 
 /// The two absolute sides of the game board.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -62,12 +71,22 @@ impl Player {
         }
     }
 
-    /// Returns the absolute row on which this player's king or pawn arrives.
+    /// Returns the absolute row farthest from this player's starting camp.
     #[must_use]
-    pub const fn goal_row(self) -> u8 {
+    pub const fn last_row(self) -> u8 {
         match self {
             Self::First => 0,
             Self::Second => BOARD_HEIGHT - 1,
+        }
+    }
+
+    /// Reports whether `square` lies in the zone where this player promotes:
+    /// the [`PROMOTION_ZONE_ROWS`] ranks nearest the opponent's camp.
+    #[must_use]
+    pub const fn promotion_zone_contains(self, square: Square) -> bool {
+        match self {
+            Self::First => square.row() < PROMOTION_ZONE_ROWS,
+            Self::Second => square.row() >= BOARD_HEIGHT - PROMOTION_ZONE_ROWS,
         }
     }
 }
@@ -76,16 +95,34 @@ impl Player {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PieceKind {
-    /// King-like piece whose capture or safe arrival wins the game.
+    /// King-like piece whose capture wins the game.
     Koropokkuru,
-    /// Orthogonal one-step mover.
-    Tanuki,
-    /// Diagonal one-step mover.
-    Kitsune,
-    /// Forward-moving pawn that promotes on the far rank.
+    /// Steps in every direction except the two backward diagonals.
+    Kirin,
+    /// Steps to the three forward squares and the two backward diagonals.
+    Oni,
+    /// Promoted Oni; it moves like a Kirin and reverts to an Oni when captured.
+    SuperOni,
+    /// Forward-moving pawn that may promote in the promotion zone.
     Kodama,
-    /// Promoted Kodama; it reverts to a Kodama when captured.
+    /// Promoted Kodama; it moves like a Kirin and reverts to a Kodama when
+    /// captured.
     KodamaSamurai,
+}
+
+impl PieceKind {
+    /// Returns the kind shown on the other face of the piece, when it has one.
+    ///
+    /// Only the Oni and the Kodama can be flipped; promotion is never undone
+    /// on the board.
+    #[must_use]
+    pub const fn promoted(self) -> Option<Self> {
+        match self {
+            Self::Oni => Some(Self::SuperOni),
+            Self::Kodama => Some(Self::KodamaSamurai),
+            Self::Koropokkuru | Self::Kirin | Self::SuperOni | Self::KodamaSamurai => None,
+        }
+    }
 }
 
 /// A board piece combines a movement kind with an absolute owner.
@@ -109,24 +146,24 @@ impl Piece {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HandPiece {
-    /// Captured Tanuki ready to be dropped.
-    Tanuki,
-    /// Captured Kitsune ready to be dropped.
-    Kitsune,
-    /// Captured Kodama, including a captured promoted Kodama.
+    /// Captured Kirin ready to be dropped.
+    Kirin,
+    /// Captured Oni, including a captured Super Oni.
+    Oni,
+    /// Captured Kodama, including a captured Kodama Samurai.
     Kodama,
 }
 
 impl HandPiece {
     /// Every hand-piece type in stable array order.
-    pub const ALL: [Self; 3] = [Self::Tanuki, Self::Kitsune, Self::Kodama];
+    pub const ALL: [Self; 3] = [Self::Kirin, Self::Oni, Self::Kodama];
 
     /// Returns the stable array index used by [`Position::hands`].
     #[must_use]
     pub const fn index(self) -> usize {
         match self {
-            Self::Tanuki => 0,
-            Self::Kitsune => 1,
+            Self::Kirin => 0,
+            Self::Oni => 1,
             Self::Kodama => 2,
         }
     }
@@ -135,29 +172,41 @@ impl HandPiece {
     #[must_use]
     pub const fn piece_kind(self) -> PieceKind {
         match self {
-            Self::Tanuki => PieceKind::Tanuki,
-            Self::Kitsune => PieceKind::Kitsune,
+            Self::Kirin => PieceKind::Kirin,
+            Self::Oni => PieceKind::Oni,
             Self::Kodama => PieceKind::Kodama,
+        }
+    }
+
+    /// Returns how many physical copies of this piece the complete set holds.
+    ///
+    /// Both players start with half of them. Because captured pieces change
+    /// sides, one hand can eventually hold every copy.
+    #[must_use]
+    pub const fn copies(self) -> u8 {
+        match self {
+            Self::Kirin | Self::Oni => 4,
+            Self::Kodama => 6,
         }
     }
 
     /// Converts a captured board piece to its hand representation.
     ///
     /// The king is absent because capturing it ends the game instead of adding
-    /// it to a hand; a promoted Kodama loses its promotion when captured.
+    /// it to a hand; a promoted piece loses its promotion when captured.
     #[must_use]
     pub const fn from_captured(kind: PieceKind) -> Option<Self> {
         match kind {
-            PieceKind::Tanuki => Some(Self::Tanuki),
-            PieceKind::Kitsune => Some(Self::Kitsune),
+            PieceKind::Kirin => Some(Self::Kirin),
+            PieceKind::Oni | PieceKind::SuperOni => Some(Self::Oni),
             PieceKind::Kodama | PieceKind::KodamaSamurai => Some(Self::Kodama),
             PieceKind::Koropokkuru => None,
         }
     }
 }
 
-/// A compact board coordinate, stored as a row-major index in `[0, 11]`.
-/// Row 0 is rank 4 at the top; row 3 is rank 1 at the bottom.
+/// A compact board coordinate, stored as a row-major index in `[0, 29]`.
+/// Row 0 is rank 6 at the top; row 5 is rank 1 at the bottom.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct Square(u8);
@@ -230,7 +279,7 @@ impl Square {
         Self((BOARD_WIDTH * BOARD_HEIGHT - 1) - self.0)
     }
 
-    /// Mirrors a square around the vertical center line (`a` ↔ `c`).
+    /// Mirrors a square around the vertical center line (`a` ↔ `e`).
     #[must_use]
     pub const fn mirrored_horizontally(self) -> Self {
         Self(self.row() * BOARD_WIDTH + (BOARD_WIDTH - 1 - self.column()))
@@ -260,6 +309,13 @@ pub enum Action {
         from: Square,
         /// Destination square.
         to: Square,
+        /// Whether the piece is flipped to its promoted face by this move.
+        ///
+        /// Promotion is the mover's choice, so the same step can exist as two
+        /// distinct actions. The rules reject the flag where no promotion is
+        /// available and require it where promotion is mandatory.
+        #[serde(default)]
+        promote: bool,
     },
     /// Places one captured hand piece on an empty square.
     Drop {
@@ -283,9 +339,10 @@ impl Action {
     #[must_use]
     pub const fn mirrored_horizontally(self) -> Self {
         match self {
-            Self::Move { from, to } => Self::Move {
+            Self::Move { from, to, promote } => Self::Move {
                 from: from.mirrored_horizontally(),
                 to: to.mirrored_horizontally(),
+                promote,
             },
             Self::Drop { piece, to } => Self::Drop {
                 piece,
@@ -295,15 +352,14 @@ impl Action {
     }
 }
 
-/// Decisive terminal conditions from the official rules.
+/// Decisive terminal conditions.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WinReason {
     /// The opponent's Koropokkuru was captured.
     KoropokkuruCaptured,
-    /// A Koropokkuru safely reached its far rank.
-    KoropokkuruReachedGoal,
-    /// The opponent has no move or drop available.
+    /// The opponent has no move or drop available. Players may not skip a
+    /// turn, so being unable to act loses the game.
     OpponentHasNoLegalAction,
 }
 
@@ -357,7 +413,7 @@ impl Outcome {
 
 /// Board, hands and side to move without any path history.
 ///
-/// The type is [`Copy`] on purpose: a 3×4 position is small and MCTS creates
+/// The type is [`Copy`] on purpose: a 5×6 position is small and MCTS creates
 /// many temporary states. Private fields ensure callers cannot bypass material
 /// invariants after construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -382,42 +438,92 @@ impl<'de> Deserialize<'de> for Position {
     }
 }
 
-/// Invalid material configurations rejected by [`Position::from_parts`].
+/// Invalid configurations rejected by [`Position::from_parts`].
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum PositionError {
-    /// At least one hand count exceeds the physical material limit.
-    #[error("a player cannot have more than two copies of a hand piece")]
-    HandCountTooLarge,
     /// One player has multiple king pieces on the board.
     #[error("a position cannot contain more than one Koropokkuru per player")]
     TooManyKoropokkuru,
     /// Board and hand counts describe more pieces than the set contains.
-    #[error("a position cannot contain more than eight physical pieces")]
+    #[error("a position cannot contain more than sixteen physical pieces")]
     TooManyPieces,
-    /// Board and both hands contain more than two copies of one physical kind.
-    /// Promoted Kodama count as Kodama because promotion does not add a piece.
-    #[error("a position cannot contain more than two physical {0:?} pieces")]
+    /// Board and both hands contain more copies of one physical kind than the
+    /// set holds. A promoted piece counts as its unpromoted kind because
+    /// promotion does not add a piece.
+    #[error("a position cannot contain that many physical {0:?} pieces")]
     TooManyPiecesOfKind(HandPiece),
+    /// Two unpromoted Kodama of one player stand in the same column.
+    #[error("two unpromoted Kodama of one player cannot share a column")]
+    KodamaShareColumn,
+    /// An unpromoted Kodama stands on its owner's last row, where it could
+    /// never move again.
+    #[error("an unpromoted Kodama cannot stand on its owner's last row")]
+    KodamaOnLastRow,
+}
+
+/// Promotion flags that one geometrically valid board move may carry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PromotionChoice {
+    /// The piece has no other face, or the move stays outside the zone.
+    Unavailable,
+    /// The mover decides whether to flip the piece.
+    Optional,
+    /// An unpromoted piece could never move again from the destination.
+    Mandatory,
+}
+
+impl PromotionChoice {
+    fn of(piece: Piece, from: Square, to: Square) -> Self {
+        let owner = piece.owner;
+        // Entering the zone, leaving it and moving inside it all qualify.
+        let touches_zone = owner.promotion_zone_contains(from) || owner.promotion_zone_contains(to);
+        if piece.kind.promoted().is_none() || !touches_zone {
+            Self::Unavailable
+        } else if piece.kind == PieceKind::Kodama && to.row() == owner.last_row() {
+            Self::Mandatory
+        } else {
+            Self::Optional
+        }
+    }
+
+    const fn allows(self, promote: bool) -> bool {
+        match self {
+            Self::Unavailable => !promote,
+            Self::Optional => true,
+            Self::Mandatory => promote,
+        }
+    }
 }
 
 impl Position {
     /// Creates the official initial material with the requested player to move.
+    ///
+    /// Each camp lines up Oni, Kirin, Koropokkuru, Kirin, Oni on its back
+    /// rank, with three Kodama on the central files of its third rank. The two
+    /// Kodama lines therefore start face to face.
     #[must_use]
     pub fn initial(side_to_move: Player) -> Self {
-        let board = [
-            Some(Piece::new(PieceKind::Tanuki, Player::Second)),
-            Some(Piece::new(PieceKind::Koropokkuru, Player::Second)),
-            Some(Piece::new(PieceKind::Kitsune, Player::Second)),
-            None,
-            Some(Piece::new(PieceKind::Kodama, Player::Second)),
-            None,
-            None,
-            Some(Piece::new(PieceKind::Kodama, Player::First)),
-            None,
-            Some(Piece::new(PieceKind::Kitsune, Player::First)),
-            Some(Piece::new(PieceKind::Koropokkuru, Player::First)),
-            Some(Piece::new(PieceKind::Tanuki, Player::First)),
+        const BACK_RANK: [PieceKind; BOARD_WIDTH as usize] = [
+            PieceKind::Oni,
+            PieceKind::Kirin,
+            PieceKind::Koropokkuru,
+            PieceKind::Kirin,
+            PieceKind::Oni,
         ];
+        let mut board = [None; BOARD_SQUARES];
+        for (player, back_row, kodama_row) in [
+            (Player::Second, 0, 2),
+            (Player::First, BOARD_HEIGHT - 1, BOARD_HEIGHT - 3),
+        ] {
+            for (column, kind) in (0..BOARD_WIDTH).zip(BACK_RANK) {
+                board[usize::from(back_row * BOARD_WIDTH + column)] =
+                    Some(Piece::new(kind, player));
+            }
+            for column in 1..BOARD_WIDTH - 1 {
+                board[usize::from(kodama_row * BOARD_WIDTH + column)] =
+                    Some(Piece::new(PieceKind::Kodama, player));
+            }
+        }
 
         Self {
             board,
@@ -429,21 +535,19 @@ impl Position {
     /// Creates a position from explicit board and hand storage.
     ///
     /// Material may be absent for a partial position, but each physical kind
-    /// is limited to the official set across the board and both players' hands.
-    /// Kodama and promoted Kodama share the same two-piece limit.
+    /// is limited to the official set across the board and both players' hands
+    /// (see [`HandPiece::copies`]). A promoted piece shares the limit of its
+    /// unpromoted kind. Kodama placements that legal play can never produce
+    /// are rejected as well.
     ///
     /// # Errors
     ///
-    /// Returns a [`PositionError`] when basic material bounds are violated.
+    /// Returns a [`PositionError`] when these bounds are violated.
     pub fn from_parts(
         board: [Option<Piece>; BOARD_SQUARES],
         hands: [[u8; 3]; 2],
         side_to_move: Player,
     ) -> Result<Self, PositionError> {
-        if hands.iter().flatten().any(|&count| count > 2) {
-            return Err(PositionError::HandCountTooLarge);
-        }
-
         for player in [Player::First, Player::Second] {
             let king_count = board
                 .iter()
@@ -453,16 +557,6 @@ impl Position {
             if king_count > 1 {
                 return Err(PositionError::TooManyKoropokkuru);
             }
-        }
-
-        let board_count = board.iter().flatten().count();
-        let hand_count: usize = hands
-            .iter()
-            .flatten()
-            .map(|&count| usize::from(count))
-            .sum();
-        if board_count + hand_count > 8 {
-            return Err(PositionError::TooManyPieces);
         }
 
         let mut piece_counts = [0_usize; 3];
@@ -475,9 +569,37 @@ impl Position {
             let index = hand_piece.index();
             let count =
                 piece_counts[index] + usize::from(hands[0][index]) + usize::from(hands[1][index]);
-            if count > 2 {
+            if count > usize::from(hand_piece.copies()) {
                 return Err(PositionError::TooManyPiecesOfKind(hand_piece));
             }
+        }
+
+        let board_count = board.iter().flatten().count();
+        let hand_count: usize = hands
+            .iter()
+            .flatten()
+            .map(|&count| usize::from(count))
+            .sum();
+        if board_count + hand_count > PHYSICAL_PIECES {
+            return Err(PositionError::TooManyPieces);
+        }
+
+        let mut kodama_columns = [[false; BOARD_WIDTH as usize]; 2];
+        for square in Square::ALL {
+            let Some(piece) = board[square.index()] else {
+                continue;
+            };
+            if piece.kind != PieceKind::Kodama {
+                continue;
+            }
+            if square.row() == piece.owner.last_row() {
+                return Err(PositionError::KodamaOnLastRow);
+            }
+            let occupied = &mut kodama_columns[piece.owner.index()][usize::from(square.column())];
+            if *occupied {
+                return Err(PositionError::KodamaShareColumn);
+            }
+            *occupied = true;
         }
 
         Ok(Self {
@@ -546,14 +668,15 @@ impl Position {
                 .sum::<usize>()
     }
 
-    /// Checks an action against movement, ownership, occupancy and king safety.
+    /// Checks an action against movement, ownership, occupancy, promotion,
+    /// king safety and the Kodama drop restrictions.
     #[must_use]
     pub fn is_legal_action(&self, action: Action) -> bool {
         match action {
-            Action::Move { from, to } => self.is_legal_board_move(from, to),
-            Action::Drop { piece, to } => {
-                self.hand_count(self.side_to_move, piece) > 0 && self.piece_at(to).is_none()
-            }
+            Action::Move { from, to, promote } => self
+                .movable_piece(from, to)
+                .is_some_and(|piece| PromotionChoice::of(piece, from, to).allows(promote)),
+            Action::Drop { piece, to } => self.is_legal_drop(piece, to),
         }
     }
 
@@ -564,29 +687,15 @@ impl Position {
     /// method is better for ordinary application code.
     pub fn legal_actions_into(&self, actions: &mut Vec<Action>) {
         actions.clear();
-        actions.reserve(32);
-
+        actions.reserve(64);
         actions.extend(self.legal_board_moves());
-
-        for hand_piece in HandPiece::ALL {
-            if self.hand_count(self.side_to_move, hand_piece) == 0 {
-                continue;
-            }
-            for to in Square::ALL {
-                if self.piece_at(to).is_none() {
-                    actions.push(Action::Drop {
-                        piece: hand_piece,
-                        to,
-                    });
-                }
-            }
-        }
+        actions.extend(self.legal_drops());
     }
 
     /// Allocates and returns every legal action in deterministic order.
     #[must_use]
     pub fn legal_actions(&self) -> Vec<Action> {
-        let mut actions = Vec::with_capacity(32);
+        let mut actions = Vec::with_capacity(64);
         self.legal_actions_into(&mut actions);
         actions
     }
@@ -594,17 +703,12 @@ impl Position {
     /// Checks whether at least one legal move or drop exists without allocating.
     #[must_use]
     pub fn has_legal_action(&self) -> bool {
-        if self.legal_board_moves().next().is_some() {
-            return true;
-        }
-
-        HandPiece::ALL.iter().any(|&piece| {
-            self.hand_count(self.side_to_move, piece) > 0 && self.board.iter().any(Option::is_none)
-        })
+        self.legal_steps().next().is_some() || self.legal_drops().next().is_some()
     }
 
-    // This lazy traversal supports both complete enumeration and early exit.
-    fn legal_board_moves(&self) -> impl Iterator<Item = Action> + '_ {
+    // A "step" is a board move without its promotion flag. This lazy traversal
+    // supports complete enumeration, early exit and the drop-checkmate test.
+    fn legal_steps(&self) -> impl Iterator<Item = (Piece, Square, Square)> + '_ {
         Square::ALL
             .into_iter()
             .filter_map(move |from| {
@@ -616,9 +720,32 @@ impl Position {
                     .iter()
                     .filter_map(move |&(row, column)| {
                         let to = from.offset(row * piece.owner.forward_delta(), column)?;
-                        self.is_legal_board_move(from, to)
-                            .then_some(Action::Move { from, to })
+                        self.movable_piece(from, to).map(|piece| (piece, from, to))
                     })
+            })
+    }
+
+    // An optional promotion yields two actions for one step: the plain move
+    // first, then the promoting one.
+    fn legal_board_moves(&self) -> impl Iterator<Item = Action> + '_ {
+        self.legal_steps().flat_map(|(piece, from, to)| {
+            let choice = PromotionChoice::of(piece, from, to);
+            [false, true]
+                .into_iter()
+                .filter(move |&promote| choice.allows(promote))
+                .map(move |promote| Action::Move { from, to, promote })
+        })
+    }
+
+    fn legal_drops(&self) -> impl Iterator<Item = Action> + '_ {
+        HandPiece::ALL
+            .into_iter()
+            .filter(|&piece| self.hand_count(self.side_to_move, piece) > 0)
+            .flat_map(move |piece| {
+                Square::ALL
+                    .into_iter()
+                    .filter(move |&to| self.is_legal_drop(piece, to))
+                    .map(move |to| Action::Drop { piece, to })
             })
     }
 
@@ -628,13 +755,10 @@ impl Position {
         let mut next = *self;
         let player = next.side_to_move;
         let mut captured = None;
-        let mut promoted = false;
-        let mut moved_kind = None;
 
         match action {
-            Action::Move { from, to } => {
+            Action::Move { from, to, promote } => {
                 let mut piece = next.board[from.index()].expect("legal move has a source piece");
-                moved_kind = Some(piece.kind);
                 if let Some(target) = next.board[to.index()] {
                     captured = Some(target.kind);
                     if let Some(hand_piece) = HandPiece::from_captured(target.kind) {
@@ -643,9 +767,11 @@ impl Position {
                 }
 
                 next.board[from.index()] = None;
-                if piece.kind == PieceKind::Kodama && to.row() == player.goal_row() {
-                    piece.kind = PieceKind::KodamaSamurai;
-                    promoted = true;
+                if promote {
+                    piece.kind = piece
+                        .kind
+                        .promoted()
+                        .expect("legal promotion has a promoted kind");
                 }
                 next.board[to.index()] = Some(piece);
             }
@@ -662,14 +788,6 @@ impl Position {
                 player,
                 reason: WinReason::KoropokkuruCaptured,
             }
-        } else if moved_kind == Some(PieceKind::Koropokkuru)
-            && action.destination().row() == player.goal_row()
-            && !square_is_attacked(&next.board, action.destination(), player.opponent())
-        {
-            Outcome::Win {
-                player,
-                reason: WinReason::KoropokkuruReachedGoal,
-            }
         } else if !next.has_legal_action() {
             Outcome::Win {
                 player,
@@ -684,28 +802,31 @@ impl Position {
                 action,
                 player,
                 captured,
-                promoted,
+                promoted: matches!(action, Action::Move { promote: true, .. }),
                 outcome,
             },
         )
     }
 
-    fn is_legal_board_move(&self, from: Square, to: Square) -> bool {
-        let Some(piece) = self.piece_at(from) else {
-            return false;
-        };
+    /// Returns the piece that may legally step from `from` to `to`.
+    ///
+    /// A Koropokkuru may not step onto an attacked square. Other pieces are
+    /// free to move even when that leaves their Koropokkuru exposed: the game
+    /// is decided by the capture itself.
+    fn movable_piece(&self, from: Square, to: Square) -> Option<Piece> {
+        let piece = self.piece_at(from)?;
         if piece.owner != self.side_to_move {
-            return false;
+            return None;
         }
         if self
             .piece_at(to)
             .is_some_and(|target| target.owner == self.side_to_move)
         {
-            return false;
+            return None;
         }
 
         if !matches_movement(piece, from, to) {
-            return false;
+            return None;
         }
 
         if piece.kind == PieceKind::Koropokkuru {
@@ -713,11 +834,75 @@ impl Position {
             board_after_move[from.index()] = None;
             board_after_move[to.index()] = Some(piece);
             if square_is_attacked(&board_after_move, to, piece.owner.opponent()) {
-                return false;
+                return None;
             }
         }
 
-        true
+        Some(piece)
+    }
+
+    /// Checks the hand, the destination and the three Kodama drop
+    /// restrictions: a Kodama may not land on the last row, share a column
+    /// with another unpromoted Kodama of its owner, or deliver checkmate.
+    fn is_legal_drop(&self, piece: HandPiece, to: Square) -> bool {
+        let player = self.side_to_move;
+        if self.hand_count(player, piece) == 0 || self.piece_at(to).is_some() {
+            return false;
+        }
+        if piece != HandPiece::Kodama {
+            return true;
+        }
+
+        let own_kodama = Some(Piece::new(PieceKind::Kodama, player));
+        let column_is_free = Square::ALL
+            .into_iter()
+            .filter(|square| square.column() == to.column())
+            .all(|square| self.piece_at(square) != own_kodama);
+        to.row() != player.last_row() && column_is_free && !self.kodama_drop_checkmates(to)
+    }
+
+    /// Reports whether dropping a Kodama on `to` attacks the opposing
+    /// Koropokkuru and leaves the opponent no way to save it.
+    ///
+    /// Only a board move can answer: a drop neither moves the Koropokkuru nor
+    /// removes the adjacent attacker, and one-step attacks cannot be blocked.
+    fn kodama_drop_checkmates(&self, to: Square) -> bool {
+        let player = self.side_to_move;
+        let opponent = player.opponent();
+        let opposing_king = Some(Piece::new(PieceKind::Koropokkuru, opponent));
+        let attacks_king = to
+            .offset(player.forward_delta(), 0)
+            .is_some_and(|attacked| self.piece_at(attacked) == opposing_king);
+        if !attacks_king {
+            return false;
+        }
+
+        let mut after_drop = *self;
+        after_drop.board[to.index()] = Some(Piece::new(PieceKind::Kodama, player));
+        after_drop.side_to_move = opponent;
+        !after_drop
+            .legal_steps()
+            .any(|(_, from, destination)| after_drop.step_saves_koropokkuru(from, destination))
+    }
+
+    /// Reports whether stepping `from` → `to` leaves the mover's Koropokkuru
+    /// out of capture range, or wins outright by capturing the opposing one.
+    fn step_saves_koropokkuru(&self, from: Square, to: Square) -> bool {
+        let mover = self.side_to_move;
+        if self
+            .piece_at(to)
+            .is_some_and(|target| target.kind == PieceKind::Koropokkuru)
+        {
+            return true;
+        }
+
+        let mut board = self.board;
+        board[to.index()] = board[from.index()].take();
+        let own_king = Some(Piece::new(PieceKind::Koropokkuru, mover));
+        Square::ALL
+            .into_iter()
+            .find(|square| board[square.index()] == own_king)
+            .is_none_or(|king| !square_is_attacked(&board, king, mover.opponent()))
     }
 }
 
@@ -731,9 +916,9 @@ pub struct Transition {
     pub action: Action,
     /// Player who applied it.
     pub player: Player,
-    /// Captured board kind, before a promoted Kodama reverts in hand.
+    /// Captured board kind, before a promoted piece reverts in hand.
     pub captured: Option<PieceKind>,
-    /// Whether this action promoted a Kodama.
+    /// Whether this action flipped the moved piece to its promoted face.
     pub promoted: bool,
     /// Official game status after the action.
     pub outcome: Outcome,
@@ -927,20 +1112,21 @@ const KOROPOKKURU_MOVES: &[(i8, i8)] = &[
     (1, 0),
     (1, 1),
 ];
-const TANUKI_MOVES: &[(i8, i8)] = &[(-1, 0), (0, -1), (0, 1), (1, 0)];
-const KITSUNE_MOVES: &[(i8, i8)] = &[(-1, -1), (-1, 1), (1, -1), (1, 1)];
 // Relative row +1 always means "forward". `forward_delta` maps it to the
 // absolute board direction of the piece owner.
+//
+// Kirin, Super Oni and Kodama Samurai share the same six steps: every
+// direction except the two backward diagonals.
+const KIRIN_MOVES: &[(i8, i8)] = &[(1, -1), (1, 0), (1, 1), (0, -1), (0, 1), (-1, 0)];
+const ONI_MOVES: &[(i8, i8)] = &[(1, -1), (1, 0), (1, 1), (-1, -1), (-1, 1)];
 const KODAMA_MOVES: &[(i8, i8)] = &[(1, 0)];
-const KODAMA_SAMURAI_MOVES: &[(i8, i8)] = &[(1, -1), (1, 0), (1, 1), (0, -1), (0, 1), (-1, 0)];
 
 fn movement_offsets(kind: PieceKind) -> &'static [(i8, i8)] {
     match kind {
         PieceKind::Koropokkuru => KOROPOKKURU_MOVES,
-        PieceKind::Tanuki => TANUKI_MOVES,
-        PieceKind::Kitsune => KITSUNE_MOVES,
+        PieceKind::Kirin | PieceKind::SuperOni | PieceKind::KodamaSamurai => KIRIN_MOVES,
+        PieceKind::Oni => ONI_MOVES,
         PieceKind::Kodama => KODAMA_MOVES,
-        PieceKind::KodamaSamurai => KODAMA_SAMURAI_MOVES,
     }
 }
 

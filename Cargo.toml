@@ -3,7 +3,7 @@ name = "yokai"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
-description = "A fast, testable Rust implementation of Yokai No Mori 3x4"
+description = "A fast, testable Rust implementation of the 5x6 expert game of Yokai No Mori"
 license = "MIT"
 # `cargo run` would otherwise be ambiguous between `yokai` and
 # `export-web-model`, breaking every command documented in the README.

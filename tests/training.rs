@@ -140,7 +140,7 @@ fn immediate_win_game() -> Game {
         &[
             (3, 0, PieceKind::Koropokkuru, Player::First),
             (1, 1, PieceKind::Koropokkuru, Player::Second),
-            (2, 1, PieceKind::Tanuki, Player::First),
+            (2, 1, PieceKind::Kirin, Player::First),
         ],
         [[0; 3]; 2],
         Player::First,
@@ -171,38 +171,35 @@ fn recorded_game(generation: u32, seed: u64) -> SelfPlayGame {
 }
 
 fn recorded_draw_replay() -> Replay {
-    serde_json::from_str(
-        r#"{
-            "format_version": 1,
-            "rules_version": 1,
-            "seed": 4294967474,
-            "initial_player": "second",
-            "actions": [
-                {"type":"move","from":0,"to":3},
-                {"type":"move","from":7,"to":4},
-                {"type":"move","from":3,"to":4},
-                {"type":"drop","piece":"kodama","to":3},
-                {"type":"drop","piece":"kodama","to":7},
-                {"type":"move","from":9,"to":7},
-                {"type":"move","from":4,"to":7},
-                {"type":"move","from":10,"to":9},
-                {"type":"move","from":1,"to":5},
-                {"type":"drop","piece":"kodama","to":8},
-                {"type":"move","from":5,"to":4},
-                {"type":"move","from":3,"to":0},
-                {"type":"move","from":7,"to":6},
-                {"type":"move","from":9,"to":10},
-                {"type":"move","from":6,"to":7},
-                {"type":"move","from":10,"to":9},
-                {"type":"move","from":7,"to":6},
-                {"type":"move","from":9,"to":10},
-                {"type":"move","from":6,"to":7},
-                {"type":"move","from":10,"to":9}
-            ],
-            "outcome": {"status":"draw","reason":"threefold_repetition"}
-        }"#,
-    )
-    .expect("checked draw replay JSON")
+    // Twelve plies with captures and drops, then both Koropokkuru step aside
+    // and back until the position after ply 12 has occurred three times.
+    let mut game = Game::new(Player::Second);
+    for action in [
+        "c4-c3",
+        "b3-b4",
+        "kodama@a4",
+        "kodama@e3",
+        "a6-a5",
+        "e1-e2",
+        "d6-d5",
+        "b1-b2",
+        "e6-e5",
+        "a1-a2",
+        "b6-a6",
+        "d1-e1",
+        "c6-b6",
+        "c1-d1",
+        "b6-c6",
+        "d1-c1",
+        "c6-b6",
+        "c1-d1",
+        "b6-c6",
+        "d1-c1",
+    ] {
+        game.apply(action.parse().expect("fixture notation"))
+            .expect("fixture action must be legal");
+    }
+    Replay::from_game(&game, Some(4_294_967_474))
 }
 
 #[test]
@@ -218,6 +215,7 @@ fn recorder_assigns_final_value_without_a_terminal_policy_target() {
         game.apply(Action::Move {
             from: square(2, 1),
             to: square(1, 1),
+            promote: false,
         })
         .expect("winning move");
         game
@@ -236,12 +234,29 @@ fn recorder_assigns_final_value_without_a_terminal_policy_target() {
 }
 
 #[test]
-fn mirroring_a_training_example_twice_is_an_exact_bijection() {
+fn mirroring_a_training_example_moves_every_target_with_its_action() {
     let original = recorded_game(0, 9).examples.remove(0);
     let mirrored = original.mirrored();
 
     assert_ne!(mirrored.position, original.position);
     assert_eq!(mirrored.mirrored(), original);
+
+    // After one reflection each target sits on the reflected action, which is
+    // the legal one on the reflected board.
+    let player = original.position.side_to_move();
+    let slot = |action: Action| action.policy_index(player).unwrap().as_usize();
+    for action in original.position.legal_actions() {
+        let reflected = action.mirrored_horizontally();
+        assert!(mirrored.position.is_legal_action(reflected));
+        assert_eq!(
+            mirrored.policy[slot(reflected)],
+            original.policy[slot(action)]
+        );
+        assert_eq!(
+            mirrored.action_repetition_counts[slot(reflected)],
+            original.action_repetition_counts[slot(action)]
+        );
+    }
 }
 
 #[test]

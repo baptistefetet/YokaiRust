@@ -15,17 +15,18 @@ proptest! {
             Player::Second
         };
         let mut game = Game::new(starting_player);
-        let policy_actions = u8::try_from(POLICY_ACTIONS).unwrap();
+        let policy_actions = u16::try_from(POLICY_ACTIONS).unwrap();
 
-        for _ in 0..128 {
+        for _ in 0..192 {
             let legal_actions = game.legal_actions();
             if legal_actions.is_empty() {
                 break;
             }
             let side_to_move = game.position().side_to_move();
+            let mirrored_position = game.position().mirrored_horizontally();
             let mut generated_by_engine = legal_actions.clone();
             generated_by_engine.sort_unstable_by_key(|action| action.policy_index(side_to_move));
-            let mut scanned_policy_space = (0_u8..policy_actions)
+            let mut scanned_policy_space = (0..policy_actions)
                 .filter_map(PolicyIndex::new)
                 .filter_map(|index| Action::from_policy_index(index, side_to_move))
                 .filter(|&action| game.is_legal_action(action))
@@ -39,6 +40,9 @@ proptest! {
                 prop_assert_eq!(Action::from_policy_index(policy, side_to_move), Some(action));
                 let mirrored = action.mirrored_horizontally();
                 prop_assert_eq!(mirrored.mirrored_horizontally(), action);
+                // One reflection must follow the reflected board: this is
+                // what keeps mirrored training targets on legal actions.
+                prop_assert!(mirrored_position.is_legal_action(mirrored));
 
                 let mut next = game.clone();
                 let transition = next.apply(action).expect("generated action applies");
@@ -78,7 +82,7 @@ proptest! {
 
 #[test]
 fn every_decodable_policy_index_round_trips_for_both_players() {
-    let policy_actions = u8::try_from(POLICY_ACTIONS).unwrap();
+    let policy_actions = u16::try_from(POLICY_ACTIONS).unwrap();
     for player in [Player::First, Player::Second] {
         for index in 0..policy_actions {
             let policy = PolicyIndex::new(index).unwrap();

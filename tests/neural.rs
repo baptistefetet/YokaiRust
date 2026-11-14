@@ -15,14 +15,15 @@ use std::{
 };
 
 use yokai::{
-    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, AsyncEvaluator, CpuBackend, Evaluation,
-    EvaluationError, EvaluationRequest, Evaluator, GLOBAL_FEATURES_PER_FRAME,
-    GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece, INPUT_PLANES, InferenceService,
-    MetalBackend, MetalTrainingBackend, ModelMetadata, ModelStoreError, NetworkEvaluator,
-    POLICY_ACTIONS, PieceKind, Player, Position, TrainingConfig, TrainingExample, encode_position,
-    encode_position_with_history, encoded_batch_tensor, global_batch_tensor, load_champion,
-    load_generation, load_training_generation, policy_context_batch_tensor, publish_champion,
-    save_generation, save_training_generation, stored_generations, train_state_with_progress,
+    Action, AlphaZeroNetworkConfig, AlphaZeroTrainingState, AsyncEvaluator, BOARD_HEIGHT,
+    BOARD_WIDTH, CpuBackend, Evaluation, EvaluationError, EvaluationRequest, Evaluator,
+    GLOBAL_FEATURES_PER_FRAME, GLOBAL_INPUT_FEATURES, Game, HISTORY_POSITIONS, HandPiece,
+    INPUT_PLANES, InferenceService, MetalBackend, MetalTrainingBackend, ModelMetadata,
+    ModelStoreError, NetworkEvaluator, POLICY_ACTIONS, PieceKind, Player, Position, TrainingConfig,
+    TrainingExample, encode_position, encode_position_with_history, encoded_batch_tensor,
+    global_batch_tensor, load_champion, load_generation, load_training_generation,
+    policy_context_batch_tensor, publish_champion, save_generation, save_training_generation,
+    stored_generations, train_state_with_progress,
 };
 
 #[test]
@@ -31,8 +32,9 @@ fn official_setup_has_the_same_canonical_encoding_for_both_players() {
     let second = encode_position(&Position::initial(Player::Second), 1);
 
     assert_eq!(first, second);
-    assert!((first.get(0, 3, 1) - 1.0).abs() < f32::EPSILON);
-    assert!((first.get(5, 0, 1) - 1.0).abs() < f32::EPSILON);
+    // Plane 0 holds the mover's Koropokkuru, plane 6 the opponent's.
+    assert!((first.get(0, 5, 2) - 1.0).abs() < f32::EPSILON);
+    assert!((first.get(6, 0, 2) - 1.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -40,8 +42,9 @@ fn game_encoding_includes_the_previous_position() {
     let mut game = Game::new(Player::First);
     let initial = *game.position();
     game.apply(Action::Move {
-        from: square(2, 1),
-        to: square(1, 1),
+        from: square(3, 2),
+        to: square(2, 2),
+        promote: false,
     })
     .expect("initial Kodama capture is legal");
 
@@ -51,9 +54,9 @@ fn game_encoding_includes_the_previous_position() {
     assert_eq!(request.history[0], Some(initial));
     assert!(request.history[1..].iter().all(Option::is_none));
     assert!(!request.current_player_is_starter);
-    // Frame one starts at plane 10 and is canonicalized for Second, who now moves.
-    assert!((encoded.get(10, 3, 1) - 1.0).abs() < f32::EPSILON);
-    assert!((encoded.get(15, 0, 1) - 1.0).abs() < f32::EPSILON);
+    // Frame one starts at plane 12 and is canonicalized for Second, who now moves.
+    assert!((encoded.get(12, 5, 2) - 1.0).abs() < f32::EPSILON);
+    assert!((encoded.get(18, 0, 2) - 1.0).abs() < f32::EPSILON);
     assert!(
         encoded.global_values()[GLOBAL_FEATURES_PER_FRAME..GLOBAL_FEATURES_PER_FRAME * 2]
             .iter()
@@ -66,16 +69,18 @@ fn game_encoding_includes_the_previous_position() {
 fn hand_repetition_and_role_features_are_normalized_scalars() {
     let position = position_with(
         &[
-            (3, 1, PieceKind::Koropokkuru, Player::First),
-            (0, 1, PieceKind::Koropokkuru, Player::Second),
+            (5, 2, PieceKind::Koropokkuru, Player::First),
+            (0, 2, PieceKind::Koropokkuru, Player::Second),
         ],
-        [[2, 1, 0], [0, 0, 1]],
+        [[4, 1, 0], [0, 0, 3]],
         Player::First,
     );
     let encoded = encode_position(&position, 2);
 
-    assert!((encoded.get_global(HandPiece::Tanuki.index()) - 1.0).abs() < f32::EPSILON);
-    assert!((encoded.get_global(HandPiece::Kitsune.index()) - 0.5).abs() < f32::EPSILON);
+    // Each count is divided by the copies of that piece in the set: four
+    // Kirin, four Oni and six Kodama.
+    assert!((encoded.get_global(HandPiece::Kirin.index()) - 1.0).abs() < f32::EPSILON);
+    assert!((encoded.get_global(HandPiece::Oni.index()) - 0.25).abs() < f32::EPSILON);
     assert!((encoded.get_global(3 + HandPiece::Kodama.index()) - 0.5).abs() < f32::EPSILON);
     assert!((encoded.get_global(GLOBAL_INPUT_FEATURES - 2) - 2.0 / 3.0).abs() < 1.0e-6);
     assert!((encoded.get_global(GLOBAL_INPUT_FEATURES - 1) - 1.0).abs() < f32::EPSILON);
@@ -84,11 +89,11 @@ fn hand_repetition_and_role_features_are_normalized_scalars() {
 #[test]
 fn historical_hand_counts_remain_available_as_global_features() {
     let kings = [
-        (3, 1, PieceKind::Koropokkuru, Player::First),
-        (0, 1, PieceKind::Koropokkuru, Player::Second),
+        (5, 2, PieceKind::Koropokkuru, Player::First),
+        (0, 2, PieceKind::Koropokkuru, Player::Second),
     ];
     let current = position_with(&kings, [[2, 1, 0], [0, 0, 1]], Player::First);
-    let previous = position_with(&kings, [[0, 0, 1], [1, 2, 0]], Player::Second);
+    let previous = position_with(&kings, [[0, 0, 3], [2, 4, 0]], Player::Second);
     let mut history = [None; HISTORY_POSITIONS];
     history[0] = Some(previous);
 
@@ -97,10 +102,10 @@ fn historical_hand_counts_remain_available_as_global_features() {
 
     assert!((encoded.get_global(previous_offset + HandPiece::Kodama.index()) - 0.5).abs() < 1.0e-6);
     assert!(
-        (encoded.get_global(previous_offset + 3 + HandPiece::Tanuki.index()) - 0.5).abs() < 1.0e-6
+        (encoded.get_global(previous_offset + 3 + HandPiece::Kirin.index()) - 0.5).abs() < 1.0e-6
     );
     assert!(
-        (encoded.get_global(previous_offset + 3 + HandPiece::Kitsune.index()) - 1.0).abs() < 1.0e-6
+        (encoded.get_global(previous_offset + 3 + HandPiece::Oni.index()) - 1.0).abs() < 1.0e-6
     );
     assert!(
         encoded.global_values()[2 * GLOBAL_FEATURES_PER_FRAME..GLOBAL_INPUT_FEATURES - 2]
@@ -113,23 +118,24 @@ fn historical_hand_counts_remain_available_as_global_features() {
 fn horizontal_position_mirror_reverses_only_encoded_columns() {
     let position = position_with(
         &[
-            (3, 0, PieceKind::Koropokkuru, Player::First),
-            (0, 2, PieceKind::Koropokkuru, Player::Second),
+            (5, 0, PieceKind::Koropokkuru, Player::First),
+            (0, 3, PieceKind::Koropokkuru, Player::Second),
             (2, 0, PieceKind::KodamaSamurai, Player::First),
+            (3, 4, PieceKind::Oni, Player::Second),
         ],
         [[0, 1, 0], [0; 3]],
         Player::Second,
     );
     let original = encode_position(&position, 1);
     let mirrored = encode_position(&position.mirrored_horizontally(), 1);
+    let rows = usize::from(BOARD_HEIGHT);
+    let columns = usize::from(BOARD_WIDTH);
 
     for plane in 0..INPUT_PLANES {
-        for row in 0..4 {
-            for column in 0..3 {
-                assert!(
-                    (original.get(plane, row, column) - mirrored.get(plane, row, 2 - column)).abs()
-                        < f32::EPSILON
-                );
+        for row in 0..rows {
+            for column in 0..columns {
+                let reflected = mirrored.get(plane, row, columns - 1 - column);
+                assert!((original.get(plane, row, column) - reflected).abs() < f32::EPSILON);
             }
         }
     }
@@ -157,8 +163,8 @@ fn global_hand_features_reach_both_network_heads() {
         .with_value_hidden(8)
         .init::<TestBackend>(&device);
     let kings = [
-        (3, 1, PieceKind::Koropokkuru, Player::First),
-        (0, 1, PieceKind::Koropokkuru, Player::Second),
+        (5, 2, PieceKind::Koropokkuru, Player::First),
+        (0, 2, PieceKind::Koropokkuru, Player::Second),
     ];
     let without_hands = position_with(&kings, [[0; 3]; 2], Player::First);
     let with_hands = position_with(&kings, [[1, 2, 0], [0, 0, 1]], Player::First);
@@ -211,7 +217,7 @@ fn cpu_network_evaluator_batches_normalized_predictions() {
     let mut evaluator = NetworkEvaluator::new(model, device);
     let first = EvaluationRequest::from_game(&Game::new(Player::First));
     let mut game = Game::new(Player::First);
-    game.apply("b2-b3".parse().unwrap()).unwrap();
+    game.apply("c3-c4".parse().unwrap()).unwrap();
     let second = EvaluationRequest::from_game(&game);
 
     let evaluations = evaluator

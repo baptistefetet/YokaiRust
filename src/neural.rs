@@ -22,13 +22,14 @@ use crate::{
 /// Schema version of checkpoint directories and their metadata.
 pub const MODEL_FORMAT_VERSION: u16 = 5;
 /// Version stored in checkpoints so incompatible feature layouts are rejected.
-pub const ENCODER_VERSION: u16 = 4;
+pub const ENCODER_VERSION: u16 = 5;
 /// Number of temporal frames: the current position plus seven predecessors.
 pub const HISTORY_LENGTH: usize = 8;
 /// Number of preceding positions supplied alongside the current one.
 pub const HISTORY_POSITIONS: usize = HISTORY_LENGTH - 1;
-const POSITION_PLANES: usize = 10;
-/// Total spatial channels (`10 piece planes × 8 temporal frames`).
+const PIECE_KINDS: usize = 6;
+const POSITION_PLANES: usize = PIECE_KINDS * 2;
+/// Total spatial channels (`12 piece planes × 8 temporal frames`).
 pub const INPUT_PLANES: usize = POSITION_PLANES * HISTORY_LENGTH;
 /// Flat number of values in one `[planes, rows, columns]` board input.
 pub const INPUT_VALUES: usize = INPUT_PLANES * BOARD_SQUARES;
@@ -36,17 +37,17 @@ pub const INPUT_VALUES: usize = INPUT_PLANES * BOARD_SQUARES;
 pub const GLOBAL_FEATURES_PER_FRAME: usize = 6;
 /// Total non-spatial features: temporal hands, repetition and starter role.
 pub const GLOBAL_INPUT_FEATURES: usize = GLOBAL_FEATURES_PER_FRAME * HISTORY_LENGTH + 2;
-/// Two repetition features for each of the 132 policy actions.
+/// Two repetition features for each of the 570 policy actions.
 pub const POLICY_CONTEXT_FEATURES: usize = POLICY_ACTIONS * 2;
 
 const CURRENT_PIECES_OFFSET: usize = 0;
-const OPPONENT_PIECES_OFFSET: usize = 5;
+const OPPONENT_PIECES_OFFSET: usize = PIECE_KINDS;
 const CURRENT_HAND_OFFSET: usize = 0;
 const OPPONENT_HAND_OFFSET: usize = 3;
 const REPETITION_FEATURE: usize = GLOBAL_INPUT_FEATURES - 2;
 const STARTER_FEATURE: usize = GLOBAL_INPUT_FEATURES - 1;
 
-/// A channel-first `[80, 4, 3]` board input and 50 global features.
+/// A channel-first `[96, 6, 5]` board input and 50 global features.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EncodedPosition {
     values: [f32; INPUT_VALUES],
@@ -192,9 +193,10 @@ pub fn encode_position(position: &Position, repetition_count: u8) -> EncodedPosi
 
 /// Encodes the current position and up to seven preceding positions.
 ///
-/// Each time step contains five current-player piece planes, five opponent
-/// piece planes and six normalized scalar hand counts. Every frame is oriented
-/// and owned from the current player's perspective. Missing history is zero.
+/// Each time step contains six current-player piece planes, six opponent
+/// piece planes and six scalar hand counts, each divided by the number of
+/// copies of that piece in the set. Every frame is oriented and owned from the
+/// current player's perspective. Missing history is zero.
 /// Two final global features store the current occurrence count and whether the
 /// current player started the game.
 #[must_use]
@@ -260,7 +262,8 @@ fn encode_frame(
             OPPONENT_HAND_OFFSET
         };
         for piece in HandPiece::ALL {
-            let normalized = f32::from(position.hand_count(player, piece)) / 2.0;
+            let normalized =
+                f32::from(position.hand_count(player, piece)) / f32::from(piece.copies());
             let feature = frame * GLOBAL_FEATURES_PER_FRAME + feature_start + piece.index();
             global_values[feature] = normalized;
         }
@@ -270,10 +273,11 @@ fn encode_frame(
 const fn piece_plane(kind: PieceKind) -> usize {
     match kind {
         PieceKind::Koropokkuru => 0,
-        PieceKind::Tanuki => 1,
-        PieceKind::Kitsune => 2,
-        PieceKind::Kodama => 3,
-        PieceKind::KodamaSamurai => 4,
+        PieceKind::Kirin => 1,
+        PieceKind::Oni => 2,
+        PieceKind::SuperOni => 3,
+        PieceKind::Kodama => 4,
+        PieceKind::KodamaSamurai => 5,
     }
 }
 

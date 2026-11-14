@@ -28,12 +28,15 @@ shared representation, and a policy head that keeps the board structure
 drops) with the repetition context applied per action. A change of layer
 structure needs a new model format version.
 
-Measure the engine as well. Legal-action generation now includes the
-drop-checkmate test and the search for any legal reply; a 5×6 game is several
-times longer than a 3×4 game. Record generation time, game length and the draw
-rate of the random-rollout bootstrap, then set `simulations`,
-`max_game_plies`, `exploration_plies` and the restart budget from those
-measurements.
+Measure the pipeline as well. A generation runs end to end with the current
+settings, and the promotion arena takes most of its time: the last few long
+games advance with almost empty inference batches, because the arena searches
+one leaf at a time. Record the time of each phase, game lengths and draw
+rates, then set `simulations`, `exploration_plies`, the arena budget and the
+restart budget from those measurements. The draw utilities
+(`starter_draw_value`, `repetition_contempt`) were tuned for 3×4 repetition
+draws and need the same review, since draws on this board mostly come from the
+move limit.
 
 **Done when:** a frozen configuration and written protocol exist for the first
 5×6 run, with a measured time per generation.

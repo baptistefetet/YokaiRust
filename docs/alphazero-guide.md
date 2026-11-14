@@ -2,8 +2,9 @@
 
 This guide explains what the network learns, how one generation works and why
 repetition draws need special handling. The implementation learns from the
-3×4 game rules, MCTS and self-play. Concrete measurements and the accepted
-champion are documented in [Training results](training-results.md).
+5×6 game rules, MCTS and self-play. The method was validated on the classic
+3×4 game: its measurements and accepted champion are documented in
+[Training results](training-results.md).
 
 ## Vocabulary used in this project
 
@@ -51,7 +52,7 @@ draw.
 
 For every non-terminal position, the network predicts:
 
-- **policy**: 132 action logits;
+- **policy**: 570 action logits;
 - **WDL**: win, draw and loss logits from the current player's perspective.
 
 The input describes the current state, recent history, hands and repetition
@@ -78,9 +79,9 @@ the `scalar_value_loss_weight` key in `config/training.toml`.
 Two further dataset-shaping options exist in the configuration:
 
 - `mirror_augmentation` — each sampled example may be reflected left-to-right
-  (the 3×4 board is symmetric in its columns), doubling effective data
-  diversity at no self-play cost. A classic technique from the AlphaGo Zero
-  lineage.
+  (the board and the movement rules are symmetric in their columns), doubling
+  effective data diversity at no self-play cost. A classic technique from the
+  AlphaGo Zero lineage.
 - `[optimization.terminal_window_schedule]` — a bootstrap-only schedule that
   oversamples a growing tail of *decisive* endgames alongside the complete
   training set, then stops oversampling at a configured generation. Validation
@@ -126,28 +127,32 @@ feature layout are modeling choices; the rules do not prescribe them:
 
 | Constant | Value | Derivation |
 | --- | --- | --- |
-| Board squares | 12 | 3 columns × 4 rows. |
-| Piece planes per frame | 10 | 5 piece types × 2 owners: one binary sheet per (owner, type) pair. |
+| Board squares | 30 | 5 columns × 6 rows. |
+| Piece planes per frame | 12 | 6 piece types × 2 owners: one binary sheet per (owner, type) pair. A promoted piece is a type of its own. |
 | History frames | 8 | Modeling choice: the current position plus seven preceding positions. |
-| Spatial input planes | 80 | 10 planes × 8 frames. |
+| Spatial input planes | 96 | 12 planes × 8 frames. |
 | Hand features per frame | 6 | Normalized count of each of the three droppable piece types, for both players. |
 | Global features | 50 | 6 per frame × 8 frames, plus the repetition count and the starter-role flag. |
-| Move slots | 96 | Any of the 12 squares can move in any of the 8 directions. |
-| Drop slots | 36 | Any of the 12 squares can receive any of the 3 hand piece types. |
-| Policy slots | 132 | 96 moves + 36 drops. |
-| Policy context features | 264 | Per action slot: occurrence count of the resulting position and an immediate threefold-repetition flag. |
+| Move slots | 480 | Any of the 30 squares can move in any of the 8 directions, with or without promotion. |
+| Drop slots | 90 | Any of the 30 squares can receive any of the 3 hand piece types. |
+| Policy slots | 570 | 480 moves + 90 drops. |
+| Policy context features | 1,140 | Per action slot: occurrence count of the resulting position and an immediate threefold-repetition flag. |
 
-The spatial input is a stack of 80 binary sheets over the 4×3 board. Each
-history frame contributes ten sheets, one per owner and piece type; a sheet
-holds `1` on every square occupied by that piece. Summing the ten sheets of
+The spatial input is a stack of 96 binary sheets over the 6×5 board. Each
+history frame contributes twelve sheets, one per owner and piece type; a sheet
+holds `1` on every square occupied by that piece. Summing the twelve sheets of
 frame zero recovers the current placement, which makes a single frame easy to
 verify by hand.
+
+A hand count is divided by the number of copies of that piece in the game
+(four Kirin, four Oni, six Kodama), so a value of `1` means that the player
+holds every copy.
 
 The 50 global values carry everything without a board coordinate: the hand
 composition of both players for every frame (48 values), the current repetition
 count capped at three, and whether the player to move started the game.
 
-The 264 policy context values are action-specific, which is why they bypass the
+The 1,140 policy context values are action-specific, which is why they bypass the
 shared trunk and enter only the policy head: “how often has this move's
 resulting position occurred” and “does this move complete the third repetition”
 are properties of a candidate action, not of the position alone. The occurrence
@@ -159,7 +164,7 @@ when the move would end the game by repetition.
 [`src/neural/model.rs`](../src/neural/model.rs) has three conceptual parts:
 
 ```text
-board history [batch, 80, 4, 3]    globals [batch, 50]
+board history [batch, 96, 6, 5]    globals [batch, 50]
                 |                         |
        shared residual tower              |
                 |                         |
@@ -168,20 +173,20 @@ board history [batch, 80, 4, 3]    globals [batch, 50]
                  shared dense representation
                      /                 \
             policy head              WDL head
-             132 logits                3 logits
+             570 logits                3 logits
 ```
 
 The shared convolutional tower learns board patterns useful to both questions.
 After the convolutions, its flattened output is concatenated with the global
 features and mixed by a shared dense layer. The policy head maps that
-representation plus per-action repetition context to 132 action slots. The WDL
+representation plus per-action repetition context to 570 action slots. The WDL
 head maps the same shared representation to three outcome logits. Separate
 heads keep “which move?” and “who wins?” distinct while sharing the state
 representation.
 
 ### Layer by layer
 
-1. **Input convolution.** A 3×3 kernel slides over the 80 input planes and
+1. **Input convolution.** A 3×3 kernel slides over the 96 input planes and
    produces 64 channels of unchanged spatial size (padding `Same`, no bias).
    Each channel is a learned local detector; after training, individual channels
    respond to motifs such as “my piece adjacent to an enemy piece” or “empty
@@ -191,11 +196,11 @@ representation.
    input back to its own output before a final ReLU: `output = input + f(input)`.
    The shortcut carries the original features through all four blocks, which is
    what keeps deep stacks trainable (the ResNet idea).
-3. **Flatten and fuse.** The tower output is 64 channels × 12 squares = 768
-   values. Concatenating the 50 global features gives an 818-value vector, which
-   a dense layer compresses to the shared 64-unit representation.
-4. **Policy head.** The shared representation is concatenated with the 264
-   per-action context values (328 total) and mapped to 132 action logits.
+3. **Flatten and fuse.** The tower output is 64 channels × 30 squares = 1,920
+   values. Concatenating the 50 global features gives a 1,970-value vector,
+   which a dense layer compresses to the shared 64-unit representation.
+4. **Policy head.** The shared representation is concatenated with the 1,140
+   per-action context values (1,204 total) and mapped to 570 action logits.
 5. **WDL head.** The shared representation alone passes through a 64-unit hidden
    layer and is mapped to three outcome logits.
 
@@ -204,10 +209,12 @@ layers, which is the standard ResNet convention. The heads emit raw logits;
 callers apply softmax before treating them as probabilities, and search converts
 WDL logits to `P(win) - P(loss)` (see [Network targets](#network-targets)).
 
-With the default configuration, roughly two thirds of the 442,000 parameters sit
-in the residual tower. The size is deliberately small because MCTS evaluates
-many positions for each move. Each layer width is a checkpointed setting
-in `AlphaZeroNetworkConfig`.
+With the default configuration the network has about 1.17 million parameters.
+The policy head's single dense layer holds 59% of them (1,204 inputs × 570
+outputs), the residual tower 25% and the fusion layer 11%. Each layer width is
+a checkpointed setting in `AlphaZeroNetworkConfig`. These defaults were sized
+for the 3×4 game; [Next steps](next-steps.md) covers the choice of a network
+for this board.
 
 ### Canonical orientation
 
@@ -235,10 +242,11 @@ the immediate rule consequence. `Game` still owns the complete history and is
 the sole authority for declaring a draw. Neural input guides search; it never
 replaces the rules engine.
 
-### Fixed 132-action output
+### Fixed 570-action output
 
 A fixed output shape lets one dense layer and checkpoint format cover every
-position. Illegal actions are masked and legal probabilities renormalized
+position. A board move occupies one slot per origin square, direction and
+promotion choice; a drop occupies one slot per target square and piece type. Illegal actions are masked and legal probabilities renormalized
 before MCTS uses them. This batches more simply than a variable-length vector,
 while `PolicyIndex` keeps the action mapping typed and tested.
 
@@ -341,8 +349,8 @@ target.
 YokaiRust instead separates four responsibilities.
 
 > **Project-specific experiments.** Mechanisms 2 and 4 below, the auxiliary
-> scalar loss, and `repetition_contempt` adapt training to repetition draws
-> on this 3×4 board. They are not standard AlphaZero components. Each subsection
+> scalar loss, and `repetition_contempt` adapt training to repetition draws.
+> They were tuned on the 3×4 board and are not standard AlphaZero components. Each subsection
 > names its configuration keys. Mechanism 3 follows the published Go-Exploit
 > "Visited States" variant ([paper](https://arxiv.org/abs/2302.12359)).
 

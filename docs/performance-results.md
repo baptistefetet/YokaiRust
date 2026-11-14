@@ -1,5 +1,9 @@
 # Performance baseline — 8 November 2026
 
+> **Scope.** These costs were measured on the classic 3×4 game, preserved at
+> the Git tag `classic-3x4`. The benchmark names and fixtures below are those
+> of that tag; the 5×6 engine has not been measured under this protocol.
+
 On an Apple M4 Max, the fixed Metal workload takes a median **25.293 s for
 64 self-play games** and **4.288 s for 400 optimizer updates with validation**.
 These measurements use a frozen checkpoint and corpus; the current champion's

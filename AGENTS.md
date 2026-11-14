@@ -55,7 +55,10 @@ cargo doc --no-deps
 ## Repository conventions
 
 - Follow the absolute board orientation (First at the bottom, moves toward
-  rank 4; Second at the top, moves toward rank 1).
-- Move notation: `b2-b3`; drop notation: `kodama@a4`.
+  rank 6; Second at the top, moves toward rank 1).
+- Move notation: `b3-b4`, with a trailing `+` when the move promotes
+  (`c4-c5+`); drop notation: `kodama@a4`.
+- The rules and their interpretation choices are specified in `docs/rules.md`;
+  update it together with any rule change.
 - The Metal preflight test is a diagnostic: run it to confirm the training
   state round-trip, but do not treat its output as a regression gate.

@@ -8,14 +8,15 @@ programming language is required.
 ## Recommended reading order
 
 1. [`tests/engine.rs`](../tests/engine.rs): start here — the integration tests
-   are the shortest executable specification of the official rules, and each
-   test name states the rule it pins down.
+   are the shortest executable specification of the rules, and each test name
+   states the rule it pins down. [Rules of the 5×6 game](rules.md) gives the
+   same rules in prose.
 2. [`notation.rs`](../src/notation.rs): a compact, complete
    `Display`/`FromStr` round trip with typed errors — a comfortable first
    contact with idiomatic Rust.
 3. [`game.rs`](../src/game.rs): domain types, board representation and rules.
 4. [`policy.rs`](../src/policy.rs): the bijection between legal actions and the
-   132 neural-network outputs.
+   570 neural-network outputs.
 5. [`replay.rs`](../src/replay.rs): a small example of validated serialization.
 6. [`search/mod.rs`](../src/search/mod.rs): PUCT and the contiguous node arena; its
    executable specification is [`tests/search.rs`](../tests/search.rs).
@@ -63,7 +64,7 @@ reserved for invariants and design choices that the code alone cannot explain.
 ## Ownership choices used here
 
 `Position` is a compact, `Copy` value. Copying it is deliberate: MCTS creates
-many temporary game states and a 3x4 board is cheaper and clearer as a value than
+many temporary game states and a 5×6 board is cheaper and clearer as a value than
 behind shared ownership.
 
 `Game` is not `Copy`. It owns action and position histories because repetition
@@ -75,8 +76,9 @@ hands, then computes captures, promotion and decisive wins. Both `Game::apply`
 and the repetition preview call it after checking legality. Only `Game` consults
 the earlier positions to detect a draw. Previewing a move therefore needs no
 temporary history or repetition map, and the movement rules live in one place.
-A lazy board-move traversal serves both full enumeration and the early-exit
-check for whether any move exists.
+A lazy board-move traversal serves full enumeration, the early-exit check for
+whether any move exists, and the test that decides whether a Kodama drop would
+be checkmate.
 
 Large neural models are moved into an `InferenceService`. Worker games only
 clone an `InferenceClient`, a small handle used to send prediction requests to
@@ -165,8 +167,8 @@ optimizer persistence; the browser adapter loads exported bytes.
 
 The rules define board dimensions. Tensors and terminal layout derive their
 sizes from those constants; browser snapshots carry rows and columns for
-JavaScript. Policy width derives from the board, movement directions and hand
-piece list. These are still the fixed 3×4 rules and model representation.
+JavaScript. Policy width derives from the board, movement directions,
+promotion choice and hand piece list.
 
 For the complete learning sequence and persistence boundaries, follow
 [One generation](alphazero-guide.md#one-generation) alongside

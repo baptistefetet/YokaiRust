@@ -1,15 +1,68 @@
 # Next steps
 
-The 3×4 implementation has a validated training and performance baseline.
-[Training results](training-results.md) describe the accepted champion and its
-independent evaluation; [performance results](performance-results.md) record
-execution costs and compatibility checks. The [reading guide](reading-guide.md)
-describes the implementation.
+The 5×6 rules, terminal interface, neural encoder and policy mapping are
+implemented and verified; [Rules of the 5×6 game](rules.md) states them. The
+learning pipeline has a validated baseline on the classic 3×4 game:
+[training results](training-results.md) describe that champion and
+[performance results](performance-results.md) its execution costs. The
+[reading guide](reading-guide.md) describes the implementation.
+
+No champion exists for the 5×6 board yet. Until one is accepted, the terminal
+offers two-player games and uniform-prior analysis, and the published web site
+remains the 3×4 release. The first three steps below lead to a 5×6 player; the
+following ones apply to any training run.
 
 The web interface remains dedicated to playing. Diagnostics belong in the TUI.
-The 5×6 expert game is a separate implementation milestone.
 
-## 1. Preserve this baseline while improving durability
+## 1. Choose and profile a network for the 5×6 board
+
+The default network was sized for 12 squares and 132 actions. On this board it
+has about 1.17 million parameters, 59% of them in the single dense layer that
+maps the 64-unit shared representation and 1,140 context values to 570 action
+logits. That layer ignores which square an action starts from, while most of
+its inputs are per-action values that concern one output each.
+
+Compare a small number of candidates before spending training time: a wider
+shared representation, and a policy head that keeps the board structure
+(per-square outputs for the eight directions, two promotion choices and three
+drops) with the repetition context applied per action. A change of layer
+structure needs a new model format version.
+
+Measure the engine as well. Legal-action generation now includes the
+drop-checkmate test and the search for any legal reply; a 5×6 game is several
+times longer than a 3×4 game. Record generation time, game length and the draw
+rate of the random-rollout bootstrap, then set `simulations`,
+`max_game_plies`, `exploration_plies` and the restart budget from those
+measurements.
+
+**Done when:** a frozen configuration and written protocol exist for the first
+5×6 run, with a measured time per generation.
+
+## 2. Train the first 5×6 champion
+
+`config/training.toml` points to empty `models/expert-5x6` and
+`data/expert-5x6` directories, so the 3×4 lineage is never read or modified.
+Record the fixed reference checkpoint before the run, keep the paired arena
+and noisy productivity probe as promotion gates, and store the experiment
+report under `docs/experiments/`.
+
+**Done when:** an accepted champion beats the fixed reference in an independent
+arena and `yokai play human-vs-cpu` plays it.
+
+## 3. Port the web interface to the 5×6 board
+
+The browser adapter already receives board dimensions from Rust snapshots. The
+presentation needs the 5×6 board and piece sprites, the choice between a plain
+and a promoting move, and a mode selection: one or two human players, and the
+classic or expert game. The classic mode can load the frozen WebAssembly bundle
+and model of release `web-v1.0.11` instead of keeping two rule sets in the
+current engine.
+
+**Done when:** `./web/scripts/build.sh` produces a deployable site that plays
+the expert game against the 5×6 champion, and both modes pass the smoke test of
+the [web build guide](../web/README.md).
+
+## 4. Preserve the baseline while improving durability
 
 Keep checkpoint history, replay ancestry, fixed reference and experiment
 reports available for regression comparisons. Future candidates must still pass
@@ -23,7 +76,7 @@ before the accepted `latest` pointer, and verify recovery at each boundary.
 **Done when:** interruption and power-loss guarantees are documented and tested
 without weakening promotion or rewriting checkpoint history.
 
-## 2. Profile the costs that matter for larger training runs
+## 5. Profile the costs that matter for larger training runs
 
 Game generation, promotion arenas and productivity probes occupy almost all
 measured pipeline time. Measure inference batch collection, partial
@@ -42,7 +95,7 @@ optimizing game cloning for the larger board.
 **Done when:** a measured bottleneck is reduced on the complete workload while
 behavior and artifact compatibility remain demonstrably stable.
 
-## 3. Add useful diagnostics for learning and play
+## 6. Add useful diagnostics for learning and play
 
 A tactical diagnostic set should cover verified captures, defence, promotion,
 drops and repetitions from both colors. Keep it outside training. A small
@@ -56,7 +109,7 @@ alone does not establish whether rules, search or the learned policy are wrong.
 **Done when:** a reproducible case explains a weakness and suggests a specific
 experiment instead of relying on loss curves or isolated game impressions.
 
-## 4. Keep future learning comparisons independent
+## 7. Keep future learning comparisons independent
 
 One successful fresh seed establishes trainability and a stronger player under
 the recorded protocol. Comparing learning efficiency requires multiple fresh
@@ -74,14 +127,3 @@ weights never become self-play sources.
 
 **Done when:** independent comparisons and repeated equal-budget runs support
 any claimed learning-efficiency improvement.
-
-## Deferred: the 5×6 expert game
-
-The expert game needs its own verified rules, action representation, network
-and artifact identity. Shared dimensions alone do not implement it: the current
-compact policy index and tensors intentionally describe 3×4.
-
-Design both variants together when this work begins, with rule tests and fixed
-performance fixtures for each. Preserve the working 3×4 player and avoid
-speculative generic abstractions that have not yet been justified by the
-second game's actual requirements.

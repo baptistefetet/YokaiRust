@@ -1,13 +1,18 @@
 # Training baseline — 8 November 2026
 
+> **Scope.** These results were measured on the classic 3×4 game, preserved at
+> the Git tag `classic-3x4` (encoder version 4, rules version 1). They validate
+> the learning pipeline. The 5×6 engine rejects these checkpoints; its first
+> champion has not been trained.
+
 The accepted champion is **generation 30**, trained from random initialization
 with seed `20261108`. In an independent 800-game arena against the fixed
 reference, it scored **313 wins, 162 losses and 325 draws: 59.4375% of points**.
 The one-sided paired p-value is **3.54 × 10⁻¹⁵**. Both color assignments favor
 the champion.
 
-`config/training.toml` selects this checkpoint for play, training and browser
-export. The [AlphaZero guide](alphazero-guide.md) explains the learning method;
+At the `classic-3x4` tag, `config/training.toml` selects this checkpoint for
+play, training and browser export. The [AlphaZero guide](alphazero-guide.md) explains the learning method;
 the [experiment records](experiments/2026-11-08/README.md) contain the frozen
 configuration, full measurements and reproduction tools.
 

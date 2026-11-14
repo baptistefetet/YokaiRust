@@ -10,6 +10,13 @@ clients; its asynchronous search awaits tensor readback.
 The generated site has no API and no server-side runtime. It tries WebGPU first
 and automatically loads the Burn Flex CPU build when WebGPU is unavailable.
 
+> **Scope.** The presentation under `web/static/` and the published release
+> play the classic 3×4 game, preserved at the Git tag `classic-3x4`. The Rust
+> engine on `main` implements the 5×6 game: the browser adapter compiles for
+> both backends, but the site cannot be built from `main` until a 5×6 champion
+> exists and the presentation is ported (see [next steps](../docs/next-steps.md)).
+> Build and release the 3×4 site from the tag.
+
 ## Build
 
 Install the one-time WASM prerequisites:

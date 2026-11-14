@@ -350,9 +350,14 @@ YokaiRust instead separates four responsibilities.
 
 > **Project-specific experiments.** Mechanisms 2 and 4 below, the auxiliary
 > scalar loss, and `repetition_contempt` adapt training to repetition draws.
-> They were tuned on the 3×4 board and are not standard AlphaZero components. Each subsection
-> names its configuration keys. Mechanism 3 follows the published Go-Exploit
-> "Visited States" variant ([paper](https://arxiv.org/abs/2302.12359)).
+> They are not standard AlphaZero components. Each subsection names its
+> configuration keys. Mechanism 3 follows the published Go-Exploit "Visited
+> States" variant ([paper](https://arxiv.org/abs/2302.12359)).
+>
+> Mechanisms 2 and 4 assume that the starter is the defending side, which
+> holds for the 3×4 game they were tuned on. The checked-in 5×6 configuration
+> turns both off: a draw is worth zero to either player and both players'
+> moves are imitated.
 
 ### 1. WDL keeps the outcome observable
 
@@ -361,18 +366,19 @@ arenas remain neutral.
 
 ### 2. Self-play gives the two roles different incentives
 
-During self-play only, the starter evaluates a draw at `+0.75` and the
-non-starter at `-0.75`:
+During self-play only, the starter can evaluate a draw at `+v` and the
+non-starter at `-v`, where `v` is `starter_draw_value`:
 
 ```text
-starter:     win - loss + 0.75 * draw
-non-starter: win - loss - 0.75 * draw
+starter:     win - loss + v * draw
+non-starter: win - loss - v * draw
 ```
 
-Both still rank win above draw above loss. The starter learns its best defence;
-the non-starter is pushed to search for a conversion.
+With `v` below one, both still rank win above draw above loss. The starter
+learns its best defence; the non-starter is pushed to search for a conversion.
 
-Configuration key: `starter_draw_value` (0.75 in the checked-in configuration).
+Configuration key: `starter_draw_value` (`0.0` in the checked-in configuration,
+which disables the mechanism; the 3×4 baseline used `0.75`).
 The code also implements a mutually exclusive alternative, `repetition_contempt`,
 which penalizes only the exact action causing a repetition; it is disabled
 (`0.0`) in the checked-in configuration.
@@ -411,8 +417,10 @@ among every alternative. If it visited none, policy supervision stays omitted.
 The official draw remains a full WDL target in all cases, and policy for the
 non-starter is still learned normally from every decisive game.
 
-Configuration key: `non_starter_draw_policy_weight` (0.0 in the checked-in configuration,
-meaning the non-starter's drawn-game policy targets are fully omitted).
+Configuration key: `non_starter_draw_policy_weight`. At `0.0`, the value of the
+3×4 baseline, the non-starter's drawn-game policy targets are omitted as
+described above. The checked-in configuration uses `1.0`, which keeps them at
+full weight.
 
 ## Promotion measurements
 

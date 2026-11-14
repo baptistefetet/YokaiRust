@@ -109,8 +109,8 @@ class GameScene extends Phaser.Scene {
     }
 
     preload() {
-        this.load.image('board', './assets/images/5x6/board.jpg');
-        this.load.spritesheet('characters', './assets/images/5x6/characters.png', {
+        this.load.image('board', './assets/images/board.jpg');
+        this.load.spritesheet('characters', './assets/images/characters.png', {
             frameWidth: LAYOUT.characterSize,
             frameHeight: LAYOUT.characterSize
         });

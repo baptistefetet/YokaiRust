@@ -47,16 +47,15 @@ report under `docs/experiments/`.
 **Done when:** an accepted champion beats the fixed reference in an independent
 arena and `yokai play human-vs-cpu` plays it.
 
-## 3. Offer the classic game in the web interface
+## 3. Publish the 5×6 web release
 
-The site plays the 5×6 game with one or two human players. The classic 3×4
-game should be a second choice in the same options panel, for one or two
-players as well, without keeping two rule sets in the current engine: its
-rules, encoder and champion are frozen at the Git tag `classic-3x4` and in
-release `web-v1.0.11`.
+The site built from `main` plays the 5×6 game with one or two human players;
+the published release still carries the classic 3×4 site. Package the site
+and the accepted checkpoint with `./web/scripts/package-release.sh`, after the
+verification of the [web build guide](../web/README.md).
 
-**Done when:** `./web/scripts/build.sh` produces a deployable site in which
-both games pass the verification of the [web build guide](../web/README.md).
+**Done when:** a published release carries the 5×6 site and its champion, and
+the documentation no longer points to the 3×4 release for playing.
 
 ## 4. Preserve the baseline while improving durability
 

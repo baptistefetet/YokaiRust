@@ -22,9 +22,8 @@ with and without promotion, Rust lists two legal actions that differ only by
 their `promote` flag, and the page asks which one to play.
 
 > **Scope.** The published release `web-v1.0.11` plays the classic 3×4 game,
-> preserved at the Git tag `classic-3x4`; build and release that site from the
-> tag. The site built from `main` does not offer the classic game yet (see
-> [next steps](../docs/next-steps.md)).
+> preserved at the Git tag `classic-3x4`; build that site from the tag. The
+> site built from `main` plays the 5×6 game only.
 
 ## Build
 

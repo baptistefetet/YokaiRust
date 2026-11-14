@@ -97,5 +97,5 @@ candidate_self_play_games = 64
 max_candidate_self_play_draw_rate = 0.20
 
 [paths]
-models = "models/alpha-zero-from-scratch-20261108"
-self_play = "data/alpha-zero-from-scratch-20261108"
+models = "models/expert-5x6"
+self_play = "data/expert-5x6"

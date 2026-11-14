@@ -18,13 +18,10 @@ and every public item documented.
   ownership, error handling and module boundaries, explained for a Rust beginner.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
-- [Training results](docs/training-results.md) — the validated champion of
-  the classic 3×4 game, its training baseline and independent evaluation.
-- [First 5×6 training run](docs/experiments/2026-11-14/README.md) — protocol,
-  observations and independent arenas of the 5×6 champion.
-- [Engine performance](docs/performance-results.md) — CPU and Metal costs
-  measured on the classic 3×4 game, compatibility checks and benchmark
-  protocol.
+- [Training results](docs/training-results.md) — the published champion, its
+  training configuration, independent evaluation and limits.
+- [Training run records](docs/experiments/2026-11-14/README.md) — protocol,
+  per-attempt observations and raw measurements behind those results.
 - [Next steps](docs/next-steps.md) — proposed priorities, their rationale and
   completion criteria for future work.
 - [Web build guide](web/README.md) — building and deploying the browser mode.
@@ -41,17 +38,14 @@ and every public item documented.
   replay analysis, plus the same engine compiled to WebAssembly for the
   browser.
 - The `latest` checkpoint pointer selects the accepted champion for play and
-  training. A 5×6 champion trained from random initialization plays in the
-  terminal and in the browser; the
-  [report of its training run](docs/experiments/2026-11-14/README.md) holds
-  its protocol and independent arenas. The
+  training. A champion trained from random initialization plays in the
+  terminal and in the browser; [training results](docs/training-results.md)
+  describe it. The
   [latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
   publishes the web site and that champion's checkpoint.
-- The classic 3×4 game is preserved at the Git tag `classic-3x4`, with its
-  validated champion and web build published as release `web-v1.0.11`. Its
-  [training results](docs/training-results.md) and
-  [performance measurements](docs/performance-results.md) remain the reference
-  for the learning pipeline.
+- The project first implemented the 3×4 game. That version is archived at the
+  Git tag `classic-3x4` and in the releases up to `web-v1.0.11`; their
+  checkpoints do not load in this engine.
 
 ## Board coordinates
 
@@ -76,9 +70,7 @@ the web build) needs a trained model under the path configured in
 `config/training.toml` (`models/…`, ignored by Git). Train one, or extract the
 checkpoint archive of the
 [latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
-at the repository root. A checkpoint trained on another board is rejected when
-it is loaded: the archives of release `web-v1.0.11` and earlier contain the
-classic 3×4 champion and only work with the `classic-3x4` tag.
+at the repository root.
 
 ```bash
 # Play a local two-human match in the Ratatui interface.

@@ -2,9 +2,8 @@
 
 This guide explains what the network learns, how one generation works and why
 repetition draws need special handling. The implementation learns from the
-5×6 game rules, MCTS and self-play. The method was validated on the classic
-3×4 game: its measurements and accepted champion are documented in
-[Training results](training-results.md).
+5×6 game rules, MCTS and self-play. The measurements and the published
+champion are documented in [Training results](training-results.md).
 
 ## Vocabulary used in this project
 
@@ -212,9 +211,8 @@ WDL logits to `P(win) - P(loss)` (see [Network targets](#network-targets)).
 With the default configuration the network has about 1.17 million parameters.
 The policy head's single dense layer holds 59% of them (1,204 inputs × 570
 outputs), the residual tower 25% and the fusion layer 11%. Each layer width is
-a checkpointed setting in `AlphaZeroNetworkConfig`. These defaults were sized
-for the 3×4 game; [Next steps](next-steps.md) names the layer to reconsider
-on this board.
+a checkpointed setting in `AlphaZeroNetworkConfig`.
+[Next steps](next-steps.md) names the layer to reconsider.
 
 ### Canonical orientation
 
@@ -302,8 +300,7 @@ one experiment.
 The family guarantee requires stored ancestry. A loaded game without it uses
 its own `(source_generation, seed)` as the split identity, which cannot establish
 separation from related trajectories. Use a fresh self-play directory when a
-clean split is required. The supplied dataset's limitations are documented with
-the [results](training-results.md#limits-of-the-measurements).
+clean split is required.
 
 The [reading guide](reading-guide.md) maps these phases to the Rust modules
 and explains ownership, errors and the shared native/browser inference path.
@@ -354,8 +351,8 @@ YokaiRust instead separates four responsibilities.
 > configuration keys. Mechanism 3 follows the published Go-Exploit "Visited
 > States" variant ([paper](https://arxiv.org/abs/2302.12359)).
 >
-> Mechanisms 2 and 4 assume that the starter is the defending side, which
-> holds for the 3×4 game they were tuned on. The checked-in 5×6 configuration
+> Mechanisms 2 and 4 assume that the starter is the defending side. Nothing
+> establishes such an asymmetry on this board, so the checked-in configuration
 > turns both off: a draw is worth zero to either player and both players'
 > moves are imitated.
 
@@ -378,7 +375,7 @@ With `v` below one, both still rank win above draw above loss. The starter
 learns its best defence; the non-starter is pushed to search for a conversion.
 
 Configuration key: `starter_draw_value` (`0.0` in the checked-in configuration,
-which disables the mechanism; the 3×4 baseline used `0.75`).
+which disables the mechanism).
 The code also implements a mutually exclusive alternative, `repetition_contempt`,
 which penalizes only the exact action causing a repetition; it is disabled
 (`0.0`) in the checked-in configuration.
@@ -417,10 +414,9 @@ among every alternative. If it visited none, policy supervision stays omitted.
 The official draw remains a full WDL target in all cases, and policy for the
 non-starter is still learned normally from every decisive game.
 
-Configuration key: `non_starter_draw_policy_weight`. At `0.0`, the value of the
-3×4 baseline, the non-starter's drawn-game policy targets are omitted as
-described above. The checked-in configuration uses `1.0`, which keeps them at
-full weight.
+Configuration key: `non_starter_draw_policy_weight`. At `0.0`, the
+non-starter's drawn-game policy targets are omitted as described above. The
+checked-in configuration uses `1.0`, which keeps them at full weight.
 
 ## Promotion measurements
 

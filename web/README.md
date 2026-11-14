@@ -21,9 +21,6 @@ the legal actions and the sides played by a person. When a move exists both
 with and without promotion, Rust lists two legal actions that differ only by
 their `promote` flag, and the page asks which one to play.
 
-> **Scope.** The site plays the 5×6 game only. The classic 3×4 site is
-> release `web-v1.0.11`, built from the Git tag `classic-3x4`.
-
 ## Build
 
 Install the one-time WASM prerequisites:

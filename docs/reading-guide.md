@@ -236,8 +236,7 @@ For CPU rules and search timings without a GPU or saved model, run:
 cargo bench --no-default-features --bench engine -- all
 ```
 
-Replace `all` with `request`, `perft`, or `mcts` to select cases. The protocol
-and measurements live in [Engine performance](performance-results.md).
+Replace `all` with `request`, `perft`, or `mcts` to select cases.
 
 The CI also checks both browser backends separately. `flex` and `webgpu` are
 mutually exclusive, so a workspace-wide `--all-features` is not suitable:

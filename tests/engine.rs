@@ -715,13 +715,13 @@ fn having_no_legal_action_is_a_loss() {
         .apply(step(square(1, 3), square(1, 2)))
         .expect("the quiet move must be legal");
 
-    assert_eq!(
-        transition.outcome,
-        Outcome::Win {
-            player: Player::First,
-            reason: WinReason::OpponentHasNoLegalAction,
-        }
-    );
+    let lost = Outcome::Win {
+        player: Player::First,
+        reason: WinReason::OpponentHasNoLegalAction,
+    };
+    assert_eq!(transition.outcome, lost);
+    // A game started from that position is decided before any move.
+    assert_eq!(Game::from_position(*game.position()).outcome(), lost);
 }
 
 #[test]

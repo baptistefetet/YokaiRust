@@ -969,14 +969,25 @@ impl Game {
     ///
     /// This is used by MCTS and visited-state restarts. Earlier occurrences are
     /// intentionally absent unless restored through the private replay helper.
+    ///
+    /// A position whose player has no legal action is already lost, exactly
+    /// as if the previous move had produced it.
     #[must_use]
     pub fn from_position(position: Position) -> Self {
+        let outcome = if position.has_legal_action() {
+            Outcome::Ongoing
+        } else {
+            Outcome::Win {
+                player: position.side_to_move().opponent(),
+                reason: WinReason::OpponentHasNoLegalAction,
+            }
+        };
         let mut repetitions = HashMap::with_capacity(32);
         repetitions.insert(position, 1);
         Self {
             position,
             initial_player: position.side_to_move(),
-            outcome: Outcome::Ongoing,
+            outcome,
             actions: Vec::with_capacity(64),
             positions: vec![position],
             repetitions,

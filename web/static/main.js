@@ -628,7 +628,10 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    // Starts from a clean state: a tween left running would be joined by a
+    // second one that takes the sprite's inflated size as its resting size.
     startPulseAnimations() {
+        this.stopPulseAnimations();
         if (!this.isHumanTurn() || this.selected) {
             return;
         }

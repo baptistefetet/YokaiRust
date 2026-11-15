@@ -169,6 +169,90 @@ fn mcts_finds_an_immediate_win_and_orients_its_value_for_the_root() {
     assert!(result.root_value > 0.5);
 }
 
+/// Rates every position as almost won for First and recommends one action
+/// only, like a network that is sure of its plan and blind to a capture.
+#[derive(Clone, Copy, Debug)]
+struct ConfidentElsewhereEvaluator {
+    recommended: usize,
+}
+
+impl Evaluator for ConfidentElsewhereEvaluator {
+    fn evaluate_batch(
+        &mut self,
+        requests: &[EvaluationRequest],
+    ) -> Result<Vec<Evaluation>, EvaluationError> {
+        Ok(requests
+            .iter()
+            .map(|request| {
+                let mut policy = [0.0; POLICY_ACTIONS];
+                policy[self.recommended] = 1.0;
+                let value = match request.position.side_to_move() {
+                    Player::First => 0.98,
+                    Player::Second => -0.98,
+                };
+                Evaluation::from_scalar(policy, value)
+            })
+            .collect())
+    }
+}
+
+#[test]
+fn an_immediate_win_is_played_even_when_the_visits_favor_another_action() {
+    let position = position_with(
+        &[
+            (3, 0, PieceKind::Koropokkuru, Player::First),
+            (1, 1, PieceKind::Koropokkuru, Player::Second),
+            (2, 1, PieceKind::Kirin, Player::First),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    );
+    let game = Game::from_position(position);
+    let capture = Action::Move {
+        from: square(2, 1),
+        to: square(1, 1),
+        promote: false,
+    };
+    let retreat = Action::Move {
+        from: square(3, 0),
+        to: square(4, 0),
+        promote: false,
+    };
+    let recommended = retreat
+        .policy_index(Player::First)
+        .expect("a board move has a policy index")
+        .as_usize();
+    let capture_index = capture
+        .policy_index(Player::First)
+        .expect("a board move has a policy index")
+        .as_usize();
+
+    // Temperature one samples from the visit counts, which all go to the
+    // recommended retreat: the capture must override the sampling as well.
+    for temperature in [0.0, 1.0] {
+        let mut mcts = Mcts::new(
+            ConfidentElsewhereEvaluator { recommended },
+            SearchConfig {
+                simulations: 200,
+                evaluation_batch_size: 8,
+                ..SearchConfig::default()
+            },
+            7,
+        )
+        .expect("valid search");
+
+        let result = mcts
+            .search(&game, temperature)
+            .expect("search must succeed");
+
+        assert_eq!(result.analysis[0].action, retreat);
+        assert_eq!(result.best_action, capture);
+        assert_eq!(result.selected_action, capture);
+        // The policy target keeps reporting what the search visited.
+        assert!(result.policy[recommended] > result.policy[capture_index]);
+    }
+}
+
 #[test]
 fn repetition_contempt_penalizes_only_the_player_causing_the_draw() {
     let position = position_with(

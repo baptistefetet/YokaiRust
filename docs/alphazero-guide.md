@@ -36,7 +36,7 @@ These terms occur in logs, configuration and source names:
 | **Adam** | The optimizer updating parameters from gradients while remembering moving averages of past gradients. |
 | **learning rate** | Size of each optimizer update. Too large can damage a mature policy; too small slows learning. |
 | **Dirichlet noise** | Random probability mass mixed into root priors during self-play so different actions are explored. |
-| **temperature** | Sharpness dial when sampling a move from visit counts: `T = 1` samples proportionally, `T → 0` always plays the most visited action. |
+| **temperature** | Sharpness dial when sampling a move from visit counts: `T = 1` samples proportionally, `T → 0` plays the most visited action. An action that wins at once is played at any temperature. |
 | **subtree reuse** | Keeping the search tree below the action actually played, so the next search starts warm instead of from scratch. |
 | **virtual loss** | Temporary penalty on a path whose leaf is still waiting for its batched evaluation, so parallel simulations spread out instead of piling onto one line. |
 | **contempt** | A search-only bias against (or toward) draws. It changes move choice during search, never the official game result. |
@@ -491,6 +491,13 @@ measured by internal learning and playing strength, with no external component
 in data generation, targets, search, promotion or runtime play.
 
 Winning sooner is not a separate learning target. Terminal wins all have value
-`+1` from the winner's perspective, and MCTS chooses by visit count without an
-explicit immediate-win override. A stronger network can therefore still choose
-a longer line over a legal capture that would end the game immediately.
+`+1` from the winner's perspective, and visit counts follow the policy priors
+whenever several actions look almost equally good. The most visited action can
+therefore be a promising continuation while another action ends the game.
+
+The search settles that case with the rules alone. When a legal action wins at
+once, by capturing the opposing Koropokkuru or by leaving the opponent without
+a legal action, that action is played whatever the visit counts and the
+temperature say. The policy target still stores the raw visit distribution.
+Nothing favors a shorter win beyond that single ply: the search can still
+choose a longer line over a forced win in a few moves.

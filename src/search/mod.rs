@@ -135,9 +135,13 @@ pub struct ActionAnalysis {
 /// Selected move, training target and diagnostics returned by one search.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchResult {
-    /// Deterministic visit-count leader, independent of sampling temperature.
+    /// Deterministic choice, independent of sampling temperature: an action
+    /// that wins the game at once when one exists, otherwise the visit-count
+    /// leader.
     pub best_action: Action,
-    /// Action actually sampled under the requested temperature.
+    /// Action actually played: `best_action` when it wins at once, otherwise
+    /// an action sampled from the visit counts under the requested
+    /// temperature.
     pub selected_action: Action,
     /// Mean root value from the current player's perspective.
     pub root_value: f32,
@@ -603,29 +607,42 @@ impl<E> Mcts<E> {
         Ok(())
     }
 
-    fn build_result(
-        &mut self,
-        player: Player,
-        temperature: f32,
-    ) -> Result<SearchResult, SearchError> {
+    fn build_result(&mut self, game: &Game, temperature: f32) -> Result<SearchResult, SearchError> {
+        let player = game.position().side_to_move();
         let children = self.children(self.root).collect::<Vec<_>>();
         if children.is_empty() {
             return Err(SearchError::NoLegalAction);
         }
 
-        let best_child = children
+        // Visit counts follow the priors whenever several actions look almost
+        // equally good, so the most visited action can be a merely promising
+        // one while another action ends the game in the mover's favour. A win
+        // on the board outranks any estimate: it is played whatever the visit
+        // counts and the temperature say. The policy target below still
+        // reports the raw visit counts.
+        let winning_child = children
             .iter()
             .copied()
-            .max_by(|&left, &right| self.compare_final_children(left, right, player))
-            .ok_or(SearchError::NoLegalAction)?;
-        let policy_probabilities = self.visit_probabilities(&children, 1.0, best_child);
-        let selection_probabilities = if (temperature - 1.0).abs() <= f32::EPSILON {
-            policy_probabilities.clone()
-        } else {
-            self.visit_probabilities(&children, temperature, best_child)
+            .filter(|&child| self.wins_at_once(game, child, player))
+            .max_by(|&left, &right| self.compare_final_children(left, right, player));
+        let best_child = match winning_child {
+            Some(child) => child,
+            None => children
+                .iter()
+                .copied()
+                .max_by(|&left, &right| self.compare_final_children(left, right, player))
+                .ok_or(SearchError::NoLegalAction)?,
         };
-        let selected_child =
-            children[sample_probability_index(&selection_probabilities, &mut self.rng)];
+        let policy_probabilities = self.visit_probabilities(&children, 1.0, best_child);
+        let selected_child = if winning_child.is_some() {
+            best_child
+        } else if (temperature - 1.0).abs() <= f32::EPSILON {
+            children[sample_probability_index(&policy_probabilities, &mut self.rng)]
+        } else {
+            let selection_probabilities =
+                self.visit_probabilities(&children, temperature, best_child);
+            children[sample_probability_index(&selection_probabilities, &mut self.rng)]
+        };
         let mut policy = [0.0; POLICY_ACTIONS];
         let mut analysis = children
             .iter()
@@ -668,6 +685,19 @@ impl<E> Mcts<E> {
             policy,
             analysis,
         })
+    }
+
+    /// Reports whether playing a root child's action ends the game with a
+    /// win for `player`, by applying it to a copy of the root game. This
+    /// covers both ways of winning: capturing the opposing Koropokkuru and
+    /// leaving the opponent without a legal action.
+    fn wins_at_once(&self, game: &Game, child: usize, player: Player) -> bool {
+        let Some(action) = self.arena[child].action else {
+            return false;
+        };
+        let mut next = game.clone();
+        next.apply(action).is_ok()
+            && matches!(next.outcome(), Outcome::Win { player: winner, .. } if winner == player)
     }
 
     fn compare_final_children(
@@ -808,7 +838,7 @@ impl<E: Evaluator> Mcts<E> {
             }
             remaining = remaining.saturating_sub(u32::try_from(completed).unwrap_or(u32::MAX));
         }
-        self.build_result(game.position().side_to_move(), temperature)
+        self.build_result(game, temperature)
     }
 
     fn run_simulation_batch(
@@ -864,7 +894,7 @@ impl<E: AsyncEvaluator> Mcts<E> {
             }
             remaining = remaining.saturating_sub(u32::try_from(completed).unwrap_or(u32::MAX));
         }
-        self.build_result(game.position().side_to_move(), temperature)
+        self.build_result(game, temperature)
     }
 
     async fn run_simulation_batch_async(

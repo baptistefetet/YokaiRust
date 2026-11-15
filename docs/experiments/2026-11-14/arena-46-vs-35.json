@@ -1,0 +1,72 @@
+{
+  "arena": {
+    "candidate_as_first": {
+      "draws": 7,
+      "losses": 16,
+      "wins": 77
+    },
+    "candidate_as_second": {
+      "draws": 10,
+      "losses": 9,
+      "wins": 81
+    },
+    "candidate_wins": 158,
+    "distinct_openings": 79,
+    "draws": 17,
+    "improvement_p_value": 1.2536210662479762e-17,
+    "paired_score_counts": [
+      3,
+      4,
+      16,
+      11,
+      66
+    ],
+    "reference_wins": 25,
+    "score": 0.8324999809265137,
+    "threshold_reached": true
+  },
+  "candidate_metadata": {
+    "architecture": {
+      "filters": 64,
+      "residual_blocks": 4,
+      "shared_hidden": 64,
+      "value_hidden": 64
+    },
+    "encoder_version": 5,
+    "format_version": 5,
+    "generation": 46,
+    "policy_actions": 570,
+    "rules_version": 3
+  },
+  "candidate_models": "models/expert-5x6",
+  "configuration": {
+    "candidate_self_play_games": 64,
+    "games": 200,
+    "max_candidate_self_play_draw_rate": 1.0,
+    "opening_plies": 4,
+    "score_threshold": 0.550000011920929,
+    "search_batch_size": 8,
+    "simulations": 400,
+    "workers": 128
+  },
+  "elapsed_seconds": 143.48726575,
+  "inference_maximum_batch": 512,
+  "inference_minimum_batch": 512,
+  "inference_wait_ms": 1,
+  "max_game_plies": 512,
+  "reference_metadata": {
+    "architecture": {
+      "filters": 64,
+      "residual_blocks": 4,
+      "shared_hidden": 64,
+      "value_hidden": 64
+    },
+    "encoder_version": 5,
+    "format_version": 5,
+    "generation": 35,
+    "policy_actions": 570,
+    "rules_version": 3
+  },
+  "reference_models": "models/expert-5x6",
+  "seed": 20261300
+}

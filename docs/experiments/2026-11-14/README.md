@@ -269,11 +269,11 @@ The run continues from generation 29 with the same configuration. If the
 value head stays where it is, the next change to try is the amount of
 self-play data per attempt rather than the network.
 
-## The published champion: generation 35
+## Attempts 31 to 35
 
 The run continued from generation 29 with the same configuration. Its next
 five attempts promoted generations 32, 34 and 35; release `web-v2.0.0`
-publishes **generation 35**.
+published generation 35.
 
 | Attempt | Source | Arena W–L–D | Score | Paired p | Probe draws | Verdict |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -292,6 +292,41 @@ generation 35 scored **134 wins, 45 losses and 21 draws against generation
 color assignments favor it: 63–27–10 as First and 71–18–11 as Second. The
 arena ran while the training run was using the same machine.
 
+## The published champion: generation 46
+
+The run continued from generation 35 with the same configuration. Its next
+twelve attempts promoted generations 38, 41, 45 and 46; release `web-v2.1.0`
+publishes **generation 46**.
+
+| Attempt | Source | Arena W–L–D | Score | Paired p | Probe draws | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 36 | 35 | 97–84–19 | 53.25% | 0.13 | 3.1% | rejected |
+| 37 | 35 | 68–90–42 | 44.5% | 0.97 | 12.5% | rejected |
+| 38 | 35 | 136–43–21 | 73.25% | 1.7 × 10⁻¹⁰ | 10.9% | promoted |
+| 39 | 38 | 92–84–24 | 52.0% | 0.30 | 12.5% | rejected |
+| 40 | 38 | 53–94–53 | 39.75% | 1.00 | 9.4% | rejected |
+| 41 | 38 | 104–79–17 | 56.25% | 0.021 | 7.8% | promoted |
+| 42 | 41 | 63–95–42 | 42.0% | 1.00 | 7.8% | rejected |
+| 43 | 41 | 97–78–25 | 54.75% | 0.062 | 7.8% | rejected |
+| 44 | 41 | 90–90–20 | 50.0% | 0.54 | 17.2% | rejected |
+| 45 | 41 | 116–68–16 | 62.0% | 2.0 × 10⁻⁵ | 7.8% | promoted |
+| 46 | 45 | 91–57–52 | 58.5% | 2.7 × 10⁻³ | 9.4% | promoted |
+| 47 | 46 | 85–71–44 | 53.5% | 0.14 | 9.4% | rejected |
+
+These figures come from the pipeline's generation reports. Attempts 38 to 47
+ran in one command and took 1 h 10 min 45 s.
+
+The reference of the independent arena was chosen before it ran: generation
+35, the champion published until then. In 200 games at 400 simulations with
+seed `20261300`, generation 46 scored **158 wins, 25 losses and 17 draws:
+83.25% of points**, with a one-sided paired p-value of 1.3 × 10⁻¹⁷. Both color
+assignments favor it: 77–16–7 as First and 81–9–10 as Second.
+
+This arena ran at revision `31b9500`, whose search always plays an action
+that wins at once. The pipeline's arenas above and the earlier independent
+arenas ran before that rule, when the search played the most visited action
+even if another one won the game.
+
 ## Records
 
 | Files | Contents |
@@ -299,7 +334,7 @@ arena ran while the training run was using the same machine.
 | [`protocol.json`](protocol.json) | Configuration and reference identifiers recorded before the run, and the criteria. |
 | [`training-observations.json`](training-observations.json), [`training-observations-30.json`](training-observations-30.json) | Every attempt's source, phase durations, self-play outcomes and lengths, final training and validation metrics, arena and probe: the first ten attempts, then all thirty. |
 | [`collect_observations.py`](collect_observations.py) | Builds the file above from the pipeline's reports, the stored replays and the training logs. |
-| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json`, [`arena-35-vs-29.json`](arena-35-vs-29.json) | The independent arenas of generations 10, 29 and 35. |
+| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json`, [`arena-35-vs-29.json`](arena-35-vs-29.json), [`arena-46-vs-35.json`](arena-46-vs-35.json) | The independent arenas of generations 10, 29, 35 and 46. |
 | [`endgame-distance/`](endgame-distance/) | The fixed-set validation of generations 0 to 10 after the tenth attempt, by number of plies before the end of the game. |
 | [`endgame-distance-30/`](endgame-distance-30/) | The same validation of generations 0 to 30 after the thirtieth attempt. |
 
@@ -310,6 +345,7 @@ The champions are identified by the SHA-256 hashes of their files.
 | 10 | `195cd169f56815dbaabdf2d4c154268ad86b9ba3bef02226d1b31b1a8bfbb6b9` | `be44dbbb35050d239abb99fa5c9c308defabc26435daa99fc7ee412af96acb72` |
 | 29 | `763cf4de87f3d246b218633e9c675ca77c6d72a5f3d1e5797fdde0ea7acf9ab4` | `f8d3b5d726f21feb8853db3ffaedcb207ec76baed78d98b96a1f88d13c51ea06` |
 | 35 | `b3b40b147a59213fdc4d06ddc444af95c432ae2e7a780392649b0dcdb8d6f4c4` | `4c8a03a996c426041a7ab8bc3b01ebf8ace6d907aab742eb5a7511d33d70769f` |
+| 46 | `8663f79eb95b81df0b546030623600cd4b1923ae6650400358ddbb1ec5b1c032` | `af18f5d3c236e105bc7ab8a69db50fb5c2fcfc11b761d03fbb1e7d29910130ca` |
 
 The independent arenas ran with `compare_saved_generations`, with an inference
 batch of at most 512 positions as in the pipeline's arena. Revision `720f393`,

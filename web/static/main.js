@@ -127,6 +127,10 @@ class GameScene extends Phaser.Scene {
         this.isModalOpen = false;
         this.pieces = new Map();
         this.handSprites = { first: [], second: [] };
+        // Every piece and hand count belongs to this group, including a piece
+        // that only exists while it travels from a hand stack to the board.
+        // Redrawing empties the group, so no sprite outlives its position.
+        this.pieceObjects = this.add.group();
         this.highlights = [];
         this.pulseTweens = [];
         this.input.setTopOnly(true);
@@ -302,6 +306,7 @@ class GameScene extends Phaser.Scene {
             sprite.setAngle(180);
         }
         sprite.setDepth(10);
+        this.pieceObjects.add(sprite);
         return sprite;
     }
 
@@ -321,6 +326,7 @@ class GameScene extends Phaser.Scene {
             sprite.setAngle(180);
         }
         sprite.setDepth(5);
+        this.pieceObjects.add(sprite);
         return sprite;
     }
 
@@ -346,24 +352,15 @@ class GameScene extends Phaser.Scene {
         if (player === 'second' && this.isHumanSide('second')) {
             label.setAngle(180);
         }
+        this.pieceObjects.add(label);
         return label;
     }
 
     drawAll() {
         this.stopPulseAnimations();
-        for (const sprite of this.pieces.values()) {
-            sprite.destroy();
-        }
+        this.pieceObjects.clear(true, true);
         this.pieces.clear();
-        for (const player of ['first', 'second']) {
-            for (const entry of this.handSprites[player]) {
-                entry.sprite.destroy();
-                if (entry.label) {
-                    entry.label.destroy();
-                }
-            }
-            this.handSprites[player] = [];
-        }
+        this.handSprites = { first: [], second: [] };
 
         const mover = this.state.side_to_move;
         this.state.board.forEach((piece, index) => {

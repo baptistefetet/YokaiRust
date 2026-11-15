@@ -85,7 +85,9 @@ champion_archive="$release_directory/yokai-champion-$model_line-g$generation.tar
 checksum_file="$release_directory/SHA256SUMS"
 
 # Do not generate AppleDouble ._* entries or preserve extended file attributes.
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$web_archive" -C "$distribution" .
+# Finder writes a .DS_Store into any folder it displays, possibly after the
+# build removed them, so the web archive leaves those files out.
+COPYFILE_DISABLE=1 tar --no-xattrs --exclude .DS_Store -czf "$web_archive" -C "$distribution" .
 COPYFILE_DISABLE=1 tar --no-xattrs -czf "$champion_archive" -C "$repository_root" \
     "$model_directory/latest" \
     "$generation_directory/metadata.json" \

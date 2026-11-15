@@ -28,7 +28,16 @@ Install the one-time WASM prerequisites:
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.127 --locked
+brew install binaryen
 ```
+
+Binaryen provides `wasm-opt`, a tool that rewrites a compiled WebAssembly
+module into a smaller one with the same behavior. The build script runs it on
+both browser modules. Without it the script still produces a working site, but
+it prints a warning and leaves the modules at their compiled size: install it
+before packaging a release. Where Homebrew is not available, Binaryen comes
+from the system's package manager or from its
+[releases](https://github.com/WebAssembly/binaryen/releases).
 
 The build also needs the accepted champion checkpoint on disk: the script
 exports the generation referenced by `latest` under the model path configured
@@ -85,9 +94,11 @@ presentation. `web/generated/` and `web/dist/` contain generated artifacts;
 editing generated `yokai_web.js` bindings will not change their Rust source.
 
 Before release, compile both WASM backends (the CI does this separately), run
-`./web/scripts/build.sh`, then serve `web/dist/` locally. Verify initial loading,
-a human move and AI reply, captures and drops, a move offered with and without
-promotion, a hand holding two pieces of one kind, game completion and reset.
+`./web/scripts/build.sh`, then serve `web/dist/` locally. The build must not
+print the `wasm-opt` warning: a release carries the size-optimized modules.
+Verify initial loading, a human move and AI reply, captures and drops, a move
+offered with and without promotion, a hand holding two pieces of one kind,
+game completion and reset.
 Play both a one-player and a two-player game, and check that the chosen option
 survives a reload. Inspect a mobile viewport as well as desktop. Exercise the
 Flex module explicitly even when WebGPU is available; successful fallback alone

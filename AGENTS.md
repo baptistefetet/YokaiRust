@@ -25,6 +25,9 @@ cargo doc --no-deps
 - Build the static site with `./web/scripts/build.sh` and publish a release
   with `./web/scripts/package-release.sh vX.Y.Z`; published releases carry the
   deployable website and the minimal accepted checkpoint separately.
+- A release needs `wasm-opt` (Binaryen) installed. Without it the build only
+  warns and leaves the WebAssembly modules unoptimized; do not publish such a
+  build.
 
 ## Learning experiments
 

@@ -132,15 +132,14 @@ arenas, so these durations are observations of this run, not a benchmark.
 The required checks passed at the published revision: 99 tests, Clippy with
 warnings denied, formatting and documentation generation.
 
-Browser verification ran in headless Firefox on the site extracted from the
-published web archive, with one test-only script added to its page to read the
-game state. Through pointer events it played a one-player game against the
-champion to its end and 24 plies of a two-player game, with captures, without
-page errors or failed requests. The page showed the release version and the
-source link. A headless browser has no graphics adapter, so both games ran on
-the Flex module: the WebGPU module, drops, promotion choices, a reload and a
-mobile viewport were not exercised for this release. Both archives pass
-SHA-256 verification.
+Browser verification ran in Firefox on the site extracted from the published
+web archive, with one test-only script added to its page to read the game
+state. Through pointer events it played a one-player game against the champion
+to its end on each module, WebGPU in a window and Flex headless, and 24 plies
+of a two-player game on Flex, with captures, without page errors or failed
+requests. The page showed the release version and the source link. Drops,
+promotion choices, a reload and a mobile viewport were not exercised for this
+release. Both archives pass SHA-256 verification.
 
 - `models/expert-5x6/`: the initial network and every candidate, with Adam
   states for trained candidates; `latest` selects the accepted generation.

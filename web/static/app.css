@@ -137,6 +137,34 @@ body {
     background: #ebe6de;
 }
 
+/* Release version and source link. The pill keeps them readable on the white
+   page as well as on the board when the canvas fills the whole window. */
+#about {
+    position: fixed;
+    right: 0.4rem;
+    bottom: max(0.3rem, env(safe-area-inset-bottom));
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 1rem;
+    color: #4c463f;
+    font-size: 0.65rem;
+    line-height: 1;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+#about a {
+    display: flex;
+    color: inherit;
+}
+
+#about a:hover,
+#about a:focus-visible {
+    color: #000000;
+}
+
 #loading.ready {
     pointer-events: none;
     opacity: 0;

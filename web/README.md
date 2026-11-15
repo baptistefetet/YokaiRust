@@ -13,7 +13,8 @@ and automatically loads the Burn Flex CPU build when WebGPU is unavailable.
 The site plays the 5×6 game. Its options panel, opened on the first visit and
 then from the logo, chooses the number of human players: one against the
 accepted champion, who plays Second at the top, or two on the same screen. The
-choice is kept in the browser's local storage.
+choice is kept in the browser's local storage. The bottom-right corner of the
+page shows the release version and a link to the source repository.
 
 Snapshots carry everything the presentation needs to stay free of rules: board
 dimensions, the piece kinds a hand can hold, the promoted form of each kind,
@@ -54,7 +55,9 @@ Then build the accepted champion and both browser backends:
 
 The script reads the active model path from `config/training.toml` and writes a
 self-contained deployable directory to `web/dist/`. Generated model and WASM
-files are ignored by Git.
+files are ignored by Git. The page labels such a build `dev`; pass a version
+(`./web/scripts/build.sh v1.0.0`) to show it instead, as the release script
+does.
 
 To build the site and prepare versioned release archives with checksums, run:
 

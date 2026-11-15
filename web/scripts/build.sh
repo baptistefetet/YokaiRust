@@ -1,6 +1,22 @@
 #!/bin/sh
 set -eu
 
+if [ "$#" -gt 1 ]; then
+    echo "Usage: $0 [release-version]" >&2
+    echo "Example: $0 v1.0.0" >&2
+    exit 1
+fi
+
+# The page shows this label next to the source link. A build made outside a
+# release is labelled "dev".
+release_version=${1:-dev}
+case "$release_version" in
+    ''|*[!A-Za-z0-9._-]*)
+        echo "Release version may contain only letters, numbers, dots, underscores and hyphens." >&2
+        exit 1
+        ;;
+esac
+
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_directory/../.." && pwd)
 distribution="$repository_root/web/dist"
@@ -28,6 +44,14 @@ rm -rf -- "$distribution"
 mkdir -p "$distribution"
 cp -R "$repository_root/web/static/"* "$distribution/"
 find "$distribution" -name .DS_Store -delete
+
+# The accepted characters cannot break the sed expression or the HTML.
+sed "s/@RELEASE_VERSION@/$release_version/" \
+    "$repository_root/web/static/index.html" > "$distribution/index.html"
+if grep -q '@RELEASE_VERSION@' "$distribution/index.html"; then
+    echo "The release version placeholder was not replaced in index.html." >&2
+    exit 1
+fi
 
 cargo run --release --bin export-web-model -- \
     "$repository_root/config/training.toml" \

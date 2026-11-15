@@ -63,7 +63,7 @@ for required_file in "$metadata_file" "$weights_file"; do
     fi
 done
 
-"$script_directory/build.sh"
+"$script_directory/build.sh" "$release_version"
 
 distribution="$repository_root/web/dist"
 for required_file in \

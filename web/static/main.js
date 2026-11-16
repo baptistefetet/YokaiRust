@@ -1,3 +1,8 @@
+// The page loads this file as `main.js?v=<build identifier>`. The same suffix
+// goes on every file requested from here, so that a browser never combines
+// files that its cache kept from two different builds.
+const BUILD_QUERY = new URL(import.meta.url).search;
+
 // Pixel measurements of the 600×900 board image. The grid of squares is
 // divided by the board dimensions that Rust reports in each snapshot.
 const LAYOUT = {
@@ -53,7 +58,7 @@ function saveSettings(settings) {
 
 class EngineClient {
     constructor() {
-        this.worker = new Worker('./engine-worker.js', { type: 'module' });
+        this.worker = new Worker(`./engine-worker.js${BUILD_QUERY}`, { type: 'module' });
         this.nextRequestId = 1;
         this.pending = new Map();
         this.worker.addEventListener('message', (event) => {
@@ -109,12 +114,12 @@ class GameScene extends Phaser.Scene {
     }
 
     preload() {
-        this.load.image('board', './assets/images/board.jpg');
-        this.load.spritesheet('characters', './assets/images/characters.png', {
+        this.load.image('board', `./assets/images/board.jpg${BUILD_QUERY}`);
+        this.load.spritesheet('characters', `./assets/images/characters.png${BUILD_QUERY}`, {
             frameWidth: LAYOUT.characterSize,
             frameHeight: LAYOUT.characterSize
         });
-        this.load.image('logo', './assets/images/logo.png');
+        this.load.image('logo', `./assets/images/logo.png${BUILD_QUERY}`);
     }
 
     async create() {

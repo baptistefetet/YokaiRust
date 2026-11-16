@@ -1,3 +1,7 @@
+// Build suffix of the page (see main.js), received through the worker's own
+// address. The model and the engine module must come from the same build.
+const BUILD_QUERY = self.location.search;
+
 let rustGame = null;
 let backend = null;
 
@@ -30,8 +34,8 @@ self.addEventListener('message', async (event) => {
 
 async function initialize({ simulations, humanPlayers }) {
     const [modelResponse, metadataResponse] = await Promise.all([
-        fetch('./model/champion.bin'),
-        fetch('./model/metadata.json')
+        fetch(`./model/champion.bin${BUILD_QUERY}`),
+        fetch(`./model/metadata.json${BUILD_QUERY}`)
     ]);
     if (!modelResponse.ok) {
         throw new Error(`Model download failed (${modelResponse.status})`);
@@ -47,8 +51,13 @@ async function initialize({ simulations, humanPlayers }) {
 
     for (const candidate of attempts) {
         try {
-            const module = await import(`./pkg-${candidate}/yokai_web.js`);
-            await module.default();
+            const directory = `./pkg-${candidate}`;
+            const module = await import(`${directory}/yokai_web.js${BUILD_QUERY}`);
+            // Without an explicit address the bindings would request the
+            // WebAssembly file without the build suffix.
+            await module.default({
+                module_or_path: new URL(`${directory}/yokai_web_bg.wasm${BUILD_QUERY}`, import.meta.url)
+            });
             rustGame = await module.createGame(
                 modelBytes,
                 metadataJson,

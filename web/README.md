@@ -75,6 +75,21 @@ archive, a minimal archive containing the accepted native checkpoint, and
 extracted at the repository root. It intentionally excludes optimizer state,
 training snapshots and self-play data.
 
+## Files kept by the browser
+
+A browser keeps the files of a site in its cache and does not always ask the
+server whether they changed. After a new deployment it could then show the new
+page with the previous stylesheet, or run the new engine with the previous
+champion. To prevent this, the build writes a build identifier into
+`index.html`: the release version, or the time of the build for a development
+build. The page, its script and the worker add it to the address of every file
+they request (`app.css?v=v1.0.0`), so the files of two builds never share an
+address.
+
+`index.html` itself has a fixed address. Where the host allows it, serve that
+file with the `Cache-Control: no-cache` header, which makes the browser check
+for a new version at each visit.
+
 ## Run and deploy
 
 Serve the contents of `web/dist/`, rather than opening `index.html` through a

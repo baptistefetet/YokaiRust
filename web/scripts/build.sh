@@ -45,11 +45,22 @@ mkdir -p "$distribution"
 cp -R "$repository_root/web/static/"* "$distribution/"
 find "$distribution" -name .DS_Store -delete
 
-# The accepted characters cannot break the sed expression or the HTML.
-sed "s/@RELEASE_VERSION@/$release_version/" \
+# A browser keeps the files of a site in its cache and may combine a new page
+# with an old stylesheet or an old model. The page therefore requests every
+# file with this identifier in its address: a release uses its version, and a
+# development build the time of the build, so no two builds share an address.
+if [ "$release_version" = dev ]; then
+    build_id="dev-$(date +%Y%m%d%H%M%S)"
+else
+    build_id=$release_version
+fi
+
+# The accepted characters cannot break the sed expressions, the HTML or a URL.
+sed -e "s/@RELEASE_VERSION@/$release_version/g" \
+    -e "s/@BUILD_ID@/$build_id/g" \
     "$repository_root/web/static/index.html" > "$distribution/index.html"
-if grep -q '@RELEASE_VERSION@' "$distribution/index.html"; then
-    echo "The release version placeholder was not replaced in index.html." >&2
+if grep -q '@[A-Z_]*@' "$distribution/index.html"; then
+    echo "A build placeholder was not replaced in index.html." >&2
     exit 1
 fi
 

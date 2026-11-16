@@ -292,11 +292,11 @@ generation 35 scored **134 wins, 45 losses and 21 draws against generation
 color assignments favor it: 63–27–10 as First and 71–18–11 as Second. The
 arena ran while the training run was using the same machine.
 
-## The published champion: generation 46
+## Attempts 36 to 47
 
 The run continued from generation 35 with the same configuration. Its next
 twelve attempts promoted generations 38, 41, 45 and 46; release `web-v2.1.0`
-publishes **generation 46**.
+published **generation 46**.
 
 | Attempt | Source | Arena W–L–D | Score | Paired p | Probe draws | Verdict |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -327,10 +327,11 @@ that wins at once. The pipeline's arenas above and the earlier independent
 arenas ran before that rule, when the search played the most visited action
 even if another one won the game.
 
-## Attempts 48 to 57
+## The published champion: generation 53
 
-The run continues from generation 46 with the same configuration, for ten
-attempts in one command at revision `7332c5f`.
+The run continued from generation 46 with the same configuration, for ten
+attempts in one command at revision `7332c5f`. They promoted generations 49
+and 53; release `web-v2.2.0` publishes **generation 53**.
 
 Recorded before the first of these attempts: if at least one candidate is
 promoted, the champion accepted after attempt 57 plays one independent arena
@@ -339,6 +340,43 @@ at 400 simulations per move with base seed `20261500`. The training run does
 not use that seed, and its range is separate from those of the earlier
 independent arenas.
 
+| Attempt | Source | Arena W–L–D | Score | Paired p | Probe draws | Verdict | Duration |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 48 | 46 | 62–119–19 | 35.75% | 1.00 | 7.8% | rejected | 6 min 53 s |
+| 49 | 46 | 120–69–11 | 62.75% | 8.7 × 10⁻⁵ | 10.9% | promoted | 7 min 35 s |
+| 50 | 49 | 66–116–18 | 37.5% | 1.00 | 3.1% | rejected | 6 min 18 s |
+| 51 | 49 | 53–82–65 | 42.75% | 0.99 | 9.4% | rejected | 7 min 24 s |
+| 52 | 49 | 60–115–25 | 36.25% | 1.00 | 6.2% | rejected | 6 min 58 s |
+| 53 | 49 | 97–68–35 | 57.25% | 9.7 × 10⁻³ | 7.8% | promoted | 7 min 22 s |
+| 54 | 53 | 86–92–22 | 48.5% | 0.75 | 14.1% | rejected | 6 min 39 s |
+| 55 | 53 | 67–111–22 | 39.0% | 1.00 | 7.8% | rejected | 7 min 22 s |
+| 56 | 53 | 70–111–19 | 39.75% | 1.00 | 9.4% | rejected | 7 min 59 s |
+| 57 | 53 | 102–83–15 | 54.75% | 0.058 | 9.4% | rejected | 7 min 23 s |
+
+These figures come from the pipeline's generation reports, and the durations
+from the timestamps of the training log. The ten attempts took 1 h 11 min
+53 s; a web build and browser tests used the same machine during some of
+them. Six of the eight rejected candidates scored below 43% against their
+source. The last one, attempt 57, missed both gates narrowly: 54.75% for a
+threshold of 55%, and p = 0.058 for a limit of 0.05.
+
+In the independent arena recorded above, generation 53 scored **93 wins, 74
+losses and 33 draws against generation 46: 54.75% of points**, with a
+one-sided paired p-value of 0.097. The score is above one half, but this arena
+does not establish at the 0.05 level that generation 53 is stronger than
+generation 46. As First it scored 45–44–11, as Second 48–30–22.
+
+The two promotions on the way, at 62.75% and 57.25%, would suggest a larger
+gain. One reason for the gap is known in advance: a promotion arena keeps the
+candidates that happened to score well among several attempts, so the score
+of a promoted candidate overstates its real gain on average. The independent
+arena ran once, with a reference and a seed chosen beforehand, and involves
+no such selection.
+
+The self-play and the promotion arenas of these ten attempts ran with the
+search that always plays an action that wins at once, like the independent
+arenas of generations 46 and 53.
+
 ## Records
 
 | Files | Contents |
@@ -346,7 +384,7 @@ independent arenas.
 | [`protocol.json`](protocol.json) | Configuration and reference identifiers recorded before the run, and the criteria. |
 | [`training-observations.json`](training-observations.json), [`training-observations-30.json`](training-observations-30.json) | Every attempt's source, phase durations, self-play outcomes and lengths, final training and validation metrics, arena and probe: the first ten attempts, then all thirty. |
 | [`collect_observations.py`](collect_observations.py) | Builds the file above from the pipeline's reports, the stored replays and the training logs. |
-| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json`, [`arena-35-vs-29.json`](arena-35-vs-29.json), [`arena-46-vs-35.json`](arena-46-vs-35.json) | The independent arenas of generations 10, 29, 35 and 46. |
+| `arena-10-vs-{0,2,4}.json`, `arena-29-vs-{0,10,20}.json`, [`arena-35-vs-29.json`](arena-35-vs-29.json), [`arena-46-vs-35.json`](arena-46-vs-35.json), [`arena-53-vs-46.json`](arena-53-vs-46.json) | The independent arenas of generations 10, 29, 35, 46 and 53. |
 | [`endgame-distance/`](endgame-distance/) | The fixed-set validation of generations 0 to 10 after the tenth attempt, by number of plies before the end of the game. |
 | [`endgame-distance-30/`](endgame-distance-30/) | The same validation of generations 0 to 30 after the thirtieth attempt. |
 
@@ -358,6 +396,7 @@ The champions are identified by the SHA-256 hashes of their files.
 | 29 | `763cf4de87f3d246b218633e9c675ca77c6d72a5f3d1e5797fdde0ea7acf9ab4` | `f8d3b5d726f21feb8853db3ffaedcb207ec76baed78d98b96a1f88d13c51ea06` |
 | 35 | `b3b40b147a59213fdc4d06ddc444af95c432ae2e7a780392649b0dcdb8d6f4c4` | `4c8a03a996c426041a7ab8bc3b01ebf8ace6d907aab742eb5a7511d33d70769f` |
 | 46 | `8663f79eb95b81df0b546030623600cd4b1923ae6650400358ddbb1ec5b1c032` | `af18f5d3c236e105bc7ab8a69db50fb5c2fcfc11b761d03fbb1e7d29910130ca` |
+| 53 | `651656c66836d8e4d35b4f91a0d508eba5f6dafb3272dcb6660170ecf8e4b65e` | `7cc61a3ce24f423516b9fe85bab97efe247117381863e806be4daf15bc3ae4c2` |
 
 The independent arenas ran with `compare_saved_generations`, with an inference
 batch of at most 512 positions as in the pipeline's arena. Revision `720f393`,

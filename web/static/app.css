@@ -62,9 +62,31 @@ body {
     box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.3);
 }
 
+.menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+
 #menu-form h1 {
-    margin: 0 0 1rem;
+    margin: 0;
     font-size: 1.35rem;
+}
+
+/* The rulebook opens in another tab, so a game in progress is not lost. */
+#rules-link {
+    padding: 0.55rem 1rem;
+    border-radius: 0.65rem;
+    color: #27231f;
+    font-weight: 700;
+    text-decoration: none;
+    background: #ebe6de;
+}
+
+#rules-link::after {
+    content: " ↗";
 }
 
 #menu-form fieldset {

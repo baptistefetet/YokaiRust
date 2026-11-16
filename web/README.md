@@ -13,8 +13,10 @@ and automatically loads the Burn Flex CPU build when WebGPU is unavailable.
 The site plays the 5×6 game. Its options panel, opened on the first visit and
 then from the logo, chooses the number of human players: one against the
 accepted champion, who plays Second at the top, or two on the same screen. The
-choice is kept in the browser's local storage. The bottom-right corner of the
-page shows the release version and a link to the source repository.
+choice is kept in the browser's local storage. The panel also has a *Rules*
+button that opens the official English rulebook in another tab, so a game in
+progress is kept. The bottom-right corner of the page shows the release
+version and a link to the source repository.
 
 Snapshots carry everything the presentation needs to stay free of rules: board
 dimensions, the piece kinds a hand can hold, the promoted form of each kind,

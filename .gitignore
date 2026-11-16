@@ -6,3 +6,5 @@
 /web/generated/
 /web/release/
 .DS_Store
+/web/tests/node_modules/
+/web/tests/test-results/

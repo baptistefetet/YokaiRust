@@ -1,0 +1,12 @@
+{
+  "name": "yokai-web-tests",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests of the static site built in web/dist",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
+}

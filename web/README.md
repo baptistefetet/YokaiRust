@@ -109,26 +109,72 @@ If Rust is not installed on the web server, download the web archive from the
 and extract it into the HTTPS document root. All generated JavaScript,
 WebAssembly and champion files are included; no build step runs on the server.
 
-## Source and verification
+## Source
 
 Edit `web/crate/src/lib.rs` for the browser adapter and `web/static/` for
 presentation. `web/generated/` and `web/dist/` contain generated artifacts;
 editing generated `yokai_web.js` bindings will not change their Rust source.
 
-Before release, compile both WASM backends (the CI does this separately), run
-`./web/scripts/build.sh`, then serve `web/dist/` locally. The build must not
-print the `wasm-opt` warning: a release carries the size-optimized modules.
-Verify initial loading, a human move and AI reply, captures and drops, a move
-offered with and without promotion, a hand holding two pieces of one kind,
-game completion and reset.
-Play both a one-player and a two-player game, and check that the chosen option
-survives a reload. Inspect a mobile viewport as well as desktop, and check
-there that a touch opens the rulebook and the source repository. Exercise the
-Flex module explicitly even when WebGPU is available; successful fallback alone
-does not validate WebGPU. Check the browser console and failed requests, and
-ensure the release contains both WASM modules, model bytes, metadata and static
-assets.
+## Browser tests
 
-An automated browser often has no graphics adapter and then only exercises the
-Flex module. Check which `pkg-…` directory the page requested before concluding
-that WebGPU works.
+`web/tests/` holds automated tests that open the built site in a browser and
+play it. They use [Playwright](https://playwright.dev), a library that drives a
+browser from a script, with the Chromium that Playwright downloads for that
+purpose. The browser runs without a window, and the browsers installed on the
+machine are not used.
+
+Install both once; Node.js 20 or later is required:
+
+```bash
+cd web/tests
+npm ci
+npx playwright install --no-shell chromium
+```
+
+`npm ci` installs the Playwright version recorded in `package-lock.json` into
+`web/tests/node_modules`, ignored by Git. The second command downloads
+Chromium into Playwright's cache, shared by every project on the machine
+(`~/Library/Caches/ms-playwright` on macOS).
+
+After a build, run the tests from the repository root:
+
+```bash
+npm test --prefix web/tests
+```
+
+The tests serve `web/dist/` on a local port and play each scenario twice: in a
+desktop window driven with a mouse, where the page must load the WebGPU
+module, and on a phone-sized screen driven by touch, where the browser has no
+graphics adapter and the page must fall back to the Flex module. The first
+case needs a machine with a graphics adapter.
+
+| Scenario | What it checks |
+| --- | --- |
+| Loading | The page requests the expected `pkg-…` directory only, and every file except the page and its icon with the build identifier. |
+| One player | A person's move is answered by the champion; the game is played to its end and a new one starts from the result panel. |
+| Two players | Captures, a drop, a move played with and without promotion, a hand showing two pieces of one kind, the end of the game, the options opened from the logo, and the number of players kept after a reload. |
+
+A scenario also fails when the page reports an error or when one of its
+requests fails. To test another copy of the site, such as an extracted release
+archive, give its path:
+
+```bash
+YOKAI_WEB_ROOT=/path/to/site npm test --prefix web/tests
+```
+
+The board is drawn on a canvas, a single picture in which the browser cannot
+find a piece or a button. `web/tests/game-page.js` therefore reads their
+positions from the page's Phaser objects, then presses the screen there as a
+person would. It is the only test file that depends on the names used in
+`main.js`.
+
+## Before a release
+
+Compile both WASM backends (the CI does this separately), run
+`./web/scripts/build.sh`, then the browser tests. The build must not print the
+`wasm-opt` warning: a release carries the size-optimized modules.
+
+The tests do not judge what the page looks like. Serve `web/dist/` locally and
+look at the board in a desktop window and in a mobile viewport; check there
+that a touch opens the rulebook and the source repository. Ensure the release
+contains both WASM modules, model bytes, metadata and static assets.

@@ -21,7 +21,10 @@ cargo doc --no-deps
 
 - Public API additions must carry documentation that satisfies `cargo doc`.
 - After touching the web interface or the accepted champion, rebuild with
-  `./web/scripts/build.sh` and verify `web/dist/` stays deployable.
+  `./web/scripts/build.sh`, run the browser tests with
+  `npm test --prefix web/tests` and verify `web/dist/` stays deployable.
+- Drive a browser only through these tests, which use Playwright's own
+  Chromium; never automate a browser installed on the machine.
 - Build the static site with `./web/scripts/build.sh` and publish a release
   with `./web/scripts/package-release.sh vX.Y.Z`; published releases carry the
   deployable website and the minimal accepted checkpoint separately.

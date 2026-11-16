@@ -327,6 +327,18 @@ that wins at once. The pipeline's arenas above and the earlier independent
 arenas ran before that rule, when the search played the most visited action
 even if another one won the game.
 
+## Attempts 48 to 57
+
+The run continues from generation 46 with the same configuration, for ten
+attempts in one command at revision `7332c5f`.
+
+Recorded before the first of these attempts: if at least one candidate is
+promoted, the champion accepted after attempt 57 plays one independent arena
+against **generation 46**, the champion published until then, over 200 games
+at 400 simulations per move with base seed `20261500`. The training run does
+not use that seed, and its range is separate from those of the earlier
+independent arenas.
+
 ## Records
 
 | Files | Contents |

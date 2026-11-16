@@ -11,7 +11,7 @@ generation 35 had scored 72.25% against generation 29, and generation 29 had
 won all 200 games against the fixed reference, the random initialization of
 the run.
 
-[Release v2.2.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.2.0)
+[Release v2.2.1](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.2.1)
 carries this checkpoint and the web site that plays it. Training continues in
 the same lineage: `latest`, under the model path of `config/training.toml`,
 selects the newest accepted generation for play, training and browser export.
@@ -149,19 +149,21 @@ installed through the browser's automation interface, read the game state,
 and every action was a touch event. On each module, WebGPU in a window and
 Flex headless, it played a one-player game against the champion to its end,
 started a new game from the result panel and reloaded the page, which kept
-the chosen number of players. On Flex it also played 30 plies of a two-player
-game opened from the logo. The games included captures, drops, hands holding
-several pieces of one kind and moves chosen with and without promotion; the
-Flex games ran in a 390×844 mobile viewport. In that viewport a touch on the
-Rules button opened the rulebook and a touch on the version opened the source
-repository; the layout was inspected at four sizes from 320×568 to 1280×800.
-The site produced no page error and no failed request. Both archives pass
-SHA-256 verification.
+the chosen number of players. On Flex it also played a two-player game to its
+end, with the options opened from the logo. The games included captures,
+drops, hands holding several pieces of one kind and moves chosen with and
+without promotion; the Flex games ran in a 390×844 mobile viewport. In that
+viewport a touch on the Rules button opened the rulebook and a touch on the
+version opened the source repository. At four sizes from 320×568 to 1280×800
+the version stayed on the bottom-right corner of the board. Every file except
+the page itself and its icon was requested with the build identifier. The
+site produced no page error and no failed request. Both archives pass SHA-256
+verification.
 
 - `models/expert-5x6/`: the initial network and every candidate, with Adam
   states for trained candidates; `latest` selects the accepted generation.
 - `data/expert-5x6/`: self-play games, replay buffer and generation reports.
-- [Release v2.2.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.2.0):
+- [Release v2.2.1](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.2.1):
   deployable website and minimal checkpoint of generation 53 as separate
   archives.
 

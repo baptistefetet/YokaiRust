@@ -159,31 +159,36 @@ body {
     background: #ebe6de;
 }
 
-/* Release version and source link. The pill keeps them readable on the white
-   page as well as on the board when the canvas fills the whole window. */
+/* Release version and source link, one link as a whole so that a finger can
+   reach it. The pill keeps them readable on the white page as well as on the
+   board when the canvas fills the whole window. */
 #about {
     position: fixed;
-    right: 0.4rem;
-    bottom: max(0.3rem, env(safe-area-inset-bottom));
+    right: max(0.9rem, env(safe-area-inset-right));
+    bottom: max(0.9rem, env(safe-area-inset-bottom));
     z-index: 5;
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.15rem 0.4rem;
-    border-radius: 1rem;
+    gap: 0.45rem;
+    min-height: 2.25rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 1.2rem;
     color: #4c463f;
-    font-size: 0.65rem;
+    font-size: 0.85rem;
     line-height: 1;
+    text-decoration: none;
     background: rgba(255, 255, 255, 0.72);
 }
 
-#about a {
-    display: flex;
-    color: inherit;
+/* An invisible margin around the pill also receives the touch. */
+#about::before {
+    content: "";
+    position: absolute;
+    inset: -0.5rem;
 }
 
-#about a:hover,
-#about a:focus-visible {
+#about:hover,
+#about:focus-visible {
     color: #000000;
 }
 

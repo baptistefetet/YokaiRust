@@ -16,7 +16,8 @@ accepted champion, who plays Second at the top, or two on the same screen. The
 choice is kept in the browser's local storage. The panel also has a *Rules*
 button that opens the official English rulebook in another tab, so a game in
 progress is kept. The bottom-right corner of the page shows the release
-version and a link to the source repository.
+version and the GitHub mark; together they form one link to the source
+repository, large enough for a finger on a phone.
 
 Snapshots carry everything the presentation needs to stay free of rules: board
 dimensions, the piece kinds a hand can hold, the promoted form of each kind,
@@ -105,7 +106,8 @@ Verify initial loading, a human move and AI reply, captures and drops, a move
 offered with and without promotion, a hand holding two pieces of one kind,
 game completion and reset.
 Play both a one-player and a two-player game, and check that the chosen option
-survives a reload. Inspect a mobile viewport as well as desktop. Exercise the
+survives a reload. Inspect a mobile viewport as well as desktop, and check
+there that a touch opens the rulebook and the source repository. Exercise the
 Flex module explicitly even when WebGPU is available; successful fallback alone
 does not validate WebGPU. Check the browser console and failed requests, and
 ensure the release contains both WASM modules, model bytes, metadata and static

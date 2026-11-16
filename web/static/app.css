@@ -17,6 +17,11 @@ body,
     margin: 0;
 }
 
+/* Reference box of the version and source link. */
+#app {
+    position: relative;
+}
+
 body {
     overflow: hidden;
     background: #ffffff;
@@ -160,36 +165,35 @@ body {
 }
 
 /* Release version and source link, one link as a whole so that a finger can
-   reach it. The pill keeps them readable on the white page as well as on the
-   board when the canvas fills the whole window. */
+   reach it. It lies on the bottom-right corner of the board image: main.js
+   sets `right` and `bottom` to that corner whenever the canvas moves. */
 #about {
-    position: fixed;
-    right: max(0.9rem, env(safe-area-inset-right));
-    bottom: max(0.9rem, env(safe-area-inset-bottom));
+    position: absolute;
+    right: 0;
+    bottom: 0;
     z-index: 5;
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    min-height: 2.25rem;
-    padding: 0.4rem 0.8rem;
-    border-radius: 1.2rem;
-    color: #4c463f;
+    gap: 0.4rem;
+    margin: 0.3rem 0.4rem;
+    padding: 0.4rem;
+    color: #000000;
     font-size: 0.85rem;
+    font-weight: 600;
     line-height: 1;
     text-decoration: none;
-    background: rgba(255, 255, 255, 0.72);
 }
 
-/* An invisible margin around the pill also receives the touch. */
+/* An invisible margin around the link also receives the touch. */
 #about::before {
     content: "";
     position: absolute;
-    inset: -0.5rem;
+    inset: -0.3rem;
 }
 
 #about:hover,
 #about:focus-visible {
-    color: #000000;
+    text-decoration: underline;
 }
 
 #loading.ready {

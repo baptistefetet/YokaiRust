@@ -15,9 +15,10 @@ then from the logo, chooses the number of human players: one against the
 accepted champion, who plays Second at the top, or two on the same screen. The
 choice is kept in the browser's local storage. The panel also has a *Rules*
 button that opens the official English rulebook in another tab, so a game in
-progress is kept. The bottom-right corner of the page shows the release
+progress is kept. The bottom-right corner of the board shows the release
 version and the GitHub mark; together they form one link to the source
-repository, large enough for a finger on a phone.
+repository, large enough for a finger on a phone. The link is an HTML element
+that the page keeps over that corner of the canvas at any window size.
 
 Snapshots carry everything the presentation needs to stay free of rules: board
 dimensions, the piece kinds a hand can hold, the promoted form of each kind,

@@ -147,6 +147,10 @@ class GameScene extends Phaser.Scene {
             'board'
         );
         this.cameras.main.setBackgroundColor('#ffffff');
+        this.placeAbout();
+        this.scale.on('resize', () => {
+            this.placeAbout();
+        });
         this.createLogo();
         this.createGameOverModal();
         this.bindMenu();
@@ -170,6 +174,17 @@ class GameScene extends Phaser.Scene {
         } catch (error) {
             this.showFatalError(error);
         }
+    }
+
+    // The version and source link is an HTML element above the canvas. Phaser
+    // scales the canvas and centres it in the window, so the link follows the
+    // bottom-right corner of the board image each time the canvas moves.
+    placeAbout() {
+        const about = document.getElementById('about');
+        const page = document.getElementById('app').getBoundingClientRect();
+        const board = this.game.canvas.getBoundingClientRect();
+        about.style.right = `${page.right - board.right}px`;
+        about.style.bottom = `${page.bottom - board.bottom}px`;
     }
 
     squareWidth() {

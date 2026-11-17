@@ -20,8 +20,9 @@ and every public item documented.
   concept the code relies on, from the glossary to the promotion gates.
 - [Training results](docs/training-results.md) — the published champion, its
   training configuration, independent evaluation and limits.
-- [Training run records](docs/experiments/2026-11-14/README.md) — protocol,
-  per-attempt observations and raw measurements behind those results.
+- The training records preserve the protocols, per-attempt observations and
+  independent matches. [Initial run](docs/experiments/2026-11-14/README.md) ·
+  [Three-promotion continuation](docs/experiments/2026-11-17/README.md)
 - [Next steps](docs/next-steps.md) — proposed priorities, their rationale and
   completion criteria for future work.
 - [Web build guide](web/README.md) — building and deploying the browser mode.

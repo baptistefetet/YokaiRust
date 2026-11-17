@@ -12,12 +12,11 @@ The web interface remains dedicated to playing. Diagnostics belong in the TUI.
 
 ## 1. Strengthen the 5×6 champion
 
-Champions beat their predecessors clearly in independent arenas until the
-latest one, whose arena shows a gain too small to be credible. The policy
-head kept improving over the attempts measured. The value head is the weak
-part: on games it has never trained on, it reads the last plies of a game
-well but predicts the outcome of a middle-game position no better than giving
-each result one chance in three. The training report gives the measurements.
+The independent match against the previous web champion shows a credible
+gain at the standard search budget. The most recent fixed-set measurements of
+the policy and value heads cover earlier checkpoints. Repeating those
+measurements would show how the current champion evaluates middle-game
+positions and positions near the end. [Training results](training-results.md)
 
 Continue the run under its recorded protocol, and repeat the fixed-set
 validation by distance to the end of the game and the independent arenas at

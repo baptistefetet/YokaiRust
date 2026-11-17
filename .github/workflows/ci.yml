@@ -28,7 +28,7 @@ jobs:
         run: cargo doc --no-deps
 
   wasm:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         backend: [flex, webgpu]
@@ -44,7 +44,7 @@ jobs:
         run: cargo clippy --locked -p yokai-web --target wasm32-unknown-unknown --no-default-features --features ${{ matrix.backend }} -- -D warnings
 
   browser:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -75,5 +75,5 @@ jobs:
         working-directory: web/tests
         run: |
           npm ci
-          npx playwright install --no-shell chromium
+          npx playwright install --with-deps --no-shell chromium
           npm test -- --project=mobile-flex --grep 'loads the files of one build'

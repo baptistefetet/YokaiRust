@@ -40,7 +40,7 @@ Binaryen provides `wasm-opt`, a tool that rewrites a compiled WebAssembly
 module into a smaller one with the same behavior. The build script runs it on
 both browser modules. Without it the script still produces a working site, but
 it prints a warning and leaves the modules at their compiled size: install it
-before packaging a release. Where Homebrew is not available, Binaryen comes
+before packaging a release. The packaging command requires it. Where Homebrew is not available, Binaryen comes
 from the system's package manager or from its
 [releases](https://github.com/WebAssembly/binaryen/releases).
 
@@ -72,7 +72,9 @@ To build the site and prepare versioned release archives with checksums, run:
 This writes ignored artifacts under `web/release/`: a ready-to-deploy web
 archive, a minimal archive containing the accepted native checkpoint, and
 `SHA256SUMS`. The model archive preserves its `models/...` path and can be
-extracted at the repository root. It intentionally excludes optimizer state,
+extracted at the repository root. Both archives use the accepted generation read
+at the start of packaging, even if training promotes a new champion during the build.
+The checkpoint archive excludes optimizer state,
 training snapshots and self-play data.
 
 ## Files kept by the browser

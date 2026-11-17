@@ -7,6 +7,11 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     exit 1
 fi
 
+if ! command -v wasm-opt >/dev/null 2>&1; then
+    echo "Install Binaryen (wasm-opt) before packaging a release." >&2
+    exit 1
+fi
+
 release_version=$1
 case "$release_version" in
     ''|*[!A-Za-z0-9._-]*)
@@ -63,7 +68,7 @@ for required_file in "$metadata_file" "$weights_file"; do
     fi
 done
 
-"$script_directory/build.sh" "$release_version"
+"$script_directory/build.sh" "$release_version" "$generation"
 
 distribution="$repository_root/web/dist"
 for required_file in \
@@ -88,8 +93,13 @@ checksum_file="$release_directory/SHA256SUMS"
 # Finder writes a .DS_Store into any folder it displays, possibly after the
 # build removed them, so the web archive leaves those files out.
 COPYFILE_DISABLE=1 tar --no-xattrs --exclude .DS_Store -czf "$web_archive" -C "$distribution" .
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$champion_archive" -C "$repository_root" \
-    "$model_directory/latest" \
+# The live pointer can advance while the two WASM modules are building.
+staging=$(mktemp -d)
+trap 'rm -rf -- "$staging"' EXIT
+mkdir -p "$staging/$model_directory"
+printf '%s\n' "$generation" > "$staging/$model_directory/latest"
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$champion_archive" -C "$staging" \
+    "$model_directory/latest" -C "$repository_root" \
     "$generation_directory/metadata.json" \
     "$generation_directory/model.safetensors"
 

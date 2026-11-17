@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -gt 1 ]; then
-    echo "Usage: $0 [release-version]" >&2
+if [ "$#" -gt 2 ]; then
+    echo "Usage: $0 [release-version [generation]]" >&2
     echo "Example: $0 v1.0.0" >&2
     exit 1
 fi
@@ -64,9 +64,11 @@ if grep -q '@[A-Z_]*@' "$distribution/index.html"; then
     exit 1
 fi
 
+# Packaging supplies the generation it read from the accepted pointer.
+if [ "$#" -gt 0 ]; then shift; fi
 cargo run --release --bin export-web-model -- \
     "$repository_root/config/training.toml" \
-    "$distribution/model"
+    "$distribution/model" "$@"
 
 cargo build -p yokai-web \
     --target wasm32-unknown-unknown \

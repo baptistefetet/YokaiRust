@@ -6,7 +6,7 @@ use burn::{
     module::Module,
     record::{BinBytesRecorder, FullPrecisionSettings, Recorder},
 };
-use yokai::{CpuBackend, TrainingConfig, load_champion};
+use yokai::{CpuBackend, TrainingConfig, load_champion, load_generation};
 
 fn main() -> ExitCode {
     match run() {
@@ -43,13 +43,22 @@ fn run() -> Result<(), Box<dyn Error>> {
     let output = arguments
         .next()
         .map_or_else(|| PathBuf::from("web/generated/model"), PathBuf::from);
+    let generation = arguments
+        .next()
+        .map(|value| value.parse::<u32>())
+        .transpose()?;
     if let Some(extra) = arguments.next() {
         return Err(format!("unexpected argument `{extra}`").into());
     }
 
     let config = TrainingConfig::load(config_path)?;
     let device = burn::backend::flex::FlexDevice;
-    let (model, metadata) = load_champion::<CpuBackend>(&config.paths.models, &device)?;
+    let (model, metadata) = match generation {
+        Some(generation) => {
+            load_generation::<CpuBackend>(&config.paths.models, generation, &device)?
+        }
+        None => load_champion::<CpuBackend>(&config.paths.models, &device)?,
+    };
     let bytes =
         BinBytesRecorder::<FullPrecisionSettings>::default().record(model.into_record(), ())?;
 

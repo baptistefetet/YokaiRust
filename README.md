@@ -18,11 +18,8 @@ and every public item documented.
   ownership, error handling and module boundaries, explained for a Rust beginner.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
-- [Training results](docs/training-results.md) — the published champion, its
-  training configuration, independent evaluation and limits.
-- The training records preserve the protocols, per-attempt observations and
-  independent matches. [Initial run](docs/experiments/2026-11-14/README.md) ·
-  [Three-promotion continuation](docs/experiments/2026-11-17/README.md)
+- [Training results](docs/training-results.md) — how the published champion
+  was trained and evaluated, with links to the experiment reports.
 - [Next steps](docs/next-steps.md) — proposed priorities, their rationale and
   completion criteria for future work.
 - [Web build guide](web/README.md) — building and deploying the browser mode.
@@ -39,9 +36,8 @@ and every public item documented.
   replay analysis, plus the same engine compiled to WebAssembly for the
   browser.
 - The `latest` checkpoint pointer selects the accepted champion for play and
-  training. A champion trained from random initialization plays in the
-  terminal and in the browser; [training results](docs/training-results.md)
-  describe it. The
+  training. The terminal and browser use the same champion, trained from
+  random initialization. The
   [latest release](https://github.com/baptistefetet/YokaiRust/releases/latest)
   publishes the web site and that champion's checkpoint.
 - The project first implemented the 3×4 game. That version is archived at the

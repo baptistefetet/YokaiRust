@@ -2,27 +2,20 @@
 
 The 5×6 rules, terminal and web interfaces, neural encoder and policy mapping
 are implemented and verified; [Rules of the 5×6 game](rules.md) states them.
-A champion has been trained from random initialization and is published with
-the web site: [training results](training-results.md) describe it, and the
-[records of its training run](experiments/2026-11-14/README.md) hold the
-protocol, the fixed reference and the raw measurements. The
-[reading guide](reading-guide.md) describes the implementation.
+The [training results](training-results.md) describe the published champion
+and link to its measurements. The [reading guide](reading-guide.md) describes
+the implementation.
 
 The web interface remains dedicated to playing. Diagnostics belong in the TUI.
 
 ## 1. Strengthen the 5×6 champion
 
-The independent match against the previous web champion shows a credible
-gain at the standard search budget. The most recent fixed-set measurements of
-the policy and value heads cover earlier checkpoints. Repeating those
-measurements would show how the current champion evaluates middle-game
-positions and positions near the end. [Training results](training-results.md)
-
-Continue the run under its recorded protocol, and repeat the fixed-set
-validation by distance to the end of the game and the independent arenas at
-regular intervals. If the value head stops improving, change one thing at a
-time, in this order: the amount of self-play data per attempt, then loss
-weighting or decisive-endgame sampling.
+Measure playing strength at regular intervals with paired games against a
+fixed reference under the recorded protocol. Evaluate the policy and value
+heads on the same held-out positions, grouped by distance from the end of the
+game. This shows where predictions improve and where they still struggle.
+If the value head stops improving, first vary the amount of self-play data
+per attempt, then test loss weighting or decisive-endgame sampling separately.
 
 The network comes last. Its policy head ends in a single dense layer that
 holds 59% of the 1.17 million parameters and ignores which square an action

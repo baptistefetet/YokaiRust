@@ -55,6 +55,8 @@ cargo doc --no-deps
   directly without assuming knowledge of another systems programming language.
 - Describe the current implementation in the guides. Keep measurement
   provenance and checkpoint identifiers in the training results and reports.
+- Keep one stable link from the root README to `docs/training-results.md`.
+  Put links to individual runs and matches in the training results.
 - Present the current validated baseline without narrating development history
   or conversation decisions. Preserve raw experiment records for verification.
 

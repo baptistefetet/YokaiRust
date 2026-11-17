@@ -30,3 +30,51 @@ simulations per move, eight leaves per inference, no search noise, 0–4 random
 opening plies and base seed `20261750`. A win earns one point and a draw half.
 Publish a new web release if the new champion scores more than 200 points.
 Report the paired p-value separately to quantify the evidence of a strength gain.
+
+## Training outcomes
+
+Each row covers 256 self-play games, 400 optimizer updates, a 200-game arena
+and a 64-game productivity probe. The full generation reports contain the
+training and validation losses, paired scores, seat breakdowns and replay statistics.
+
+| Attempt | Source | Wins / losses / draws | Score | Paired p | Probe draws | Decision |
+| ---: | ---: | --- | ---: | ---: | ---: | --- |
+| [58](reports/generation-000058.json) | 53 | 78 / 87 / 35 | 47.75% | 0.7719 | 12/64 | Rejected |
+| [59](reports/generation-000059.json) | 53 | 123 / 71 / 6 | 63.00% | 2.56e-05 | 6/64 | Promoted |
+| [60](reports/generation-000060.json) | 59 | 70 / 95 / 35 | 43.75% | 0.9838 | 1/64 | Rejected |
+| [61](reports/generation-000061.json) | 59 | 81 / 83 / 36 | 49.50% | 0.5939 | 9/64 | Rejected |
+| [62](reports/generation-000062.json) | 59 | 107 / 75 / 18 | 58.00% | 0.01892 | 5/64 | Promoted |
+| [63](reports/generation-000063.json) | 62 | 74 / 75 / 51 | 49.75% | 0.5671 | 7/64 | Rejected |
+| [64](reports/generation-000064.json) | 62 | 129 / 56 / 15 | 68.25% | 1.088e-07 | 7/64 | Promoted |
+
+## Independent match
+
+Generation 64 scored **238.5/400 points (59.625%)** against
+generation 53 with 227 wins, 150 losses and 23 draws. The paired
+one-sided p-value was 4.991e-06 across 200 pairs
+and 143 distinct opening histories. The candidate
+won the scheduled match. [Full arena record](arena-64-vs-53.json)
+
+| Candidate seat | Wins | Losses | Draws | Score |
+| --- | ---: | ---: | ---: | ---: |
+| First | 118 | 70 | 12 | 62.00% |
+| Second | 109 | 80 | 11 | 57.25% |
+
+Generation 64 checkpoint hashes
+
+| File | SHA-256 |
+| --- | --- |
+| metadata.json | `77e5e3b315aa34db9077d6b55ea68b798d9549592e0db060ba073d02eef10e7a` |
+| model.safetensors | `7aeefdc9e680f6cd593a21f7fd109192c04e291ab32191c6f93528e0914c5c81` |
+
+## Reproducing the independent match
+
+Run from the repository root with the two recorded checkpoints available.
+The report destination must be a new file.
+
+```bash
+YOKAI_CANDIDATE_MODELS=models/expert-5x6 YOKAI_CANDIDATE_GENERATION=64 \
+YOKAI_REFERENCE_MODELS=models/expert-5x6 YOKAI_REFERENCE_GENERATION=53 \
+YOKAI_ARENA_GAMES=400 YOKAI_ARENA_SEED=20261750 YOKAI_ARENA_REPORT=arena-rerun.json \
+cargo bench --bench performance -- compare_saved_generations
+```

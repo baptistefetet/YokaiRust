@@ -39,7 +39,8 @@ pub struct LossMetrics {
     /// Entropy of predicted policy probabilities.
     pub policy_entropy: f32,
     /// Mean absolute scalar outcome error.
-    pub value_calibration_error: f32,
+    #[serde(alias = "value_calibration_error")]
+    pub value_mean_absolute_error: f32,
     /// Predicted probability mass assigned to illegal actions.
     pub illegal_policy_mass: f32,
     /// Fraction whose highest policy logit matches the target's highest mass.
@@ -443,7 +444,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
         .equal(batch.wdl.clone().argmax(1))
         .float()
         .mean();
-    let calibration = value_error.abs().mean();
+    let value_mae = value_error.abs().mean();
     let draw_probability_error = (wdl_probabilities.narrow(1, 1, 1) - batch.wdl.narrow(1, 1, 1))
         .abs()
         .mean();
@@ -462,7 +463,7 @@ fn forward_losses<B: Backend<FloatElem = f32>>(
             wdl_loss.detach(),
             scalar_value_loss.detach(),
             entropy.detach(),
-            calibration.detach(),
+            value_mae.detach(),
             illegal_mass.detach(),
             top1.detach(),
             wdl_top1.detach(),
@@ -487,7 +488,7 @@ fn read_metrics<B: Backend<FloatElem = f32>>(losses: &BatchLosses<B>) -> LossMet
         wdl_loss: values[2],
         scalar_value_loss: values[3],
         policy_entropy: values[4],
-        value_calibration_error: values[5],
+        value_mean_absolute_error: values[5],
         illegal_policy_mass: values[6],
         policy_top1_accuracy: values[7],
         wdl_top1_accuracy: values[8],
@@ -546,7 +547,7 @@ impl MetricAccumulator {
         self.weighted.wdl_loss += metrics.wdl_loss * weight;
         self.weighted.scalar_value_loss += metrics.scalar_value_loss * weight;
         self.weighted.policy_entropy += metrics.policy_entropy * weight;
-        self.weighted.value_calibration_error += metrics.value_calibration_error * weight;
+        self.weighted.value_mean_absolute_error += metrics.value_mean_absolute_error * weight;
         self.weighted.illegal_policy_mass += metrics.illegal_policy_mass * weight;
         self.weighted.policy_top1_accuracy += metrics.policy_top1_accuracy * weight;
         self.weighted.wdl_top1_accuracy += metrics.wdl_top1_accuracy * weight;
@@ -573,7 +574,7 @@ impl MetricAccumulator {
             wdl_loss,
             scalar_value_loss,
             policy_entropy: self.weighted.policy_entropy / divisor,
-            value_calibration_error: self.weighted.value_calibration_error / divisor,
+            value_mean_absolute_error: self.weighted.value_mean_absolute_error / divisor,
             illegal_policy_mass: self.weighted.illegal_policy_mass / divisor,
             policy_top1_accuracy: self.weighted.policy_top1_accuracy / divisor,
             wdl_top1_accuracy: self.weighted.wdl_top1_accuracy / divisor,

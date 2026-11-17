@@ -571,13 +571,13 @@ fn percentage(completed: usize, total: usize) -> f64 {
 
 fn format_loss_metrics(metrics: &yokai::LossMetrics) -> String {
     format!(
-        "policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} calibration={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
+        "policy_loss={:.4} WDL_loss={:.4} scalar_MSE={:.4} policy_weight={:.3} entropy={:.4} value_MAE={:.4} illegal_mass={:.4} policy_top1={:.3} WDL_top1={:.3} draw_error={:.3}",
         metrics.policy_loss,
         metrics.wdl_loss,
         metrics.scalar_value_loss,
         metrics.mean_policy_weight,
         metrics.policy_entropy,
-        metrics.value_calibration_error,
+        metrics.value_mean_absolute_error,
         metrics.illegal_policy_mass,
         metrics.policy_top1_accuracy,
         metrics.wdl_top1_accuracy,

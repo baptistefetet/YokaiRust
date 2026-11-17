@@ -447,7 +447,8 @@ measurements is a training label.
 | scalar value MSE | Squared error of `P(win) - P(loss)` against `+1/0/-1` | Measures the ordered auxiliary objective; it must improve without hiding poor draw classification. |
 | policy top-1 | Agreement with the largest visit target | Useful learning signal, not a strength score. |
 | WDL top-1 | Agreement with observed result class | Can hide poor draw calibration if read alone. |
-| draw error | Error in predicted draw probability | Rising values expose draw miscalibration. |
+| value MAE | Mean absolute difference between predicted value and final score (+1, 0 or −1) | An uncertain position can have a large error even with accurate outcome probabilities. |
+| draw error | Mean absolute difference between predicted draw probability and observed draw indicator | Check probability calibration separately by comparing predicted and observed frequencies across groups of positions. |
 | illegal mass | Raw probability wasted on illegal actions | Should fall as representation learning improves. |
 | entropy | Spread of predicted actions | Sudden collapse can indicate premature certainty. |
 | repetition mass | Visit mass on already seen positions | Compare draw starter and non-starter buckets. |

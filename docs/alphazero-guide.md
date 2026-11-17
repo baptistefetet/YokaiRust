@@ -396,27 +396,17 @@ the targets, and the trajectory remains related to its source family.
 
 Configuration keys: `restart_fraction` (0.25) and `restart_simulations` (800).
 
-### 4. Policy supervision rejects a known repeating action
+### 4. Policy targets in drawn games
 
-Every example still trains WDL at full weight. The starter's moves in a draw
-also remain normal policy examples because they describe a successful defence.
-For the non-starter, however, the final draw proves that the complete conversion
-attempt failed. Its ordinary policy weight is therefore zero for positions in
-that drawn trajectory. There is one useful exception: if the generic rules say
-that an available action would immediately create the third repetition, that
-action is removed from the recorded MCTS distribution and the remaining visit
-probabilities are renormalized to sum to one.
+The configured `non_starter_draw_policy_weight` of 1.0 gives both players the
+full MCTS visit distribution, including visits to moves that repeat a position.
+Every example also trains the value head on the official outcome.
 
-This does not claim that one remaining action wins. It makes only the observation
-provided by the rules and the completed game: this exact action draws, which is
-an unwanted result for the converter. MCTS still decides the relative preference
-among every alternative. If it visited none, policy supervision stays omitted.
-The official draw remains a full WDL target in all cases, and policy for the
-non-starter is still learned normally from every decisive game.
-
-Configuration key: `non_starter_draw_policy_weight`. At `0.0`, the
-non-starter's drawn-game policy targets are omitted as described above. The
-checked-in configuration uses `1.0`, which keeps them at full weight.
+A weight below 1.0 enables an experimental preference for avoiding draws for
+the player who moved second. If an available move causes a third repetition
+and other moves received visits, training removes the repeating moves and
+normalizes the remaining visits to sum to one. This adjusted target receives
+full weight. Otherwise the original target receives the configured weight.
 
 ## Promotion measurements
 

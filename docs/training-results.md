@@ -47,8 +47,9 @@ self-play. Their attempt's games still enrich the replay buffer.
 The learning rate stays at 0.001. Decisive-tail oversampling applies to the
 first ten attempts. Mirrored positions augment training examples; restarts
 inherit their root trajectory's train/validation family. A draw is worth zero
-to both players in search, and both players' moves are imitated in drawn
-games.
+to both players in search. Through attempt 57, the policy target for the player
+who moved second in a drawn game discarded immediate third repetitions when
+other moves had received visits, even with a policy weight of 1.0.
 
 ## Observed training results
 

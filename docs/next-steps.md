@@ -42,8 +42,7 @@ change.
 `starter_draw_value`, `repetition_contempt` and
 `non_starter_draw_policy_weight` adapt search and training to a game in which
 the starter defends and the other player must convert. The checked-in
-configuration sets all three to their neutral value, and the published
-champion was trained without them. They still run through search, self-play,
+configuration sets all three to their neutral value. They still run through search, self-play,
 the trainer, the diagnostics and their tests.
 
 Remove them between two training runs, not during one: the configuration file

@@ -500,11 +500,7 @@ fn policy_supervision(
     example: &TrainingExample,
     non_starter_draw_weight: f32,
 ) -> ([f32; POLICY_ACTIONS], f32) {
-    // A draw proves that the non-starter's complete policy trajectory failed to
-    // convert, so the ordinary target is omitted. If an action would cause the
-    // third repetition, however, the rules identify that exact failure. Remove
-    // it and retain only MCTS's relative preference among the alternatives.
-    if example.value != 0.0 || example.current_player_is_starter {
+    if non_starter_draw_weight == 1.0 || example.value != 0.0 || example.current_player_is_starter {
         return (example.policy, 1.0);
     }
     let mut target = example.policy;
@@ -630,6 +626,10 @@ mod tests {
 
         let mut immediate_draw = ordinary_draw;
         immediate_draw.action_repetition_counts[0] = 3;
+        assert_eq!(
+            policy_supervision(&immediate_draw, 1.0),
+            (immediate_draw.policy, 1.0)
+        );
         let (corrected_target, corrected_weight) = policy_supervision(&immediate_draw, weight);
         assert!(corrected_target[0].abs() < f32::EPSILON);
         assert!((corrected_target[1] - 1.0).abs() < f32::EPSILON);

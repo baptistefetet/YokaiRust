@@ -713,6 +713,22 @@ impl Position {
         self.legal_steps().next().is_some() || self.legal_drops().next().is_some()
     }
 
+    /// Every piece moves one square, so only neighbors of the opposing
+    /// Koropokkuru can capture it. A movable piece always has at least one
+    /// legal promotion choice, including a Kodama reaching the last rank.
+    pub(crate) fn can_capture_koropokkuru(&self) -> bool {
+        let king = Piece::new(PieceKind::Koropokkuru, self.side_to_move.opponent());
+        Square::ALL
+            .into_iter()
+            .find(|&square| self.piece_at(square) == Some(king))
+            .is_some_and(|target| {
+                KOROPOKKURU_MOVES
+                    .iter()
+                    .filter_map(|&(row, column)| target.offset(row, column))
+                    .any(|from| self.movable_piece(from, target).is_some())
+            })
+    }
+
     // A "step" is a board move without its promotion flag. This lazy traversal
     // supports complete enumeration, early exit and the drop-checkmate test.
     fn legal_steps(&self) -> impl Iterator<Item = (Piece, Square, Square)> + '_ {

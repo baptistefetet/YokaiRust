@@ -36,7 +36,7 @@ These terms occur in logs, configuration and source names:
 | **Adam** | The optimizer updating parameters from gradients while remembering moving averages of past gradients. |
 | **learning rate** | Size of each optimizer update. Too large can damage a mature policy; too small slows learning. |
 | **Dirichlet noise** | Random probability mass mixed into root priors during self-play so different actions are explored. |
-| **temperature** | Sharpness dial when sampling a move from visit counts: `T = 1` samples proportionally, `T → 0` plays the most visited action. An action that wins at once is played at any temperature. |
+| **temperature** | Controls sampling among the eligible moves. At `T = 1` their chances follow their visit counts. As `T → 0`, the most visited eligible move is played. An immediate win takes precedence at every temperature. |
 | **subtree reuse** | Keeping the search tree below the action actually played, so the next search starts warm instead of from scratch. |
 | **virtual loss** | Temporary penalty on a path whose leaf is still waiting for its batched evaluation, so parallel simulations spread out instead of piling onto one line. |
 | **contempt** | A search-only bias against (or toward) draws. It changes move choice during search, never the official game result. |
@@ -489,6 +489,9 @@ therefore be a promising continuation while another action ends the game.
 The search settles that case with the rules alone. When a legal action wins at
 once, by capturing the opposing Koropokkuru or by leaving the opponent without
 a legal action, that action is played whatever the visit counts and the
-temperature say. The policy target still stores the raw visit distribution.
-Nothing favors a shorter win beyond that single ply: the search can still
-choose a longer line over a forced win in a few moves.
+temperature say. Otherwise, the search prefers moves that keep the opponent
+from capturing the Koropokkuru on the next turn. All pieces move a single
+square, so only neighbors of the king need checking. A move that ends the
+game in a draw also avoids capture. If every move exposes the king, all
+legal moves remain eligible. The policy target still records visits to every
+move explored. Wins further ahead are evaluated through simulations.

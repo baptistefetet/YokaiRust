@@ -254,6 +254,74 @@ fn an_immediate_win_is_played_even_when_the_visits_favor_another_action() {
 }
 
 #[test]
+fn a_threatened_king_takes_the_samurai_even_if_all_visits_go_elsewhere() {
+    let mut pieces = vec![
+        (0, 0, PieceKind::Koropokkuru, Player::Second),
+        (1, 0, PieceKind::Kodama, Player::Second),
+        (0, 1, PieceKind::KodamaSamurai, Player::First),
+        (5, 2, PieceKind::Koropokkuru, Player::First),
+    ];
+    let blunder: Action = "a5-a4".parse().unwrap();
+    let capture: Action = "a6-b6".parse().unwrap();
+    let recommended = blunder.policy_index(Player::Second).unwrap().as_usize();
+    let game = Game::from_position(position_with(&pieces, [[0; 3]; 2], Player::Second));
+    for temperature in [0.0, 0.5, 1.0] {
+        let mut search = Mcts::new(
+            ConfidentElsewhereEvaluator { recommended },
+            search_config(2),
+            7,
+        )
+        .unwrap();
+        let result = search.search(&game, temperature).unwrap();
+        assert_eq!(result.policy[recommended], 1.0);
+        assert_eq!(result.best_action, capture);
+        assert_eq!(result.selected_action, capture);
+    }
+
+    // A Kirin now protects the Samurai. Every move allows b6-a6, so the
+    // player must still play a legal move even though the king cannot escape.
+    pieces.push((0, 2, PieceKind::Kirin, Player::First));
+    let mut trapped = Game::from_position(position_with(&pieces, [[0; 3]; 2], Player::Second));
+    let mut search = Mcts::new(UniformEvaluator, search_config(2), 7).unwrap();
+    let reply = search.search(&trapped, 1.0).unwrap().selected_action;
+    trapped.apply(reply).unwrap();
+    assert!(trapped.is_legal_action("b6-a6".parse().unwrap()));
+}
+
+#[test]
+fn a_repetition_draw_is_a_defense_even_when_the_king_stays_under_attack() {
+    let position = position_with(
+        &[
+            (0, 0, PieceKind::Koropokkuru, Player::Second),
+            (1, 4, PieceKind::Kirin, Player::Second),
+            (0, 1, PieceKind::KodamaSamurai, Player::First),
+            (5, 2, PieceKind::Koropokkuru, Player::First),
+        ],
+        [[0; 3]; 2],
+        Player::First,
+    );
+    let mut game = Game::from_position(position);
+    let cycle = ["c1-d1", "e5-e6", "d1-c1", "e6-e5"];
+    for step in cycle.iter().cycle().take(7) {
+        game.apply(step.parse().unwrap()).unwrap();
+    }
+    let draw: Action = "e6-e5".parse().unwrap();
+    let recommended = draw.policy_index(Player::Second).unwrap().as_usize();
+    let mut search = Mcts::new(
+        ConfidentElsewhereEvaluator { recommended },
+        search_config(2),
+        7,
+    )
+    .unwrap();
+    let result = search.search(&game, 0.0).unwrap();
+    assert_eq!(result.selected_action, draw);
+    assert!(matches!(
+        game.apply(draw).unwrap().outcome,
+        yokai::Outcome::Draw { .. }
+    ));
+}
+
+#[test]
 fn repetition_contempt_penalizes_only_the_player_causing_the_draw() {
     let position = position_with(
         &[

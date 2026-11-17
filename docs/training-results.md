@@ -8,7 +8,7 @@ paired p-value of **4.99 × 10⁻⁶**. It scored 62% as First and 57.25% as Sec
 
 The run started from random weights with seed `20261108`. Generation 64
 descends from generations 53, 59 and 62. The web release includes the static
-site and a separate native checkpoint. [Release v2.3.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.3.0)
+site and a separate native checkpoint. [Release v2.3.1](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.3.1)
 
 ## Training configuration
 
@@ -124,7 +124,7 @@ these durations are observations of this run, not a benchmark.
 
 ## Verification and artifacts
 
-The four required Rust checks passed, including 99 tests. The Metal diagnostic
+For v2.3.0 the four required Rust checks passed, including 99 tests. The Metal diagnostic
 restored the training state and ran an optimizer update. Binaryen optimized both
 WebAssembly modules. All six Playwright scenarios passed on the site extracted
 from the release archive using Chromium with desktop WebGPU and mobile Flex.

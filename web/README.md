@@ -172,7 +172,10 @@ person would. It is the only test file that depends on the names used in
 
 ## Before a release
 
-Compile both WASM backends (the CI does this separately), run
+CI checks both WASM backends and loads the built site with the mobile Flex
+Playwright project on a runner without a hardware GPU requirement.
+
+Compile both WASM backends, run
 `./web/scripts/build.sh`, then the browser tests. The build must not print the
 `wasm-opt` warning: a release carries the size-optimized modules.
 

@@ -42,3 +42,38 @@ jobs:
       # These backends are mutually exclusive; --all-features cannot check them.
       - name: Check browser backend
         run: cargo clippy --locked -p yokai-web --target wasm32-unknown-unknown --no-default-features --features ${{ matrix.backend }} -- -D warnings
+
+  browser:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the pinned toolchain and WASM target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install matching WASM bindings generator
+        run: |
+          version=$(cargo metadata --locked --format-version 1 | jq -re '.packages[] | select(.name == "wasm-bindgen").version')
+          cargo install --locked wasm-bindgen-cli --version "$version"
+      - name: Get the published model for the site build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo baptistefetet/YokaiRust --pattern 'yokai-champion-*.tar.gz' --dir "$RUNNER_TEMP/checkpoint"
+          tar -xzf "$RUNNER_TEMP"/checkpoint/yokai-champion-*.tar.gz
+      - name: Build the current site
+        run: ./web/scripts/build.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/tests/package-lock.json
+      - name: Load the built site with Playwright Chromium
+        working-directory: web/tests
+        run: |
+          npm ci
+          npx playwright install --no-shell chromium
+          npm test -- --project=mobile-flex --grep 'loads the files of one build'

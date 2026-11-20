@@ -1,14 +1,14 @@
-# Training baseline — 17 November 2026
+# Training baseline — 20 November 2026
 
-The published champion is **generation 64**. It beat the previous web champion,
-generation 53, with **227 wins, 150 losses and 23 draws** in a preplanned
-400-game match. Its score was **238.5 points (59.625%)**, with a one-sided
-paired p-value of **4.99 × 10⁻⁶**. It scored 62% as First and 57.25% as Second.
-[Independent match and protocol](experiments/2026-11-17/README.md)
+The published champion is **generation 80**. It beat the previous web
+champion, generation 64, with **281 wins, 53 losses and 66 draws** in 400
+games. The new champion scored **314 points (78.5%)**, earning 157 points
+from each seat. The one-sided paired p-value was **1.20 × 10⁻³⁵**.
+[Protocol, attempt reports and final match](experiments/2026-11-20/README.md)
 
-The run started from random weights with seed `20261108`. Generation 64
-descends from generations 53, 59 and 62. The web release includes the static
-site and a separate native checkpoint. [Release v2.3.1](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.3.1)
+The run started from random weights with seed `20261108`. The web release
+includes the ready-to-serve site and a separate native checkpoint.
+[Release v2.4.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.4.0)
 
 ## Training configuration
 
@@ -45,11 +45,12 @@ that weight preserves the full visit distribution for both players.
 
 ## Observed training results
 
-Through attempt 64, the run completed **64 attempts**, **30 promotions**,
-**16,384 self-play games** and **25,600 optimizer updates**. The seven attempts
-after attempt 57 promoted generations 59, 62 and 64. Generation 64 earned
-68.25% against its source, generation 62, with 129 wins, 56 losses and 15
-draws. Its productivity probe drew 7 of 64 games. [All seven attempt reports](experiments/2026-11-17/README.md#training-outcomes)
+Through attempt 80, the run completed **80 attempts**, **35 promotions**,
+**20,480 self-play games** and **32,000 optimizer updates**. Of the 16
+candidates trained after generation 64, generations 66, 72, 73, 76 and 80
+earned promotion. Generation 80 scored 61% against its source,
+generation 76. Its productivity probe drew 11 of 64 games.
+[All sixteen attempt reports](experiments/2026-11-20/README.md#training-outcomes)
 
 In the first thirty attempts, self-play games last 77 to 90 plies on average
 from the eleventh attempt on, far from the 256-ply limit. Their draws stay
@@ -64,7 +65,8 @@ of attempts 31 to 57.
 
 The fixed reference is generation 0 of the run, identified by its file hashes
 in the [protocol](experiments/2026-11-14/protocol.json). The arenas through generation 53 used
-200 games. Generation 64 played 400 games against the published reference.
+200 games. Generations 64 and 80 each played 400 games against the preceding
+published champion.
 All these matches use 400 simulations per move, with eight leaves per inference, no
 root noise and random legal openings of 0–4 plies. Each pair shares an opening
 and swaps colors. The seeds are not used by the training run, and the
@@ -81,10 +83,12 @@ references were chosen before each arena ran.
 | Generation 35 | Generation 29 | 134 / 45 / 21 | 72.25% | 6.8 × 10⁻¹⁰ |
 | Generation 46 | Generation 35 | 158 / 25 / 17 | 83.25% | 1.3 × 10⁻¹⁷ |
 | Generation 53 | Generation 46 | 93 / 74 / 33 | 54.75% | 0.097 |
-| **Generation 64** | **Generation 53** | **227 / 150 / 23** | **59.625%** | **4.99 × 10⁻⁶** |
+| [Generation 64](experiments/2026-11-17/README.md) | Generation 53 | 227 / 150 / 23 | 59.625% | 4.99 × 10⁻⁶ |
+| **Generation 80** | **Generation 64** | **281 / 53 / 66** | **78.5%** | **1.20 × 10⁻³⁵** |
 
 The base seeds were `20261114`, `20261115`, `20261116`, `20261300`,
-`20261500` and `20261750` for generations 10, 29, 35, 46, 53 and 64.
+`20261500`, `20261750` and `20262000` for generations 10, 29, 35, 46, 53, 64
+and 80.
 
 Generation 53 scored above half against generation 46, with p = 0.097.
 That comparison remains inconclusive at the 0.05 level. [Generation 53 report](experiments/2026-11-14/README.md#the-published-champion-generation-53)
@@ -124,7 +128,7 @@ these durations are observations of this run, not a benchmark.
 
 ## Verification and artifacts
 
-For v2.3.0 the four required Rust checks passed, including 99 tests. The Metal diagnostic
+For v2.4.0 the four required Rust checks passed, including 101 tests. The Metal diagnostic
 restored the training state and ran an optimizer update. Binaryen optimized both
 WebAssembly modules. All six Playwright scenarios passed on the site extracted
 from the release archive using Chromium with desktop WebGPU and mobile Flex.
@@ -136,17 +140,17 @@ captures, drops and restarting from the result panel.
   candidates. The `latest` pointer selects the accepted champion.
 - `data/expert-5x6/` holds self-play games, the replay buffer and generation reports.
 - The release provides both archives and their SHA-256 checksums.
-  [Release v2.3.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.3.0)
+  [Release v2.4.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.4.0)
 
 ## Limits of the measurements
 
 Every opponent is an earlier generation of the same run: the arenas establish
 progress at the stated search budget, not strength against people or another
-program. The continuation combines seven attempts with the draw-target
-correction. The match measures the resulting champion. Isolating the effect of
-the correction would require a comparable continuation using the earlier target.
+program. Both players in the generation 80 match used the same search as
+web v2.3.1, including its choice of a safe move when a king capture can be
+prevented. The earlier match against generation 53 predates this search change.
 
-The independent arenas of generations 46, 53 and 64 ran with a search that always
+The independent arenas of generations 46, 53, 64 and 80 ran with a search that always
 plays an action winning at once, as did the self-play and the promotion
 arenas from attempt 48 on. The earlier independent arenas and the promotion
 arenas up to attempt 47 chose the most visited action even then, so their
@@ -154,7 +158,7 @@ figures are not strictly comparable with the later ones.
 
 The base seeds of generations 10, 29 and 35 are consecutive and pair i uses
 base seed + i, so the seed ranges of those three comparisons overlap instead
-of being disjoint. The seed ranges of generations 46, 53 and 64 are separate from
+of being disjoint. The seed ranges of generations 46, 53, 64 and 80 are separate from
 them and from each other.
 
 One training seed does not establish learning efficiency across seeds or

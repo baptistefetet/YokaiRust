@@ -1,165 +1,57 @@
-# Training baseline — 20 November 2026
+# Training results
 
-The published champion is **generation 80**. It beat the previous web
-champion, generation 64, with **281 wins, 53 losses and 66 draws** in 400
-games. The new champion scored **314 points (78.5%)**, earning 157 points
-from each seat. The one-sided paired p-value was **1.20 × 10⁻³⁵**.
-[Protocol, attempt reports and final match](experiments/2026-11-20/README.md)
+**Generation 80** is the published 5×6 champion. It beat generation 64, the
+previous web champion, with **281 wins, 53 losses and 66 draws** in 400 games.
+The release includes both the playable site and the native checkpoint.
+[Web v2.4.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.4.0)
 
-The run started from random weights with seed `20261108`. The web release
-includes the ready-to-serve site and a separate native checkpoint.
-[Release v2.4.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.4.0)
+## How to read the two matches
 
-## Training configuration
+| What the match measures | Opponent | Games | Generation 80’s score |
+| --- | --- | ---: | ---: |
+| Whether to promote the candidate | Generation 76, its training source | 200 | 61% |
+| Progress since the previous release | Generation 64, chosen before training | 400 | 78.5% |
 
-Training starts with empty model and data directories, random weights and no
-imported optimizer state or replay. The configuration is
-[`config/training.toml`](../config/training.toml); the
-[protocol](experiments/2026-11-14/protocol.json) records its hash and the
-source revision.
+Promotion requires at least 55% of the points and a one-sided paired
+p-value at most 0.05. The candidate also plays 64 games against itself
+with extra randomness to check that it still produces decisive games.
+Generation 80 drew 11 of those 64 games, below the 20% limit.
+[Promotion report](https://github.com/baptistefetet/YokaiRust/blob/web-v2.4.0/docs/experiments/2026-11-20/README.md#training-outcomes)
 
-The network has 64 channels, four residual blocks and 64-unit shared/value
-layers, about 1.17 million parameters. It uses model format 5, encoder
-version 5 and rules version 3.
+The independent match tested the gain across five promotions. Each model
+played both sides of the same opening, with 400 search simulations per move.
+A win earns one point and a draw earns half, so generation 80 scored
+281 + 66/2 = **314 points out of 400**. It earned 157 points from each seat.
+The one-sided paired p-value was **1.20 × 10⁻³⁵**.
+[Match protocol and results](https://github.com/baptistefetet/YokaiRust/blob/web-v2.4.0/docs/experiments/2026-11-20/README.md#independent-match)
 
-| Phase per attempt | Budget |
-| --- | --- |
-| Self-play | 256 games, 200 simulations per regular move |
-| Visited-state restarts | 25% when an archive exists, 800 simulations per move |
-| Optimization | 400 Adam updates, batch size 256 |
-| Promotion arena | 200 games, 400 simulations per move |
-| Noisy productivity probe | 64 games, at most 20% draws |
+## Start a run from scratch
 
-Promotion requires at least 55% of points, a one-sided paired p-value at most
-0.05 and a passing productivity probe. A draw earns half a point; score is not
-win rate. Rejected candidates never supply subsequent weights, Adam state or
-self-play. Their attempt's games still enrich the replay buffer.
+From the repository root, copy the training configuration for your run.
+It uses Metal on Apple Silicon. For CPU training, set `backend = "cpu"`
+in the copy.
 
-The learning rate stays at 0.001. Decisive-tail oversampling applies to the
-first ten attempts. Mirrored positions augment training examples; restarts
-inherit their root trajectory's train/validation family. A draw is worth zero
-to both players in search. Through attempt 57, the policy target for the player
-who moved second in a drawn game discarded immediate third repetitions when
-other moves had received visits, even with a policy weight of 1.0. From attempt 58 on,
-that weight preserves the full visit distribution for both players.
+```sh
+cp config/training.toml config/my-run.toml
+```
 
-## Observed training results
+In the copy, set both paths to new directories. The trainer creates them,
+initializes generation zero with random weights and generates its own games.
 
-Through attempt 80, the run completed **80 attempts**, **35 promotions**,
-**20,480 self-play games** and **32,000 optimizer updates**. Of the 16
-candidates trained after generation 64, generations 66, 72, 73, 76 and 80
-earned promotion. Generation 80 scored 61% against its source,
-generation 76. Its productivity probe drew 11 of 64 games.
-[All sixteen attempt reports](experiments/2026-11-20/README.md#training-outcomes)
+```toml
+[paths]
+models = "models/my-run"
+self_play = "data/my-run"
+```
 
-In the first thirty attempts, self-play games last 77 to 90 plies on average
-from the eleventh attempt on, far from the 256-ply limit. Their draws stay
-below 20% in every attempt but one (54 of 256 games in attempt 17).
+Run one training attempt. Repeat the command to continue from this run’s
+accepted champion and saved games. Each attempt evaluates one candidate,
+so several attempts can pass before the champion changes.
 
-The [generation results](experiments/2026-11-14/training-observations-30.json)
-include every accepted and rejected candidate of those thirty attempts, with
-outcomes and phase timings. The experiment report gives the pipeline verdicts
-of attempts 31 to 57.
+```sh
+cargo run --release -- train --config config/my-run.toml --generations 1
+```
 
-## Independent strength evaluation
-
-The fixed reference is generation 0 of the run, identified by its file hashes
-in the [protocol](experiments/2026-11-14/protocol.json). The arenas through generation 53 used
-200 games. Generations 64 and 80 each played 400 games against the preceding
-published champion.
-All these matches use 400 simulations per move, with eight leaves per inference, no
-root noise and random legal openings of 0–4 plies. Each pair shares an opening
-and swaps colors. The seeds are not used by the training run, and the
-references were chosen before each arena ran.
-
-| Candidate | Reference | Wins / losses / draws | Score | Paired p |
-| --- | --- | --- | ---: | ---: |
-| Generation 10 | Generation 0 (fixed reference) | 198 / 0 / 2 | 99.50% | 7.9 × 10⁻³¹ |
-| Generation 10 | Generation 2 | 191 / 1 / 8 | 97.50% | 1.6 × 10⁻³⁰ |
-| Generation 10 | Generation 4 | 166 / 6 / 28 | 90.00% | 5.0 × 10⁻²⁹ |
-| Generation 29 | Generation 0 (fixed reference) | 200 / 0 / 0 | 100.00% | 7.9 × 10⁻³¹ |
-| Generation 29 | Generation 10 | 197 / 2 / 1 | 98.75% | 3.2 × 10⁻³⁰ |
-| Generation 29 | Generation 20 | 185 / 5 / 10 | 95.00% | 2.5 × 10⁻²⁹ |
-| Generation 35 | Generation 29 | 134 / 45 / 21 | 72.25% | 6.8 × 10⁻¹⁰ |
-| Generation 46 | Generation 35 | 158 / 25 / 17 | 83.25% | 1.3 × 10⁻¹⁷ |
-| Generation 53 | Generation 46 | 93 / 74 / 33 | 54.75% | 0.097 |
-| [Generation 64](experiments/2026-11-17/README.md) | Generation 53 | 227 / 150 / 23 | 59.625% | 4.99 × 10⁻⁶ |
-| **Generation 80** | **Generation 64** | **281 / 53 / 66** | **78.5%** | **1.20 × 10⁻³⁵** |
-
-The base seeds were `20261114`, `20261115`, `20261116`, `20261300`,
-`20261500`, `20261750` and `20262000` for generations 10, 29, 35, 46, 53, 64
-and 80.
-
-Generation 53 scored above half against generation 46, with p = 0.097.
-That comparison remains inconclusive at the 0.05 level. [Generation 53 report](experiments/2026-11-14/README.md#the-published-champion-generation-53)
-
-## What the network predicts
-
-Both heads are measured on games the network never trained on, for the
-generations up to the thirtieth attempt. The policy head improves at every
-accepted generation: it names the move preferred by the search in 41% of the
-positions at generation 29, against 33% at generation 10.
-
-The value head is the weak part. In the last 16 plies of a game it names the
-outcome of 76% of the positions. Farther from the end, which is 78% of the
-positions, its loss stays between 1.13 and 1.19, above the 1.10 of a
-prediction that gives each outcome one chance in three. These measurements cover checkpoints through attempt 30.
-
-## Execution time
-
-The first thirty attempts took **3 h 36 min 49 s** of pipeline time, 7 min
-14 s each on average, excluding compilation, pauses between commands and
-independent arenas. Timings use whole-second CLI timestamps on an Apple M4 Max
-with the default release profile.
-
-| Phase | Total |
-| --- | ---: |
-| Self-play, including restarts | 2 h 05 min 32 s |
-| Optimization and validation | 5 min 42 s |
-| Promotion arenas | 58 min 46 s |
-| Noisy productivity probes | 26 min 44 s |
-| Other transitions | 5 s |
-| **Total** | **3 h 36 min 49 s** |
-
-Attempts 31 to 35 took 37 min 10 s more, attempts 38 to 47 took 1 h
-10 min 45 s and attempts 48 to 57 took 1 h 11 min 53 s. Some phases
-overlapped compilation, code checks, browser tests and independent arenas, so
-these durations are observations of this run, not a benchmark.
-
-## Verification and artifacts
-
-For v2.4.0 the four required Rust checks passed, including 101 tests. The Metal diagnostic
-restored the training state and ran an optimizer update. Binaryen optimized both
-WebAssembly modules. All six Playwright scenarios passed on the site extracted
-from the release archive using Chromium with desktop WebGPU and mobile Flex.
-They exercised loading,
-complete games against the champion, two-player games, promotion choices,
-captures, drops and restarting from the result panel.
-
-- `models/expert-5x6/` holds every checkpoint and its Adam state for trained
-  candidates. The `latest` pointer selects the accepted champion.
-- `data/expert-5x6/` holds self-play games, the replay buffer and generation reports.
-- The release provides both archives and their SHA-256 checksums.
-  [Release v2.4.0](https://github.com/baptistefetet/YokaiRust/releases/tag/web-v2.4.0)
-
-## Limits of the measurements
-
-Every opponent is an earlier generation of the same run: the arenas establish
-progress at the stated search budget, not strength against people or another
-program. Both players in the generation 80 match used the same search as
-web v2.3.1, including its choice of a safe move when a king capture can be
-prevented. The earlier match against generation 53 predates this search change.
-
-The independent arenas of generations 46, 53, 64 and 80 ran with a search that always
-plays an action winning at once, as did the self-play and the promotion
-arenas from attempt 48 on. The earlier independent arenas and the promotion
-arenas up to attempt 47 chose the most visited action even then, so their
-figures are not strictly comparable with the later ones.
-
-The base seeds of generations 10, 29 and 35 are consecutive and pair i uses
-base seed + i, so the seed ranges of those three comparisons overlap instead
-of being disjoint. The seed ranges of generations 46, 53, 64 and 80 are separate from
-them and from each other.
-
-One training seed does not establish learning efficiency across seeds or
-equal-compute runs. No fixed-workload cost measurement exists for this board.
+The original run used seed `20261108`. Its protocols, match records and
+per-generation measurements are available for comparison.
+[Experiment archive at web-v2.4.0](https://github.com/baptistefetet/YokaiRust/tree/web-v2.4.0/docs/experiments)

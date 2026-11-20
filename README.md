@@ -18,8 +18,8 @@ and every public item documented.
   ownership, error handling and module boundaries, explained for a Rust beginner.
 - [AlphaZero in YokaiRust](docs/alphazero-guide.md) — every machine-learning
   concept the code relies on, from the glossary to the promotion gates.
-- [Training results](docs/training-results.md) — how the published champion
-  was trained and evaluated, with links to the experiment reports.
+- [Training results](docs/training-results.md) — how the champion earned
+  promotion, how it played against the previous release and how to train from scratch.
 - [Next steps](docs/next-steps.md) — proposed priorities, their rationale and
   completion criteria for future work.
 - [Web build guide](web/README.md) — building and deploying the browser mode.

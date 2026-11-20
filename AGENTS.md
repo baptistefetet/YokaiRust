@@ -59,6 +59,8 @@ cargo doc --no-deps
   Put links to individual runs and matches in the training results.
 - Present the current validated baseline without narrating development history
   or conversation decisions. Preserve raw experiment records for verification.
+  For new releases, bundle the protocols and measurements in a release
+  attachment and link it from the results page.
 
 ## Repository conventions
 

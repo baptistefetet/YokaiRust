@@ -1,4 +1,4 @@
-# Ten promotions from generation 64
+# Five promotions from generation 64
 
 ## Protocol recorded before attempt 65
 
@@ -17,16 +17,24 @@ optimizer state and the existing replay buffer at training revision
 | training-model.bin | `7e2558bf25d0d45f70adc8c5b280d6d8d4ab7fdf7df9c8b8948c4cd3cb0f256a` |
 | optimizer.bin | `659f702c90ad1ebc05b50c883eced46a06866510a7f94bc278202b5fb9016365` |
 
-Stop when ten candidates have earned promotion after generation 64. Each
+The initial stopping rule was ten promotions after generation 64. Each
 candidate plays 200 paired games against its source champion. Promotion
 requires a score of at least 55%, a one-sided paired p-value at most 0.05
 and at most 20% draws in a separate 64-game noisy self-play probe.
 
-Play a single independent match between the tenth new champion and generation
-64. Use 400 games in 200 pairs, with both models playing the same opening from
+Play a single independent match between the champion at the stopping point and
+generation 64. Use 400 games in 200 pairs, with both models playing the same opening from
 opposite seats. Reserve opening seeds 20262000–20262199 before training.
 Use 0–4 random legal opening plies, 400 search simulations per move, eight
 leaves per inference and no search noise. A win earns one point and a draw
 earns half a point. Report wins, losses, draws, scores by seat and the
 one-sided paired p-value. A score above 50% with p ≤ 0.05 is evidence that
 the new champion is stronger under these match conditions.
+
+## Stopping rule amended during attempt 80
+
+With four promotions recorded (66, 72, 73 and 76), the requested training
+budget changed to **five promotions**. Stop at the fifth, then play the
+previously specified match against generation 64. Publish a new web release
+if the fifth champion wins the match by scoring more than 200 points.
+Report the paired test alongside the score.
